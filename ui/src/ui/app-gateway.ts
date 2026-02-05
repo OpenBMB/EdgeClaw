@@ -5,7 +5,7 @@ import type { GatewayEventFrame, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
 import type { AgentsListResult, PresenceEntry, HealthSnapshot, StatusSummary } from "./types.ts";
-import type { GuardClawIndicatorStatus } from "./views/chat.ts";
+import type { PrivacyIndicatorStatus } from "./views/chat.ts";
 import { CHAT_SESSIONS_ACTIVE_MINUTES, flushChatQueueForEvent } from "./app-chat.ts";
 import {
   applySettings,
@@ -55,7 +55,7 @@ type GatewayHost = {
   refreshSessionsAfterChat: Set<string>;
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalError: string | null;
-  guardClawStatus: GuardClawIndicatorStatus | null;
+  privacyStatus: PrivacyIndicatorStatus | null;
 };
 
 type SessionDefaultsSnapshot = {
@@ -229,20 +229,24 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     return;
   }
 
-  // Handle GuardClaw events for privacy indicator and message replacement
-  if (evt.event === "guardclaw") {
+  // Handle generic plugin events
+  if (evt.event === "plugin_event") {
     const payload = evt.payload as {
+      plugin?: string;
+      type?: string;
       active?: boolean;
       level?: "S2" | "S3";
       model?: string;
       provider?: string;
-      messageId?: string;
-      replaceWithPlaceholder?: boolean;
+      reason?: string;
+      sessionKey?: string;
       originalSessionKey?: string;
     } | undefined;
-    if (payload) {
-      // Update GuardClaw status indicator
-      (host as unknown as { guardClawStatus: GuardClawIndicatorStatus | null }).guardClawStatus = {
+    
+    // Handle privacy plugin events (e.g., guardclaw)
+    if (payload?.plugin === "guardclaw" && payload.type === "privacy_activated") {
+      // Update privacy status indicator
+      (host as unknown as { privacyStatus: PrivacyIndicatorStatus | null }).privacyStatus = {
         active: payload.active ?? true,
         level: payload.level ?? null,
         model: payload.model ?? null,
@@ -250,26 +254,9 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
         activatedAt: Date.now(),
       };
       
-      // Replace user message with placeholder if requested
-      if (payload.replaceWithPlaceholder && payload.messageId) {
-        const hostWithMessages = host as unknown as { chatMessages?: Array<{ id?: string; content?: unknown }> };
-        if (hostWithMessages.chatMessages) {
-          const messageIndex = hostWithMessages.chatMessages.findIndex(
-            (msg) => msg.id === payload.messageId
-          );
-          if (messageIndex !== -1) {
-            // Replace message content with privacy placeholder
-            hostWithMessages.chatMessages[messageIndex] = {
-              ...hostWithMessages.chatMessages[messageIndex],
-              content: [{ type: "text", text: `🔒 [Private message - processed locally via ${payload.model ?? "local model"}]` }],
-            };
-          }
-        }
-      }
-      
       // Auto-clear after 8 seconds
       setTimeout(() => {
-        (host as unknown as { guardClawStatus: GuardClawIndicatorStatus | null }).guardClawStatus = null;
+        (host as unknown as { privacyStatus: PrivacyIndicatorStatus | null }).privacyStatus = null;
       }, 8000);
     }
     return;

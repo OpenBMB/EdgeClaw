@@ -220,7 +220,7 @@ export function handleAgentEvent(host: ToolStreamHost, payload?: AgentEventPaylo
   }
   const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : undefined;
   if (sessionKey && sessionKey !== host.sessionKey) {
-    // Allow events from guard subsessions (GuardClaw privacy isolation)
+    // Allow events from guard subsessions (privacy plugin isolation)
     // Guard sessions have format: {parentSessionKey}:guard
     const isGuardSession = sessionKey.endsWith(":guard");
     const parentSessionKey = isGuardSession ? sessionKey.slice(0, -6) : null;

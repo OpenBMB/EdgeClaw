@@ -9,7 +9,6 @@ import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { TypingController } from "./typing.js";
 import { resolveSandboxRuntimeStatus } from "../../agents/sandbox.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
-import { emitGuardClawEvent } from "../../plugins/guardclaw-events.js";
 import { listChatCommands, shouldHandleTextCommands } from "../commands-registry.js";
 import { listSkillCommandsForWorkspace } from "../skill-commands.js";
 import { resolveBlockStreamingChunking } from "./block-streaming.js";
@@ -453,7 +452,7 @@ export async function resolveReplyDirectives(params: {
   model = applyResult.model;
   contextTokens = applyResult.contextTokens;
 
-  // Allow plugins to override model selection (e.g., GuardClaw for privacy routing)
+  // Allow plugins to override model selection (e.g., privacy plugins for local model routing)
   const hookRunner = getGlobalHookRunner();
   if (hookRunner?.hasHooks("resolve_model")) {
     const modelOverride = await hookRunner.runResolveModel(
@@ -480,20 +479,7 @@ export async function resolveReplyDirectives(params: {
       if (modelOverride.reason) {
         console.log(`[resolve_model] Model override: ${provider}/${model} (${modelOverride.reason})`);
       }
-      // Emit GuardClaw event for UI notification
-      const isGuardClawOverride = modelOverride.reason?.startsWith("GuardClaw:");
-      if (isGuardClawOverride) {
-        const levelMatch = modelOverride.reason?.match(/\b(S[23])\b/);
-        const level = levelMatch ? (levelMatch[1] as "S2" | "S3") : null;
-        emitGuardClawEvent({
-          active: true,
-          level,
-          model: modelOverride.model ?? null,
-          provider: modelOverride.provider ?? null,
-          reason: modelOverride.reason ?? null,
-          sessionKey,
-        });
-      }
+      // Note: Plugin emits its own event through api.emitEvent() - no need to emit here
     }
   }
 

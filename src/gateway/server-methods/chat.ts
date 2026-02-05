@@ -43,7 +43,6 @@ import {
 import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
-import { emitGuardClawEvent } from "../../plugins/guardclaw-events.js";
 
 type TranscriptAppendResult = {
   ok: boolean;
@@ -430,7 +429,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     const now = Date.now();
     const clientRunId = p.idempotencyKey;
 
-    // Check for session override via resolve_model hook (e.g., GuardClaw subsession isolation)
+    // Check for session override via resolve_model hook (e.g., privacy plugin subsession isolation)
     let effectiveSessionKey = p.sessionKey;
     let originalSessionKey: string | undefined;
     let sessionOverrideReason: string | undefined;
@@ -459,26 +458,12 @@ export const chatHandlers: GatewayRequestHandlers = {
           effectiveSessionKey = hookResult.sessionKey;
           sessionOverrideReason = hookResult.reason;
           context.logGateway.info(
-            `[GuardClaw] Session redirect: ${p.sessionKey} → ${effectiveSessionKey} (${hookResult.reason ?? "plugin"})`,
+            `[privacy] Session redirect: ${p.sessionKey} → ${effectiveSessionKey} (${hookResult.reason ?? "plugin"})`,
           );
-          // Emit GuardClaw event for UI - include message ID for placeholder replacement
-          if (hookResult.reason?.includes("GuardClaw")) {
-            const levelMatch = hookResult.reason.match(/\b(S[23])\b/);
-            emitGuardClawEvent({
-              active: true,
-              level: levelMatch ? (levelMatch[1] as "S2" | "S3") : null,
-              model: hookResult.model ?? null,
-              provider: hookResult.provider ?? null,
-              reason: hookResult.reason ?? null,
-              sessionKey: effectiveSessionKey,
-              originalSessionKey: p.sessionKey,
-              messageId: clientRunId,
-              replaceWithPlaceholder: true,
-            });
-          }
+          // Note: Plugin emits its own event through api.emitEvent() - no need to emit here
         }
       } catch (err) {
-        context.logGateway.warn(`[GuardClaw] resolve_model hook failed: ${formatForLog(err)}`);
+        context.logGateway.warn(`[privacy] resolve_model hook failed: ${formatForLog(err)}`);
       }
     }
 
@@ -569,7 +554,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       // but send actual message to guard session for processing
       const isGuardRedirect = Boolean(originalSessionKey);
       const displayMessage = isGuardRedirect 
-        ? `🔒 [Private message - processed locally via GuardClaw]`
+        ? `🔒 [Private message - processed locally]`
         : parsedMessage;
 
       const ctx: MsgContext = {
@@ -591,8 +576,8 @@ export const chatHandlers: GatewayRequestHandlers = {
         SenderName: clientInfo?.displayName,
         SenderUsername: clientInfo?.displayName,
         GatewayClientScopes: client?.connect?.scopes,
-        // Flag for UI to know this is a guard redirect
-        GuardClawRedirect: isGuardRedirect ? true : undefined,
+        // Flag for UI to know this is a privacy guard redirect
+        PrivacyRedirect: isGuardRedirect ? true : undefined,
       };
 
       const agentId = resolveSessionAgentId({
@@ -725,7 +710,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                 }
               } catch (err) {
                 context.logGateway.warn(
-                  `[GuardClaw] Failed to read guard session transcript: ${err instanceof Error ? err.message : String(err)}`,
+                  `[privacy] Failed to read guard session transcript: ${err instanceof Error ? err.message : String(err)}`,
                 );
               }
             }
@@ -756,11 +741,11 @@ export const chatHandlers: GatewayRequestHandlers = {
               
               if (!mainAppended.ok) {
                 context.logGateway.warn(
-                  `[GuardClaw] Failed to inject response into main session: ${mainAppended.error ?? "unknown"}`,
+                  `[privacy] Failed to inject response into main session: ${mainAppended.error ?? "unknown"}`,
                 );
               } else {
                 context.logGateway.info(
-                  `[GuardClaw] Injected guard response into main session ${originalSessionKey}`,
+                  `[privacy] Injected guard response into main session ${originalSessionKey}`,
                 );
                 // Broadcast update to main session so UI refreshes
                 broadcastChatFinal({

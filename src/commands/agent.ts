@@ -49,7 +49,6 @@ import {
   emitAgentEvent,
   registerAgentRunContext,
 } from "../infra/agent-events.js";
-import { emitGuardClawEvent } from "../plugins/guardclaw-events.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
@@ -342,7 +341,7 @@ export async function agentCommand(
       }
     }
 
-    // Allow plugins to override model selection (e.g., GuardClaw for privacy routing)
+    // Allow plugins to override model selection (e.g., privacy plugins for local model routing)
     const hookRunner = getGlobalHookRunner();
     if (hookRunner?.hasHooks("resolve_model")) {
       const modelOverride = await hookRunner.runResolveModel(
@@ -368,22 +367,7 @@ export async function agentCommand(
         if (modelOverride.reason) {
           runtime.log(`[resolve_model] Model override: ${provider}/${model} (${modelOverride.reason})`);
         }
-        // Emit GuardClaw event for UI notification
-        const isGuardClawOverride = modelOverride.reason?.startsWith("GuardClaw:");
-        if (isGuardClawOverride) {
-          const levelMatch = modelOverride.reason?.match(/\b(S[23])\b/);
-          const level = levelMatch ? (levelMatch[1] as "S2" | "S3") : null;
-          const guardClawEvent = {
-            active: true,
-            level,
-            model: modelOverride.model ?? null,
-            provider: modelOverride.provider ?? null,
-            reason: modelOverride.reason ?? null,
-            sessionKey,
-          };
-          runtime.log(`[guardclaw] Emitting event: ${JSON.stringify(guardClawEvent)}`);
-          emitGuardClawEvent(guardClawEvent);
-        }
+        // Note: Plugin emits its own event through api.emitEvent() - no need to emit here
       }
     }
 

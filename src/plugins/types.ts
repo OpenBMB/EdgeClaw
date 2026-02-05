@@ -269,6 +269,12 @@ export type OpenClawPluginApi = {
     handler: PluginHookHandlerMap[K],
     opts?: { priority?: number },
   ) => void;
+  /**
+   * Emit a custom event that will be broadcast to Gateway WebSocket clients.
+   * Use this to notify the UI of plugin-specific state changes.
+   * Events are broadcast as { plugin: pluginId, type: eventType, ...payload }
+   */
+  emitEvent: (eventType: string, payload: Record<string, unknown>) => void;
 };
 
 export type PluginOrigin = "bundled" | "global" | "workspace" | "config";

@@ -173,7 +173,7 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     return null;
   }
   if (payload.sessionKey !== state.sessionKey) {
-    // Allow events from guard subsessions (GuardClaw privacy isolation)
+    // Allow events from guard subsessions (privacy plugin isolation)
     // Guard sessions have format: {parentSessionKey}:guard
     const isGuardSession = payload.sessionKey?.endsWith(":guard");
     const parentSessionKey = isGuardSession ? payload.sessionKey.slice(0, -6) : null;

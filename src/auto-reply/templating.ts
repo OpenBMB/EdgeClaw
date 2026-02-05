@@ -126,10 +126,10 @@ export type MsgContext = {
    */
   HookMessages?: string[];
   /**
-   * Flag indicating this message was redirected to a GuardClaw guard session.
+   * Flag indicating this message was redirected to a privacy guard session.
    * When true, the UI should show a placeholder instead of the actual message content.
    */
-  GuardClawRedirect?: boolean;
+  PrivacyRedirect?: boolean;
 };
 
 export type FinalizedMsgContext = Omit<MsgContext, "CommandAuthorized"> & {

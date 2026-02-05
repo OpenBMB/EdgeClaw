@@ -20,7 +20,7 @@ import {
 } from "../config/config.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import { clearAgentRunContext, onAgentEvent } from "../infra/agent-events.js";
-import { onGuardClawEvent } from "../plugins/guardclaw-events.js";
+import { onPluginEvent } from "../plugins/plugin-events.js";
 import {
   ensureControlUiAssetsBuilt,
   resolveControlUiRootOverrideSync,
@@ -454,10 +454,14 @@ export async function startGatewayServer(
     broadcast("heartbeat", evt, { dropIfSlow: true });
   });
 
-  // Subscribe to GuardClaw events for UI privacy indicator
-  const guardClawUnsub = onGuardClawEvent((evt) => {
-    log.info(`[guardclaw] Broadcasting event: ${JSON.stringify(evt)}`);
-    broadcast("guardclaw", evt, { dropIfSlow: true });
+  // Subscribe to plugin events for UI broadcast
+  const pluginEventUnsub = onPluginEvent((evt) => {
+    log.info(`[plugin:${evt.pluginId}] Broadcasting event: ${evt.eventType}`);
+    broadcast("plugin_event", {
+      plugin: evt.pluginId,
+      type: evt.eventType,
+      ...evt.payload,
+    }, { dropIfSlow: true });
   });
 
   let heartbeatRunner = startHeartbeatRunner({ cfg: cfgAtStart });
@@ -614,7 +618,7 @@ export async function startGatewayServer(
     dedupeCleanup,
     agentUnsub,
     heartbeatUnsub,
-    guardClawUnsub,
+    pluginEventUnsub,
     chatRunState,
     clients,
     configReloader,

@@ -20,7 +20,7 @@ export type CompactionIndicatorStatus = {
   completedAt: number | null;
 };
 
-export type GuardClawIndicatorStatus = {
+export type PrivacyIndicatorStatus = {
   active: boolean;
   level: "S2" | "S3" | null;
   model: string | null;
@@ -37,7 +37,7 @@ export type ChatProps = {
   sending: boolean;
   canAbort?: boolean;
   compactionStatus?: CompactionIndicatorStatus | null;
-  guardClawStatus?: GuardClawIndicatorStatus | null;
+  privacyStatus?: PrivacyIndicatorStatus | null;
   messages: unknown[];
   toolMessages: unknown[];
   stream: string | null;
@@ -88,7 +88,7 @@ function adjustTextareaHeight(el: HTMLTextAreaElement) {
 
 const GUARDCLAW_INDICATOR_DURATION_MS = 8000;
 
-function renderGuardClawIndicator(status: GuardClawIndicatorStatus | null | undefined) {
+function renderPrivacyIndicator(status: PrivacyIndicatorStatus | null | undefined) {
   if (!status || !status.active) {
     return nothing;
   }
@@ -102,7 +102,7 @@ function renderGuardClawIndicator(status: GuardClawIndicatorStatus | null | unde
   const levelEmoji = status.level === "S3" ? "🔒" : "🛡️";
 
   return html`
-    <div class="callout warning guardclaw-indicator guardclaw-indicator--active" style="
+    <div class="callout warning privacy-indicator privacy-indicator--active" style="
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
       border: 1px solid #e94560;
       border-radius: 8px;
@@ -111,12 +111,12 @@ function renderGuardClawIndicator(status: GuardClawIndicatorStatus | null | unde
       display: flex;
       align-items: center;
       gap: 12px;
-      animation: guardclaw-pulse 2s ease-in-out infinite;
+      animation: privacy-pulse 2s ease-in-out infinite;
     ">
       <span style="font-size: 24px;">${levelEmoji}</span>
       <div style="flex: 1;">
         <div style="font-weight: 600; color: #e94560; margin-bottom: 2px;">
-          GuardClaw Active · ${levelLabel}
+          Privacy Guard Active · ${levelLabel}
         </div>
         <div style="font-size: 12px; color: #a0a0a0;">
           Using local model: <code style="background: #2a2a4a; padding: 2px 6px; border-radius: 4px; color: #4ade80;">${status.model || "ollama/llama3.2:3b"}</code>
@@ -125,7 +125,7 @@ function renderGuardClawIndicator(status: GuardClawIndicatorStatus | null | unde
       <span style="font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px;">Privacy Protected</span>
     </div>
     <style>
-      @keyframes guardclaw-pulse {
+      @keyframes privacy-pulse {
         0%, 100% { box-shadow: 0 0 10px rgba(233, 69, 96, 0.3); }
         50% { box-shadow: 0 0 20px rgba(233, 69, 96, 0.5); }
       }
@@ -315,7 +315,7 @@ export function renderChat(props: ChatProps) {
       ${props.error ? html`<div class="callout danger">${props.error}</div>` : nothing}
 
       ${renderCompactionIndicator(props.compactionStatus)}
-      ${renderGuardClawIndicator(props.guardClawStatus)}
+      ${renderPrivacyIndicator(props.privacyStatus)}
 
       ${
         props.focusMode

@@ -131,7 +131,7 @@ export class OpenClawApp extends LitElement {
   @state() chatStreamStartedAt: number | null = null;
   @state() chatRunId: string | null = null;
   @state() compactionStatus: import("./app-tool-stream.ts").CompactionStatus | null = null;
-  @state() guardClawStatus: import("./views/chat.ts").GuardClawIndicatorStatus | null = null;
+  @state() privacyStatus: import("./views/chat.ts").PrivacyIndicatorStatus | null = null;
   @state() chatAvatarUrl: string | null = null;
   @state() chatThinkingLevel: string | null = null;
   @state() chatQueue: ChatQueueItem[] = [];

@@ -8,6 +8,7 @@ import type {
 } from "../gateway/server-methods/types.js";
 import type { HookEntry } from "../hooks/types.js";
 import type { PluginRuntime } from "./runtime/types.js";
+import { emitPluginEvent } from "./plugin-events.js";
 import type {
   OpenClawPluginApi,
   OpenClawPluginChannelRegistration,
@@ -495,6 +496,8 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       registerCommand: (command) => registerCommand(record, command),
       resolvePath: (input: string) => resolveUserPath(input),
       on: (hookName, handler, opts) => registerTypedHook(record, hookName, handler, opts),
+      emitEvent: (eventType: string, payload: Record<string, unknown>) =>
+        emitPluginEvent(record.id, eventType, payload),
     };
   };
 

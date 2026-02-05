@@ -280,6 +280,17 @@ export function registerHooks(api: OpenClawPluginApi): void {
             `[GuardClaw] ${result.level} detected. Redirecting to guard subsession: ${guardSessionKey}`
           );
 
+          // Emit event for UI indicator (using generic plugin event system)
+          api.emitEvent("privacy_activated", {
+            active: true,
+            level: result.level,
+            model: `${guardProvider}/${guardModelName}`,
+            provider: guardProvider,
+            reason: result.reason ?? `${result.level} content detected`,
+            sessionKey: guardSessionKey,
+            originalSessionKey: sessionKey,
+          });
+
           return {
             provider: guardProvider,
             model: guardModelName,
@@ -295,18 +306,30 @@ export function registerHooks(api: OpenClawPluginApi): void {
       if (isSessionMarkedPrivate(sessionKey)) {
         const sessionSensitivity = getSessionSensitivity(sessionKey);
         const guardSessionKey = `${sessionKey}:guard`;
+        const level = sessionSensitivity?.highestLevel ?? "S2";
         
         api.logger.info(
-          `[GuardClaw] Session ${sessionKey} has sensitive history (${sessionSensitivity?.highestLevel ?? "unknown"}). ` +
+          `[GuardClaw] Session ${sessionKey} has sensitive history (${level}). ` +
           `Redirecting to guard subsession to protect history.`
         );
+
+        // Emit event for UI indicator
+        api.emitEvent("privacy_activated", {
+          active: true,
+          level,
+          model: `${guardProvider}/${guardModelName}`,
+          provider: guardProvider,
+          reason: `Session has sensitive history (${level})`,
+          sessionKey: guardSessionKey,
+          originalSessionKey: sessionKey,
+        });
 
         return {
           provider: guardProvider,
           model: guardModelName,
           sessionKey: guardSessionKey,
           deliverToOriginal: true,
-          reason: `GuardClaw: ${sessionSensitivity?.highestLevel ?? "sensitive"} history - using isolated guard session`,
+          reason: `GuardClaw: ${level} history - using isolated guard session`,
         };
       }
 

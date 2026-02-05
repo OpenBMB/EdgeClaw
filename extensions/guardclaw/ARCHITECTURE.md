@@ -4,6 +4,8 @@
 
 GuardClaw 是 OpenClaw 的隐私保护扩展，通过敏感内容检测和会话隔离机制，确保敏感信息仅在本地处理，不会发送到云端模型。
 
+**设计原则**: GuardClaw 完全作为插件实现，不侵入 OpenClaw 核心代码。它利用 OpenClaw 的标准插件 API 和 Hook 系统来实现所有功能。
+
 ## 核心架构
 
 ```
@@ -177,6 +179,49 @@ appendAssistantTranscriptMessage({
 });
 ```
 
+## 插件事件系统
+
+GuardClaw 使用 OpenClaw 的通用插件事件系统广播状态变化：
+
+### 发射事件（插件侧）
+
+```typescript
+// extensions/guardclaw/src/hooks.ts
+api.emitEvent("privacy_activated", {
+  active: true,
+  level: "S3",
+  model: "ollama/llama3.2:3b",
+  provider: "ollama",
+  reason: "S3 content detected",
+  sessionKey: "agent:main:main:guard",
+  originalSessionKey: "agent:main:main",
+});
+```
+
+### 事件广播（Gateway）
+
+```typescript
+// src/gateway/server.impl.ts
+onPluginEvent((evt) => {
+  broadcast("plugin_event", {
+    plugin: evt.pluginId,    // "guardclaw"
+    type: evt.eventType,     // "privacy_activated"
+    ...evt.payload
+  });
+});
+```
+
+### 事件接收（UI）
+
+```typescript
+// ui/src/ui/app-gateway.ts
+if (evt.event === "plugin_event") {
+  if (payload?.plugin === "guardclaw" && payload.type === "privacy_activated") {
+    // 更新 UI 状态指示器
+  }
+}
+```
+
 ## UI 集成
 
 ### GuardClaw 状态指示器
@@ -184,15 +229,17 @@ appendAssistantTranscriptMessage({
 当 GuardClaw 激活时，UI 显示状态指示器：
 
 ```typescript
-// WebSocket 事件
+// WebSocket 事件（通用 plugin_event 格式）
 {
-  event: "guardclaw",
+  event: "plugin_event",
   payload: {
+    plugin: "guardclaw",
+    type: "privacy_activated",
     active: true,
     level: "S3",
-    model: "llama3.2:3b",
+    model: "ollama/llama3.2:3b",
     provider: "ollama",
-    reason: "Detected password in message"
+    reason: "S3 content detected"
   }
 }
 ```
@@ -238,33 +285,52 @@ appendAssistantTranscriptMessage({
 
 ## 文件结构
 
+### 插件代码（完全自包含）
+
 ```
 extensions/guardclaw/
 ├── README.md                 # 用户文档
 ├── ARCHITECTURE.md           # 本文档
+├── REFACTORING.md           # 重构计划
 ├── package.json
 └── src/
     ├── index.ts              # 插件入口
-    ├── hooks.ts              # resolve_model hook 实现
-    ├── config.ts             # 配置 schema
+    ├── hooks.ts              # 所有 hook 实现（resolve_model 等）
+    ├── config.ts             # 配置定义
+    ├── config-schema.ts      # 配置 schema
+    ├── types.ts              # 类型定义
     ├── session-state.ts      # 会话状态管理
-    ├── sensitivity-detector.ts # 敏感度检测
+    ├── detector.ts           # 敏感度检测器
     └── local-model.ts        # 本地模型调用
+```
 
-src/
-├── plugins/
-│   ├── types.ts              # PluginHookResolveModelResult 类型
-│   ├── hooks.ts              # runResolveModel 实现
-│   └── guardclaw-events.ts   # GuardClaw 事件发射器
-├── gateway/
-│   ├── server-methods/
-│   │   └── chat.ts           # chat.send 集成
-│   └── server.impl.ts        # WebSocket 事件广播
+### OpenClaw 核心扩展点（通用，非 GuardClaw 特定）
 
+```
+src/plugins/
+├── types.ts                  # 通用 hook 类型定义
+│   └── PluginHookResolveModelResult  # resolve_model 返回类型
+├── hooks.ts                  # Hook runner
+│   └── runResolveModel()     # 执行 resolve_model hook
+├── plugin-events.ts          # 通用插件事件系统 ← 新增
+│   ├── emitPluginEvent()     # 插件发射事件
+│   └── onPluginEvent()       # 订阅插件事件
+└── registry.ts               # 插件注册
+    └── api.emitEvent()       # 插件 API 事件方法
+
+src/gateway/
+├── server.impl.ts            # WebSocket 服务器
+│   └── onPluginEvent()       # 订阅并广播插件事件
+└── server-methods-list.ts
+    └── "plugin_event"        # 通用插件事件类型
+```
+
+### UI 代码
+
+```
 ui/src/ui/
 ├── views/chat.ts             # GuardClaw 指示器组件
-├── app-gateway.ts            # WebSocket 事件处理
-└── controllers/chat.ts       # 聊天事件处理
+└── app-gateway.ts            # 处理 plugin_event 事件
 ```
 
 ## 安全考虑
@@ -287,6 +353,13 @@ ui/src/ui/
 - Ollama 在本地运行
 - 数据不离开用户设备
 - 无网络传输敏感信息
+
+### 插件隔离
+
+- GuardClaw 完全作为插件运行
+- 不修改 OpenClaw 核心代码
+- 通过标准 API 与系统交互
+- 可独立更新和部署
 
 ## 限制和注意事项
 

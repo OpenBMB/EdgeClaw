@@ -22,7 +22,7 @@ export function createGatewayCloseHandler(params: {
   dedupeCleanup: ReturnType<typeof setInterval>;
   agentUnsub: (() => void) | null;
   heartbeatUnsub: (() => void) | null;
-  guardClawUnsub: (() => void) | null;
+  pluginEventUnsub: (() => void) | null;
   chatRunState: { clear: () => void };
   clients: Set<{ socket: { close: (code: number, reason: string) => void } }>;
   configReloader: { stop: () => Promise<void> };
@@ -96,9 +96,9 @@ export function createGatewayCloseHandler(params: {
         /* ignore */
       }
     }
-    if (params.guardClawUnsub) {
+    if (params.pluginEventUnsub) {
       try {
-        params.guardClawUnsub();
+        params.pluginEventUnsub();
       } catch {
         /* ignore */
       }
