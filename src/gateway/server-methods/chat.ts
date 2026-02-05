@@ -433,6 +433,8 @@ export const chatHandlers: GatewayRequestHandlers = {
     let effectiveSessionKey = p.sessionKey;
     let originalSessionKey: string | undefined;
     let sessionOverrideReason: string | undefined;
+    let privacySystemPrompt: string | undefined;
+    let guardUserPrompt: string | undefined;
     const hookRunner = getGlobalHookRunner();
     if (hookRunner?.hasHooks("resolve_model")) {
       try {
@@ -457,6 +459,8 @@ export const chatHandlers: GatewayRequestHandlers = {
           originalSessionKey = p.sessionKey;
           effectiveSessionKey = hookResult.sessionKey;
           sessionOverrideReason = hookResult.reason;
+          privacySystemPrompt = hookResult.extraSystemPrompt;
+          guardUserPrompt = hookResult.userPromptOverride;
           context.logGateway.info(
             `[privacy] Session redirect: ${p.sessionKey} → ${effectiveSessionKey} (${hookResult.reason ?? "plugin"})`,
           );
@@ -559,7 +563,11 @@ export const chatHandlers: GatewayRequestHandlers = {
 
       const ctx: MsgContext = {
         Body: isGuardRedirect ? displayMessage : parsedMessage,
-        BodyForAgent: stampedMessage, // Always send actual message to agent
+        // For guard redirects to local models, use custom prompt if provided,
+        // otherwise use raw message without timestamp/envelope formatting
+        BodyForAgent: isGuardRedirect 
+          ? (guardUserPrompt ?? parsedMessage) 
+          : stampedMessage,
         BodyForCommands: commandBody,
         RawBody: parsedMessage,
         CommandBody: commandBody,
@@ -578,6 +586,8 @@ export const chatHandlers: GatewayRequestHandlers = {
         GatewayClientScopes: client?.connect?.scopes,
         // Flag for UI to know this is a privacy guard redirect
         PrivacyRedirect: isGuardRedirect ? true : undefined,
+        // Privacy system prompt for guard agent (e.g., from GuardClaw plugin)
+        PrivacySystemPrompt: privacySystemPrompt,
       };
 
       const agentId = resolveSessionAgentId({

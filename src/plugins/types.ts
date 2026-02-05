@@ -505,6 +505,17 @@ export type PluginHookResolveModelResult = {
    * back to the original session's chat context.
    */
   deliverToOriginal?: boolean;
+  /**
+   * Extra system prompt to inject for this request.
+   * Useful for adding privacy instructions or context-specific guidance.
+   */
+  extraSystemPrompt?: string;
+  /**
+   * Override the user prompt sent to the agent.
+   * When set, this replaces the original user message for the agent's context.
+   * Useful for wrapping sensitive messages with instructions or redacting content.
+   */
+  userPromptOverride?: string;
 };
 
 // Hook handler types mapped by hook name

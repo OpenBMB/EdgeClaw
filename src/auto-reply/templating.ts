@@ -87,6 +87,11 @@ export type MsgContext = {
   GroupSpace?: string;
   GroupMembers?: string;
   GroupSystemPrompt?: string;
+  /**
+   * Privacy-specific system prompt (e.g., from GuardClaw plugin).
+   * Injected when handling sensitive content with local models.
+   */
+  PrivacySystemPrompt?: string;
   /** Untrusted metadata that must not be treated as system instructions. */
   UntrustedContext?: string[];
   SenderName?: string;

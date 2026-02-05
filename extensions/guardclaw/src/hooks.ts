@@ -12,6 +12,23 @@ import type { PrivacyConfig } from "./types.js";
 import { defaultPrivacyConfig } from "./config-schema.js";
 
 /**
+ * Privacy-aware system prompt for the guard agent.
+ * Instructs the model to never repeat, echo, or include sensitive information in responses.
+ */
+const GUARD_AGENT_SYSTEM_PROMPT = `## Privacy Guidelines
+
+You are handling a privacy-sensitive request. Follow these critical rules:
+
+1. **NEVER repeat or echo back** any sensitive information from the user's message (passwords, API keys, tokens, private data, etc.)
+2. **NEVER include** passwords, keys, credentials, or other secrets in your response
+3. If asked about credentials or secrets, provide guidance WITHOUT showing the actual values
+4. Use placeholders like [REDACTED], <password>, or <api-key> when referencing sensitive values
+5. Focus on helping the user accomplish their task safely without exposing their private information
+6. If you need to reference something sensitive, describe it generically (e.g., "your password" instead of showing it)
+
+Remember: Your response may be logged or displayed elsewhere. Protect the user's privacy at all times.`;
+
+/**
  * Register all GuardClaw hooks
  */
 export function registerHooks(api: OpenClawPluginApi): void {
@@ -291,47 +308,27 @@ export function registerHooks(api: OpenClawPluginApi): void {
             originalSessionKey: sessionKey,
           });
 
+          // Build a wrapped user prompt that provides context to the local model
+          const wrappedUserPrompt = buildGuardUserPrompt(message, result.level, result.reason);
+
           return {
             provider: guardProvider,
             model: guardModelName,
             sessionKey: guardSessionKey,
             deliverToOriginal: true,
             reason: `GuardClaw: ${result.level} - redirected to isolated guard session`,
+            extraSystemPrompt: GUARD_AGENT_SYSTEM_PROMPT,
+            userPromptOverride: wrappedUserPrompt,
           };
         }
       }
 
-      // Check if main session was previously marked as private
-      // If so, always redirect to guard session for history protection
-      if (isSessionMarkedPrivate(sessionKey)) {
-        const sessionSensitivity = getSessionSensitivity(sessionKey);
-        const guardSessionKey = `${sessionKey}:guard`;
-        const level = sessionSensitivity?.highestLevel ?? "S2";
-        
-        api.logger.info(
-          `[GuardClaw] Session ${sessionKey} has sensitive history (${level}). ` +
-          `Redirecting to guard subsession to protect history.`
-        );
-
-        // Emit event for UI indicator
-        api.emitEvent("privacy_activated", {
-          active: true,
-          level,
-          model: `${guardProvider}/${guardModelName}`,
-          provider: guardProvider,
-          reason: `Session has sensitive history (${level})`,
-          sessionKey: guardSessionKey,
-          originalSessionKey: sessionKey,
-        });
-
-        return {
-          provider: guardProvider,
-          model: guardModelName,
-          sessionKey: guardSessionKey,
-          deliverToOriginal: true,
-          reason: `GuardClaw: ${level} history - using isolated guard session`,
-        };
-      }
+      // NOTE: We no longer check if session was "previously marked as private"
+      // because the main session only stores placeholder messages like:
+      //   "🔒 [Private message - processed locally]"
+      // The actual sensitive content is ONLY stored in the guard subsession.
+      // This means it's safe to send non-sensitive messages to cloud models
+      // since the main session history doesn't contain real sensitive data.
 
       // Session is clean, no sensitive content detected - use cloud model normally
     } catch (err) {
@@ -416,4 +413,21 @@ function extractMessageText(message: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * Build a wrapped user prompt for the guard agent
+ * This provides context without exposing raw sensitive data in logs
+ */
+function buildGuardUserPrompt(
+  originalMessage: string,
+  level: string,
+  reason?: string
+): string {
+  // Simply pass through the message - the system prompt already instructs
+  // the model not to repeat sensitive information.
+  // We just add a brief context header.
+  return `[Privacy Level: ${level}${reason ? ` - ${reason}` : ""}]
+
+${originalMessage}`;
 }

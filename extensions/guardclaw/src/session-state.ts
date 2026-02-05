@@ -97,6 +97,23 @@ export function clearSessionState(sessionKey: string): void {
 }
 
 /**
+ * Reset session privacy state (allow user to switch back to cloud models)
+ * WARNING: This will allow the conversation history to be sent to cloud models
+ */
+export function resetSessionPrivacy(sessionKey: string): boolean {
+  const state = sessionStates.get(sessionKey);
+  if (state) {
+    state.isPrivate = false;
+    state.highestLevel = "S1";
+    state.detectionHistory = [];
+    // Also clear the guard subsession
+    sessionStates.delete(`${sessionKey}:guard`);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Get all active session states (for debugging/monitoring)
  */
 export function getAllSessionStates(): Map<string, SessionPrivacyState> {
