@@ -42,6 +42,8 @@ import {
 } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
+import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
+import { emitGuardClawEvent } from "../../plugins/guardclaw-events.js";
 
 type TranscriptAppendResult = {
   ok: boolean;
@@ -127,6 +129,58 @@ function appendAssistantTranscriptMessage(params: {
     timestamp: now,
     stopReason: "injected",
     usage: { input: 0, output: 0, totalTokens: 0 },
+  };
+  const transcriptEntry = {
+    type: "message",
+    id: messageId,
+    timestamp: new Date(now).toISOString(),
+    message: messageBody,
+  };
+
+  try {
+    fs.appendFileSync(transcriptPath, `${JSON.stringify(transcriptEntry)}\n`, "utf-8");
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  return { ok: true, messageId, message: transcriptEntry.message };
+}
+
+function appendUserTranscriptMessage(params: {
+  message: string;
+  sessionId: string;
+  storePath: string | undefined;
+  sessionFile?: string;
+  createIfMissing?: boolean;
+}): TranscriptAppendResult {
+  const transcriptPath = resolveTranscriptPath({
+    sessionId: params.sessionId,
+    storePath: params.storePath,
+    sessionFile: params.sessionFile,
+  });
+  if (!transcriptPath) {
+    return { ok: false, error: "transcript path not resolved" };
+  }
+
+  if (!fs.existsSync(transcriptPath)) {
+    if (!params.createIfMissing) {
+      return { ok: false, error: "transcript file not found" };
+    }
+    const ensured = ensureTranscriptFile({
+      transcriptPath,
+      sessionId: params.sessionId,
+    });
+    if (!ensured.ok) {
+      return { ok: false, error: ensured.error ?? "failed to create transcript file" };
+    }
+  }
+
+  const now = Date.now();
+  const messageId = randomUUID().slice(0, 8);
+  const messageBody: Record<string, unknown> = {
+    role: "user",
+    content: [{ type: "text", text: params.message }],
+    timestamp: now,
   };
   const transcriptEntry = {
     type: "message",
@@ -376,10 +430,67 @@ export const chatHandlers: GatewayRequestHandlers = {
     const now = Date.now();
     const clientRunId = p.idempotencyKey;
 
+    // Check for session override via resolve_model hook (e.g., GuardClaw subsession isolation)
+    let effectiveSessionKey = p.sessionKey;
+    let originalSessionKey: string | undefined;
+    let sessionOverrideReason: string | undefined;
+    const hookRunner = getGlobalHookRunner();
+    if (hookRunner?.hasHooks("resolve_model")) {
+      try {
+        const agentId = resolveSessionAgentId({ sessionKey: p.sessionKey, config: cfg });
+        const modelRef = resolveSessionModelRef(cfg, entry);
+        const hookResult = await hookRunner.runResolveModel(
+          {
+            message: parsedMessage,
+            provider: modelRef.provider,
+            model: modelRef.model,
+            isDefault: !entry?.modelOverride,
+          },
+          {
+            agentId,
+            sessionKey: p.sessionKey,
+            workspaceDir: undefined,
+            messageProvider: INTERNAL_MESSAGE_CHANNEL,
+          },
+        );
+        // Check if hook wants to redirect to a different session (subsession isolation)
+        if (hookResult?.sessionKey && hookResult.sessionKey !== p.sessionKey) {
+          originalSessionKey = p.sessionKey;
+          effectiveSessionKey = hookResult.sessionKey;
+          sessionOverrideReason = hookResult.reason;
+          context.logGateway.info(
+            `[GuardClaw] Session redirect: ${p.sessionKey} → ${effectiveSessionKey} (${hookResult.reason ?? "plugin"})`,
+          );
+          // Emit GuardClaw event for UI - include message ID for placeholder replacement
+          if (hookResult.reason?.includes("GuardClaw")) {
+            const levelMatch = hookResult.reason.match(/\b(S[23])\b/);
+            emitGuardClawEvent({
+              active: true,
+              level: levelMatch ? (levelMatch[1] as "S2" | "S3") : null,
+              model: hookResult.model ?? null,
+              provider: hookResult.provider ?? null,
+              reason: hookResult.reason ?? null,
+              sessionKey: effectiveSessionKey,
+              originalSessionKey: p.sessionKey,
+              messageId: clientRunId,
+              replaceWithPlaceholder: true,
+            });
+          }
+        }
+      } catch (err) {
+        context.logGateway.warn(`[GuardClaw] resolve_model hook failed: ${formatForLog(err)}`);
+      }
+    }
+
+    // Load effective session entry for the (potentially redirected) session
+    const { entry: effectiveEntry } = effectiveSessionKey !== p.sessionKey
+      ? loadSessionEntry(effectiveSessionKey)
+      : { entry };
+
     const sendPolicy = resolveSendPolicy({
       cfg,
-      entry,
-      sessionKey: p.sessionKey,
+      entry: effectiveEntry ?? entry,
+      sessionKey: effectiveSessionKey,
       channel: entry?.channel,
       chatType: entry?.chatType,
     });
@@ -454,13 +565,22 @@ export const chatHandlers: GatewayRequestHandlers = {
       // See: https://github.com/moltbot/moltbot/issues/3658
       const stampedMessage = injectTimestamp(parsedMessage, timestampOptsFromConfig(cfg));
 
+      // If redirected to guard session, use placeholder for UI display
+      // but send actual message to guard session for processing
+      const isGuardRedirect = Boolean(originalSessionKey);
+      const displayMessage = isGuardRedirect 
+        ? `🔒 [Private message - processed locally via GuardClaw]`
+        : parsedMessage;
+
       const ctx: MsgContext = {
-        Body: parsedMessage,
-        BodyForAgent: stampedMessage,
+        Body: isGuardRedirect ? displayMessage : parsedMessage,
+        BodyForAgent: stampedMessage, // Always send actual message to agent
         BodyForCommands: commandBody,
         RawBody: parsedMessage,
         CommandBody: commandBody,
-        SessionKey: p.sessionKey,
+        SessionKey: effectiveSessionKey,
+        // Track original session for delivery back if using subsession isolation
+        ParentSessionKey: originalSessionKey,
         Provider: INTERNAL_MESSAGE_CHANNEL,
         Surface: INTERNAL_MESSAGE_CHANNEL,
         OriginatingChannel: INTERNAL_MESSAGE_CHANNEL,
@@ -471,6 +591,8 @@ export const chatHandlers: GatewayRequestHandlers = {
         SenderName: clientInfo?.displayName,
         SenderUsername: clientInfo?.displayName,
         GatewayClientScopes: client?.connect?.scopes,
+        // Flag for UI to know this is a guard redirect
+        GuardClawRedirect: isGuardRedirect ? true : undefined,
       };
 
       const agentId = resolveSessionAgentId({
@@ -521,18 +643,21 @@ export const chatHandlers: GatewayRequestHandlers = {
         },
       })
         .then(() => {
+          let message: Record<string, unknown> | undefined;
+          
+          // For non-streaming responses, build message from finalReplyParts
           if (!agentRunStarted) {
             const combinedReply = finalReplyParts
               .map((part) => part.trim())
               .filter(Boolean)
               .join("\n\n")
               .trim();
-            let message: Record<string, unknown> | undefined;
             if (combinedReply) {
+              // Write transcript to the effective (guard) session
               const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(
-                p.sessionKey,
+                effectiveSessionKey,
               );
-              const sessionId = latestEntry?.sessionId ?? entry?.sessionId ?? clientRunId;
+              const sessionId = latestEntry?.sessionId ?? effectiveEntry?.sessionId ?? clientRunId;
               const appended = appendAssistantTranscriptMessage({
                 message: combinedReply,
                 sessionId,
@@ -556,6 +681,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                 };
               }
             }
+            // Broadcast to original session so UI receives the response
             broadcastChatFinal({
               context,
               runId: clientRunId,
@@ -563,6 +689,90 @@ export const chatHandlers: GatewayRequestHandlers = {
               message,
             });
           }
+          
+          // If using guard session isolation, inject placeholder and response to main session
+          // This runs for both streaming and non-streaming responses
+          if (originalSessionKey && originalSessionKey !== effectiveSessionKey) {
+            // Load the guard session transcript to get the final response
+            const { storePath: guardStorePath, entry: guardEntry } = loadSessionEntry(
+              effectiveSessionKey,
+            );
+            let guardResponse = "";
+            
+            // Read the last assistant message from the guard session transcript
+            if (guardEntry?.sessionFile && fs.existsSync(guardEntry.sessionFile)) {
+              try {
+                const lines = fs.readFileSync(guardEntry.sessionFile, "utf-8").trim().split("\n");
+                // Find the last assistant message
+                for (let i = lines.length - 1; i >= 0; i--) {
+                  try {
+                    const entry = JSON.parse(lines[i]);
+                    if (entry.type === "message" && entry.message?.role === "assistant") {
+                      const content = entry.message.content;
+                      if (Array.isArray(content)) {
+                        guardResponse = content
+                          .filter((c: { type: string }) => c.type === "text")
+                          .map((c: { text: string }) => c.text)
+                          .join("");
+                      } else if (typeof content === "string") {
+                        guardResponse = content;
+                      }
+                      break;
+                    }
+                  } catch {
+                    // Skip invalid JSON lines
+                  }
+                }
+              } catch (err) {
+                context.logGateway.warn(
+                  `[GuardClaw] Failed to read guard session transcript: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }
+            
+            if (guardResponse) {
+              const { storePath: mainStorePath, entry: mainEntry } = loadSessionEntry(
+                originalSessionKey,
+              );
+              const mainSessionId = mainEntry?.sessionId ?? clientRunId;
+              
+              // First, inject a placeholder for the user's private message
+              appendUserTranscriptMessage({
+                message: `🔒 [Private message - processed locally]`,
+                sessionId: mainSessionId,
+                storePath: mainStorePath,
+                sessionFile: mainEntry?.sessionFile,
+                createIfMissing: true,
+              });
+              
+              // Then inject the assistant's response
+              const mainAppended = appendAssistantTranscriptMessage({
+                message: `🔒 [Response from local model]\n\n${guardResponse}`,
+                sessionId: mainSessionId,
+                storePath: mainStorePath,
+                sessionFile: mainEntry?.sessionFile,
+                createIfMissing: true,
+              });
+              
+              if (!mainAppended.ok) {
+                context.logGateway.warn(
+                  `[GuardClaw] Failed to inject response into main session: ${mainAppended.error ?? "unknown"}`,
+                );
+              } else {
+                context.logGateway.info(
+                  `[GuardClaw] Injected guard response into main session ${originalSessionKey}`,
+                );
+                // Broadcast update to main session so UI refreshes
+                broadcastChatFinal({
+                  context,
+                  runId: `guard-${clientRunId}`,
+                  sessionKey: originalSessionKey,
+                  message: mainAppended.message,
+                });
+              }
+            }
+          }
+          
           context.dedupe.set(`chat:${clientRunId}`, {
             ts: Date.now(),
             ok: true,
@@ -581,6 +791,7 @@ export const chatHandlers: GatewayRequestHandlers = {
             },
             error,
           });
+          // Broadcast to original session so UI receives the error
           broadcastChatError({
             context,
             runId: clientRunId,

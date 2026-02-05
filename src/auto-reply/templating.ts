@@ -125,6 +125,11 @@ export type MsgContext = {
    * Used for hook confirmation messages like "Session context saved to memory".
    */
   HookMessages?: string[];
+  /**
+   * Flag indicating this message was redirected to a GuardClaw guard session.
+   * When true, the UI should show a placeholder instead of the actual message content.
+   */
+  GuardClawRedirect?: boolean;
 };
 
 export type FinalizedMsgContext = Omit<MsgContext, "CommandAuthorized"> & {

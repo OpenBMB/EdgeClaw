@@ -173,7 +173,13 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     return null;
   }
   if (payload.sessionKey !== state.sessionKey) {
-    return null;
+    // Allow events from guard subsessions (GuardClaw privacy isolation)
+    // Guard sessions have format: {parentSessionKey}:guard
+    const isGuardSession = payload.sessionKey?.endsWith(":guard");
+    const parentSessionKey = isGuardSession ? payload.sessionKey.slice(0, -6) : null;
+    if (!isGuardSession || parentSessionKey !== state.sessionKey) {
+      return null;
+    }
   }
 
   // Final from another run (e.g. sub-agent announce): refresh history to show new message.

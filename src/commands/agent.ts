@@ -49,12 +49,14 @@ import {
   emitAgentEvent,
   registerAgentRunContext,
 } from "../infra/agent-events.js";
+import { emitGuardClawEvent } from "../plugins/guardclaw-events.js";
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { applyVerboseOverride } from "../sessions/level-overrides.js";
 import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js";
 import { resolveSendPolicy } from "../sessions/send-policy.js";
+import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { resolveMessageChannel } from "../utils/message-channel.js";
 import { deliverAgentCommandResult } from "./agent/delivery.js";
 import { resolveAgentRunContext } from "./agent/run-context.js";
@@ -336,6 +338,51 @@ export async function agentCommand(
               storePath,
             });
           }
+        }
+      }
+    }
+
+    // Allow plugins to override model selection (e.g., GuardClaw for privacy routing)
+    const hookRunner = getGlobalHookRunner();
+    if (hookRunner?.hasHooks("resolve_model")) {
+      const modelOverride = await hookRunner.runResolveModel(
+        {
+          message: body,
+          provider,
+          model,
+          isDefault: provider === defaultProvider && model === defaultModel,
+        },
+        {
+          agentId: sessionAgentId,
+          sessionKey,
+          channel: opts.channel,
+        },
+      );
+      if (modelOverride?.provider || modelOverride?.model) {
+        if (modelOverride.provider) {
+          provider = modelOverride.provider;
+        }
+        if (modelOverride.model) {
+          model = modelOverride.model;
+        }
+        if (modelOverride.reason) {
+          runtime.log(`[resolve_model] Model override: ${provider}/${model} (${modelOverride.reason})`);
+        }
+        // Emit GuardClaw event for UI notification
+        const isGuardClawOverride = modelOverride.reason?.startsWith("GuardClaw:");
+        if (isGuardClawOverride) {
+          const levelMatch = modelOverride.reason?.match(/\b(S[23])\b/);
+          const level = levelMatch ? (levelMatch[1] as "S2" | "S3") : null;
+          const guardClawEvent = {
+            active: true,
+            level,
+            model: modelOverride.model ?? null,
+            provider: modelOverride.provider ?? null,
+            reason: modelOverride.reason ?? null,
+            sessionKey,
+          };
+          runtime.log(`[guardclaw] Emitting event: ${JSON.stringify(guardClawEvent)}`);
+          emitGuardClawEvent(guardClawEvent);
         }
       }
     }

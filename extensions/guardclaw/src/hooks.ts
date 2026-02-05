@@ -2,11 +2,14 @@
  * GuardClaw Hooks Registration
  * 
  * Registers all plugin hooks for sensitivity detection at various checkpoints.
+ * Includes automatic model switching for privacy protection.
  */
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { detectSensitivityLevel } from "./detector.js";
-import { markSessionAsPrivate, recordDetection, isSessionMarkedPrivate } from "./session-state.js";
+import { markSessionAsPrivate, recordDetection, isSessionMarkedPrivate, getSessionSensitivity } from "./session-state.js";
+import type { PrivacyConfig } from "./types.js";
+import { defaultPrivacyConfig } from "./config-schema.js";
 
 /**
  * Register all GuardClaw hooks
@@ -206,7 +209,164 @@ export function registerHooks(api: OpenClawPluginApi): void {
     }
   });
 
+  // Hook 6: resolve_model - Auto-switch to local model AND subsession for sensitive content
+  // SUBSESSION ISOLATION: Sensitive content goes to a separate guard session with local model
+  api.on("resolve_model", async (event, ctx) => {
+    try {
+      const { message, provider, model, isDefault } = event;
+      const { sessionKey, agentId } = ctx;
+
+      if (!sessionKey) {
+        return;
+      }
+
+      // Get privacy config
+      const privacyConfig = mergeWithDefaults(
+        (api.pluginConfig?.privacy as PrivacyConfig) ?? {},
+        defaultPrivacyConfig
+      );
+
+      // Check if privacy is enabled
+      if (!privacyConfig.enabled) {
+        return;
+      }
+
+      // Get guard model config
+      const guardModel = privacyConfig.guardAgent?.model ?? "ollama/llama3.2:3b";
+      const [guardProvider, guardModelName] = guardModel.includes("/")
+        ? guardModel.split("/", 2)
+        : ["ollama", guardModel];
+
+      // Check if this is already a guard session (avoid recursive redirection)
+      const isGuardSession = sessionKey.includes(":guard");
+      if (isGuardSession) {
+        // Already in guard session, just ensure local model is used
+        if (provider !== guardProvider || model !== guardModelName) {
+          return {
+            provider: guardProvider,
+            model: guardModelName,
+            reason: `GuardClaw: Guard session using local model`,
+          };
+        }
+        return;
+      }
+
+      // Check the current message for sensitive content
+      if (message) {
+        const result = await detectSensitivityLevel(
+          {
+            checkpoint: "onUserMessage",
+            message,
+            sessionKey,
+            agentId,
+          },
+          api.pluginConfig
+        );
+
+        // Record this detection in the main session
+        recordDetection(sessionKey, result.level, "onUserMessage", result.reason);
+
+        // If sensitive content detected, redirect to guard subsession
+        if (result.level === "S2" || result.level === "S3") {
+          // Generate guard session key based on main session
+          // Format: {mainSessionKey}:guard
+          const guardSessionKey = `${sessionKey}:guard`;
+          
+          // Mark both sessions appropriately
+          markSessionAsPrivate(sessionKey, result.level);
+          markSessionAsPrivate(guardSessionKey, result.level);
+          
+          api.logger.info(
+            `[GuardClaw] ${result.level} detected. Redirecting to guard subsession: ${guardSessionKey}`
+          );
+
+          return {
+            provider: guardProvider,
+            model: guardModelName,
+            sessionKey: guardSessionKey,
+            deliverToOriginal: true,
+            reason: `GuardClaw: ${result.level} - redirected to isolated guard session`,
+          };
+        }
+      }
+
+      // Check if main session was previously marked as private
+      // If so, always redirect to guard session for history protection
+      if (isSessionMarkedPrivate(sessionKey)) {
+        const sessionSensitivity = getSessionSensitivity(sessionKey);
+        const guardSessionKey = `${sessionKey}:guard`;
+        
+        api.logger.info(
+          `[GuardClaw] Session ${sessionKey} has sensitive history (${sessionSensitivity?.highestLevel ?? "unknown"}). ` +
+          `Redirecting to guard subsession to protect history.`
+        );
+
+        return {
+          provider: guardProvider,
+          model: guardModelName,
+          sessionKey: guardSessionKey,
+          deliverToOriginal: true,
+          reason: `GuardClaw: ${sessionSensitivity?.highestLevel ?? "sensitive"} history - using isolated guard session`,
+        };
+      }
+
+      // Session is clean, no sensitive content detected - use cloud model normally
+    } catch (err) {
+      api.logger.error(`[GuardClaw] Error in resolve_model hook: ${String(err)}`);
+    }
+  });
+
   api.logger.info("[GuardClaw] All hooks registered successfully");
+}
+
+/**
+ * Merge user config with defaults
+ */
+function mergeWithDefaults(
+  userConfig: PrivacyConfig,
+  defaults: typeof defaultPrivacyConfig
+): PrivacyConfig {
+  return {
+    enabled: userConfig.enabled ?? defaults.enabled,
+    checkpoints: {
+      onUserMessage: userConfig.checkpoints?.onUserMessage ?? defaults.checkpoints?.onUserMessage,
+      onToolCallProposed:
+        userConfig.checkpoints?.onToolCallProposed ?? defaults.checkpoints?.onToolCallProposed,
+      onToolCallExecuted:
+        userConfig.checkpoints?.onToolCallExecuted ?? defaults.checkpoints?.onToolCallExecuted,
+    },
+    rules: {
+      keywords: {
+        S2: userConfig.rules?.keywords?.S2 ?? defaults.rules?.keywords?.S2,
+        S3: userConfig.rules?.keywords?.S3 ?? defaults.rules?.keywords?.S3,
+      },
+      tools: {
+        S2: {
+          tools: userConfig.rules?.tools?.S2?.tools ?? defaults.rules?.tools?.S2?.tools,
+          paths: userConfig.rules?.tools?.S2?.paths ?? defaults.rules?.tools?.S2?.paths,
+        },
+        S3: {
+          tools: userConfig.rules?.tools?.S3?.tools ?? defaults.rules?.tools?.S3?.tools,
+          paths: userConfig.rules?.tools?.S3?.paths ?? defaults.rules?.tools?.S3?.paths,
+        },
+      },
+    },
+    localModel: {
+      enabled: userConfig.localModel?.enabled ?? defaults.localModel?.enabled,
+      provider: userConfig.localModel?.provider ?? defaults.localModel?.provider,
+      model: userConfig.localModel?.model ?? defaults.localModel?.model,
+      endpoint: userConfig.localModel?.endpoint ?? defaults.localModel?.endpoint,
+    },
+    guardAgent: {
+      id: userConfig.guardAgent?.id ?? defaults.guardAgent?.id,
+      workspace: userConfig.guardAgent?.workspace ?? defaults.guardAgent?.workspace,
+      model: userConfig.guardAgent?.model ?? defaults.guardAgent?.model,
+    },
+    session: {
+      isolateGuardHistory:
+        userConfig.session?.isolateGuardHistory ?? defaults.session?.isolateGuardHistory,
+    },
+  };
 }
 
 /**

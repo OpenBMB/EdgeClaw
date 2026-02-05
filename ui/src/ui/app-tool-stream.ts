@@ -220,7 +220,13 @@ export function handleAgentEvent(host: ToolStreamHost, payload?: AgentEventPaylo
   }
   const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : undefined;
   if (sessionKey && sessionKey !== host.sessionKey) {
-    return;
+    // Allow events from guard subsessions (GuardClaw privacy isolation)
+    // Guard sessions have format: {parentSessionKey}:guard
+    const isGuardSession = sessionKey.endsWith(":guard");
+    const parentSessionKey = isGuardSession ? sessionKey.slice(0, -6) : null;
+    if (!isGuardSession || parentSessionKey !== host.sessionKey) {
+      return;
+    }
   }
   // Fallback: only accept session-less events for the active run.
   if (!sessionKey && host.chatRunId && payload.runId !== host.chatRunId) {

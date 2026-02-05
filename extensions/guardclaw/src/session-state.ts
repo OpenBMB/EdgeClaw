@@ -10,18 +10,23 @@ import type { Checkpoint, SensitivityLevel, SessionPrivacyState } from "./types.
 const sessionStates = new Map<string, SessionPrivacyState>();
 
 /**
- * Mark a session as private (S3 detected)
+ * Mark a session as private (S2 or S3 detected)
+ * Once marked private, the session stays private to protect sensitive history.
  */
 export function markSessionAsPrivate(sessionKey: string, level: SensitivityLevel): void {
   const existing = sessionStates.get(sessionKey);
   
+  // Mark as private for S2 or S3 (not S1)
+  const shouldBePrivate = level === "S2" || level === "S3";
+  
   if (existing) {
-    existing.isPrivate = level === "S3";
+    // Once private, always private (don't downgrade)
+    existing.isPrivate = existing.isPrivate || shouldBePrivate;
     existing.highestLevel = getHigherLevel(existing.highestLevel, level);
   } else {
     sessionStates.set(sessionKey, {
       sessionKey,
-      isPrivate: level === "S3",
+      isPrivate: shouldBePrivate,
       highestLevel: level,
       detectionHistory: [],
     });
@@ -40,6 +45,15 @@ export function isSessionMarkedPrivate(sessionKey: string): boolean {
  */
 export function getSessionHighestLevel(sessionKey: string): SensitivityLevel {
   return sessionStates.get(sessionKey)?.highestLevel ?? "S1";
+}
+
+/**
+ * Get session sensitivity info including highest level
+ */
+export function getSessionSensitivity(sessionKey: string): { highestLevel: SensitivityLevel } | null {
+  const state = sessionStates.get(sessionKey);
+  if (!state) return null;
+  return { highestLevel: state.highestLevel };
 }
 
 /**

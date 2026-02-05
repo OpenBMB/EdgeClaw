@@ -26,6 +26,9 @@ import type {
   PluginHookMessageSentEvent,
   PluginHookName,
   PluginHookRegistration,
+  PluginHookResolveModelContext,
+  PluginHookResolveModelEvent,
+  PluginHookResolveModelResult,
   PluginHookSessionContext,
   PluginHookSessionEndEvent,
   PluginHookSessionStartEvent,
@@ -61,6 +64,9 @@ export type {
   PluginHookGatewayContext,
   PluginHookGatewayStartEvent,
   PluginHookGatewayStopEvent,
+  PluginHookResolveModelContext,
+  PluginHookResolveModelEvent,
+  PluginHookResolveModelResult,
 };
 
 export type HookRunnerLogger = {
@@ -398,6 +404,39 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
   }
 
   // =========================================================================
+  // Model Selection Hooks
+  // =========================================================================
+
+  /**
+   * Run resolve_model hook.
+   * Allows plugins to override model selection and session routing (e.g., for privacy routing).
+   * Runs sequentially, returns first non-null result.
+   */
+  async function runResolveModel(
+    event: PluginHookResolveModelEvent,
+    ctx: PluginHookResolveModelContext,
+  ): Promise<PluginHookResolveModelResult | undefined> {
+    return runModifyingHook<"resolve_model", PluginHookResolveModelResult>(
+      "resolve_model",
+      event,
+      ctx,
+      // Merge overrides - model, session, and delivery options
+      (acc, next) => {
+        if (next.model || next.provider || next.sessionKey) {
+          return {
+            provider: next.provider ?? acc?.provider,
+            model: next.model ?? acc?.model,
+            reason: next.reason ?? acc?.reason,
+            sessionKey: next.sessionKey ?? acc?.sessionKey,
+            deliverToOriginal: next.deliverToOriginal ?? acc?.deliverToOriginal,
+          };
+        }
+        return acc;
+      },
+    );
+  }
+
+  // =========================================================================
   // Gateway Hooks
   // =========================================================================
 
@@ -458,6 +497,8 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     // Session hooks
     runSessionStart,
     runSessionEnd,
+    // Model selection hooks
+    runResolveModel,
     // Gateway hooks
     runGatewayStart,
     runGatewayStop,

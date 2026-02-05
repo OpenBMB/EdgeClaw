@@ -331,6 +331,12 @@ importers:
         specifier: workspace:*
         version: link:../..
 
+  extensions/guardclaw:
+    devDependencies:
+      openclaw:
+        specifier: workspace:*
+        version: link:../..
+
   extensions/imessage:
     devDependencies:
       openclaw:

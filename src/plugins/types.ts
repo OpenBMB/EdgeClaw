@@ -298,7 +298,8 @@ export type PluginHookName =
   | "session_start"
   | "session_end"
   | "gateway_start"
-  | "gateway_stop";
+  | "gateway_stop"
+  | "resolve_model";
 
 // Agent context shared across agent hooks
 export type PluginHookAgentContext = {
@@ -460,6 +461,46 @@ export type PluginHookGatewayStopEvent = {
   reason?: string;
 };
 
+// resolve_model hook - allows plugins to override model selection
+export type PluginHookResolveModelContext = {
+  agentId?: string;
+  sessionKey?: string;
+  channel?: string;
+};
+
+export type PluginHookResolveModelEvent = {
+  /** The message that triggered this agent turn */
+  message?: string;
+  /** Current provider selection */
+  provider: string;
+  /** Current model selection */
+  model: string;
+  /** Whether this is a default selection (not user-overridden) */
+  isDefault: boolean;
+};
+
+export type PluginHookResolveModelResult = {
+  /** Override provider (e.g., "ollama") */
+  provider?: string;
+  /** Override model (e.g., "llama3.2:3b") */
+  model?: string;
+  /** Reason for override (for logging) */
+  reason?: string;
+  /**
+   * Override session key for subsession isolation.
+   * When provided, the message will be processed in the specified session
+   * instead of the original session. This is useful for privacy isolation
+   * where sensitive content should be handled in a separate session with
+   * its own history.
+   */
+  sessionKey?: string;
+  /**
+   * If true, the response from the redirected session should be delivered
+   * back to the original session's chat context.
+   */
+  deliverToOriginal?: boolean;
+};
+
 // Hook handler types mapped by hook name
 export type PluginHookHandlerMap = {
   before_agent_start: (
@@ -515,6 +556,10 @@ export type PluginHookHandlerMap = {
     event: PluginHookGatewayStopEvent,
     ctx: PluginHookGatewayContext,
   ) => Promise<void> | void;
+  resolve_model: (
+    event: PluginHookResolveModelEvent,
+    ctx: PluginHookResolveModelContext,
+  ) => Promise<PluginHookResolveModelResult | void> | PluginHookResolveModelResult | void;
 };
 
 export type PluginHookRegistration<K extends PluginHookName = PluginHookName> = {
