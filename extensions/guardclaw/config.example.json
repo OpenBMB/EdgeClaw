@@ -1,0 +1,81 @@
+{
+  "$schema": "https://docs.openclaw.ai/schema.json",
+  "plugins": {
+    "enabled": ["guardclaw"]
+  },
+  "privacy": {
+    "enabled": true,
+    "checkpoints": {
+      "onUserMessage": ["ruleDetector"],
+      "onToolCallProposed": ["ruleDetector"],
+      "onToolCallExecuted": ["ruleDetector"]
+    },
+    "rules": {
+      "keywords": {
+        "S2": [
+          "password",
+          "api_key",
+          "secret",
+          "token",
+          "credential",
+          "auth_token"
+        ],
+        "S3": [
+          "ssh",
+          "id_rsa",
+          "private_key",
+          ".pem",
+          ".key",
+          "master_password"
+        ]
+      },
+      "tools": {
+        "S2": {
+          "tools": ["exec", "shell"],
+          "paths": ["~/secrets", "~/private"]
+        },
+        "S3": {
+          "tools": ["system.run", "sudo"],
+          "paths": [
+            "~/.ssh",
+            "/etc",
+            "~/.aws",
+            "~/.config/credentials",
+            "/root"
+          ]
+        }
+      }
+    },
+    "localModel": {
+      "enabled": false,
+      "provider": "ollama",
+      "model": "llama3.2:3b",
+      "endpoint": "http://localhost:11434"
+    },
+    "guardAgent": {
+      "id": "guard",
+      "workspace": "~/.openclaw/workspace-guard",
+      "model": "ollama/llama3.2:3b"
+    },
+    "session": {
+      "isolateGuardHistory": true
+    }
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "workspace": "~/.openclaw/workspace-main",
+        "subagents": {
+          "allowAgents": ["guard"]
+        }
+      },
+      {
+        "id": "guard",
+        "workspace": "~/.openclaw/workspace-guard",
+        "model": "ollama/llama3.2:3b",
+        "description": "Local-only agent for sensitive operations"
+      }
+    ]
+  }
+}

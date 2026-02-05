@@ -1,0 +1,106 @@
+{
+  "id": "guardclaw",
+  "name": "GuardClaw",
+  "description": "Privacy-aware plugin with sensitivity detection and guard agent support",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "privacy": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "checkpoints": {
+            "type": "object",
+            "properties": {
+              "onUserMessage": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "onToolCallProposed": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "onToolCallExecuted": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          },
+          "rules": {
+            "type": "object",
+            "properties": {
+              "keywords": {
+                "type": "object",
+                "properties": {
+                  "S2": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "S3": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  }
+                }
+              },
+              "tools": {
+                "type": "object",
+                "properties": {
+                  "S2": {
+                    "type": "object",
+                    "properties": {
+                      "tools": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      },
+                      "paths": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    }
+                  },
+                  "S3": {
+                    "type": "object",
+                    "properties": {
+                      "tools": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      },
+                      "paths": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "localModel": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "provider": { "type": "string" },
+              "model": { "type": "string" },
+              "endpoint": { "type": "string" }
+            }
+          },
+          "guardAgent": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "workspace": { "type": "string" },
+              "model": { "type": "string" }
+            }
+          },
+          "session": {
+            "type": "object",
+            "properties": {
+              "isolateGuardHistory": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
