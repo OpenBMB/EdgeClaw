@@ -420,15 +420,17 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
       "resolve_model",
       event,
       ctx,
-      // Merge overrides - model, session, and delivery options
+      // Merge overrides - model, session, delivery, and content options
       (acc, next) => {
-        if (next.model || next.provider || next.sessionKey) {
+        if (next.model || next.provider || next.sessionKey || next.userPromptOverride || next.extraSystemPrompt) {
           return {
             provider: next.provider ?? acc?.provider,
             model: next.model ?? acc?.model,
             reason: next.reason ?? acc?.reason,
             sessionKey: next.sessionKey ?? acc?.sessionKey,
             deliverToOriginal: next.deliverToOriginal ?? acc?.deliverToOriginal,
+            extraSystemPrompt: next.extraSystemPrompt ?? acc?.extraSystemPrompt,
+            userPromptOverride: next.userPromptOverride ?? acc?.userPromptOverride,
           };
         }
         return acc;

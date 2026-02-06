@@ -2,12 +2,34 @@
  * GuardClaw Hooks Registration
  * 
  * Registers all plugin hooks for sensitivity detection at various checkpoints.
- * Includes automatic model switching for privacy protection.
+ * Implements:
+ *   - S1: pass-through (no intervention)
+ *   - S2: desensitize content via local model / rules, then forward to cloud
+ *   - S3: redirect to isolated guard subsession with local-only model
+ *   - Dual session history (full vs clean)
+ *   - Memory isolation (MEMORY-FULL.md vs MEMORY.md)
+ *   - File-access guards (block cloud models from reading full history/memory)
  */
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { detectSensitivityLevel } from "./detector.js";
-import { markSessionAsPrivate, recordDetection, isSessionMarkedPrivate, getSessionSensitivity } from "./session-state.js";
+import {
+  markSessionAsPrivate,
+  recordDetection,
+  isSessionMarkedPrivate,
+  getSessionSensitivity,
+} from "./session-state.js";
+import { desensitizeWithLocalModel } from "./local-model.js";
+import { getDefaultSessionManager, type SessionMessage } from "./session-manager.js";
+import { getDefaultMemoryManager } from "./memory-isolation.js";
+import {
+  generateGuardSessionKey,
+  isGuardSessionKey,
+  getGuardAgentConfig,
+  buildMainSessionPlaceholder,
+  isLocalProvider,
+} from "./guard-agent.js";
+import { redactSensitiveInfo, isProtectedMemoryPath } from "./utils.js";
 import type { PrivacyConfig } from "./types.js";
 import { defaultPrivacyConfig } from "./config-schema.js";
 
@@ -32,7 +54,15 @@ Remember: Your response may be logged or displayed elsewhere. Protect the user's
  * Register all GuardClaw hooks
  */
 export function registerHooks(api: OpenClawPluginApi): void {
-  // Hook 1: message_received - Checkpoint for user messages
+  // Initialize memory directories on startup
+  const memoryManager = getDefaultMemoryManager();
+  memoryManager.initializeDirectories().catch((err) => {
+    api.logger.error(`[GuardClaw] Failed to initialize memory directories: ${String(err)}`);
+  });
+
+  // =========================================================================
+  // Hook 1: message_received — Checkpoint for user messages
+  // =========================================================================
   api.on("message_received", async (event, ctx) => {
     try {
       const { message, sessionKey, agentId } = event;
@@ -41,9 +71,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
         return;
       }
 
-      // Extract text from message
       const messageText = extractMessageText(message);
-
       if (!messageText) {
         return;
       }
@@ -62,24 +90,32 @@ export function registerHooks(api: OpenClawPluginApi): void {
       // Record detection
       recordDetection(sessionKey, result.level, "onUserMessage", result.reason);
 
-      // Log detection if not S1
       if (result.level !== "S1") {
         api.logger.info(
-          `[GuardClaw] Message sensitivity: ${result.level} for session ${sessionKey} - ${result.reason ?? "no reason"}`
+          `[GuardClaw] Message sensitivity: ${result.level} for session ${sessionKey} — ${result.reason ?? "no reason"}`
         );
       }
 
-      // Mark session as private if S3
+      // Persist to dual history
+      const sessionManager = getDefaultSessionManager();
+      const sessionMessage: SessionMessage = {
+        role: "user",
+        content: messageText,
+        timestamp: Date.now(),
+        sessionKey,
+      };
+      await sessionManager.persistMessage(sessionKey, sessionMessage, agentId ?? "main");
+
+      // Mark session state
       if (result.level === "S3") {
         markSessionAsPrivate(sessionKey, result.level);
         api.logger.warn(
           `[GuardClaw] Session ${sessionKey} marked as PRIVATE (S3 detected)`
         );
       } else if (result.level === "S2") {
-        // For S2, we could optionally prompt the user here
-        // But that would require message sending capability
+        markSessionAsPrivate(sessionKey, result.level);
         api.logger.info(
-          `[GuardClaw] S2 detected for session ${sessionKey}. Consider using local models.`
+          `[GuardClaw] S2 detected for session ${sessionKey}. Content will be desensitized for cloud.`
         );
       }
     } catch (err) {
@@ -87,63 +123,98 @@ export function registerHooks(api: OpenClawPluginApi): void {
     }
   });
 
-  // Hook 2: before_tool_call - Checkpoint for tool calls before execution
+  // =========================================================================
+  // Hook 2: before_tool_call — Checkpoint for tool calls before execution
+  //   S3 tools → BLOCK the call and return an error
+  //   S2 tools → allow but log
+  //   Also: block cloud model access to protected memory/history paths
+  // =========================================================================
   api.on("before_tool_call", async (event, ctx) => {
     try {
-      const { toolName, params, sessionKey } = event;
+      const { toolName, params } = event;
+      const sessionKey = ctx.sessionKey ?? "";
 
-      if (!toolName || !sessionKey) {
+      if (!toolName) {
         return;
       }
 
-      // Detect sensitivity level
+      // ── File-access guard: block cloud models from reading full history / memory ──
+      const typedParams = params as Record<string, unknown>;
+      if (typedParams) {
+        const privacyConfig = getPrivacyConfigFromApi(api);
+        const baseDir = privacyConfig.session?.baseDir ?? "~/.openclaw";
+        const pathValues = extractPathValuesFromParams(typedParams);
+
+        // If the session is NOT a guard session (i.e., cloud model context),
+        // block access to protected full-history / full-memory paths.
+        if (!isGuardSessionKey(sessionKey)) {
+          for (const p of pathValues) {
+            if (isProtectedMemoryPath(p, baseDir)) {
+              api.logger.warn(
+                `[GuardClaw] BLOCKED: cloud model tried to access protected path: ${p}`
+              );
+              return {
+                block: true,
+                blockReason: `GuardClaw: access to full history/memory is restricted for cloud models (${p})`,
+              };
+            }
+          }
+        }
+      }
+
+      // ── Sensitivity detection ──
       const result = await detectSensitivityLevel(
         {
           checkpoint: "onToolCallProposed",
           toolName,
-          toolParams: params as Record<string, unknown>,
+          toolParams: typedParams,
           sessionKey,
           agentId: ctx.agentId,
         },
         api.pluginConfig
       );
 
-      // Record detection
       recordDetection(sessionKey, result.level, "onToolCallProposed", result.reason);
 
-      // Log detection if not S1
       if (result.level !== "S1") {
         api.logger.info(
-          `[GuardClaw] Tool call sensitivity: ${result.level} for ${toolName} - ${result.reason ?? "no reason"}`
+          `[GuardClaw] Tool call sensitivity: ${result.level} for ${toolName} — ${result.reason ?? "no reason"}`
         );
       }
 
-      // Mark session as private if S3
+      // S3 → BLOCK the tool call
       if (result.level === "S3") {
         markSessionAsPrivate(sessionKey, result.level);
         api.logger.warn(
-          `[GuardClaw] Tool ${toolName} triggered S3. Session ${sessionKey} marked as PRIVATE.`
+          `[GuardClaw] BLOCKED tool ${toolName} (S3). Session ${sessionKey} marked as PRIVATE.`
         );
+        return {
+          block: true,
+          blockReason: `GuardClaw: tool "${toolName}" blocked — S3 sensitivity detected (${result.reason ?? "sensitive operation"})`,
+        };
+      }
 
-        // TODO: In the future, we could block the tool and redirect to guard agent
-        // For now, just log the warning
-        // return { blocked: true, reason: "S3 sensitivity detected" };
+      // S2 → allow but mark session
+      if (result.level === "S2") {
+        markSessionAsPrivate(sessionKey, result.level);
       }
     } catch (err) {
       api.logger.error(`[GuardClaw] Error in before_tool_call hook: ${String(err)}`);
     }
   });
 
-  // Hook 3: after_tool_call - Checkpoint for tool results
+  // =========================================================================
+  // Hook 3: after_tool_call — Checkpoint for tool results
+  // =========================================================================
   api.on("after_tool_call", async (event, ctx) => {
     try {
-      const { toolName, result, sessionKey } = event;
+      const { toolName, result } = event;
+      const sessionKey = ctx.sessionKey ?? "";
 
-      if (!toolName || !sessionKey) {
+      if (!toolName) {
         return;
       }
 
-      // Detect sensitivity level in the result
       const detectionResult = await detectSensitivityLevel(
         {
           checkpoint: "onToolCallExecuted",
@@ -155,7 +226,6 @@ export function registerHooks(api: OpenClawPluginApi): void {
         api.pluginConfig
       );
 
-      // Record detection
       recordDetection(
         sessionKey,
         detectionResult.level,
@@ -163,52 +233,60 @@ export function registerHooks(api: OpenClawPluginApi): void {
         detectionResult.reason
       );
 
-      // Log detection if not S1
       if (detectionResult.level !== "S1") {
         api.logger.info(
-          `[GuardClaw] Tool result sensitivity: ${detectionResult.level} for ${toolName} - ${detectionResult.reason ?? "no reason"}`
+          `[GuardClaw] Tool result sensitivity: ${detectionResult.level} for ${toolName} — ${detectionResult.reason ?? "no reason"}`
         );
       }
 
-      // Mark session as private if S3
-      if (detectionResult.level === "S3") {
+      if (detectionResult.level === "S3" || detectionResult.level === "S2") {
         markSessionAsPrivate(sessionKey, detectionResult.level);
-        api.logger.warn(
-          `[GuardClaw] Tool ${toolName} result contains S3 content. Session ${sessionKey} marked as PRIVATE.`
-        );
+        if (detectionResult.level === "S3") {
+          api.logger.warn(
+            `[GuardClaw] Tool ${toolName} result contains S3 content. Session ${sessionKey} marked as PRIVATE.`
+          );
+        }
       }
     } catch (err) {
       api.logger.error(`[GuardClaw] Error in after_tool_call hook: ${String(err)}`);
     }
   });
 
-  // Hook 4: tool_result_persist - Control history persistence
+  // =========================================================================
+  // Hook 4: tool_result_persist — Control dual-history persistence
+  // =========================================================================
   api.on("tool_result_persist", (event, ctx) => {
     try {
       const { message, sessionKey } = event;
-
-      // Check if this is a sensitive session
       const isPrivate = isSessionMarkedPrivate(sessionKey ?? "");
 
-      if (isPrivate) {
-        // For private sessions, we'll handle dual history writing
-        // This is a placeholder - actual implementation would need
-        // to integrate with the session manager
+      if (isPrivate && sessionKey) {
+        // Persist to full history (includes everything)
+        const sessionManager = getDefaultSessionManager();
+        const msgText = typeof message === "string" ? message : JSON.stringify(message);
+        const sessionMessage: SessionMessage = {
+          role: "tool",
+          content: msgText,
+          timestamp: Date.now(),
+          sessionKey,
+        };
+        // Fire-and-forget async write
+        sessionManager.persistMessage(sessionKey, sessionMessage).catch((err) => {
+          console.error(`[GuardClaw] Failed to persist tool result to dual history:`, err);
+        });
 
         api.logger.debug(
-          `[GuardClaw] Tool result in private session ${sessionKey}, dual history enabled`
+          `[GuardClaw] Tool result in private session ${sessionKey}, dual history write triggered`
         );
-
-        // Return transformed message or custom persistence logic
-        // For now, just pass through
-        return;
       }
     } catch (err) {
       api.logger.error(`[GuardClaw] Error in tool_result_persist hook: ${String(err)}`);
     }
   });
 
-  // Hook 5: session_end - Cleanup when session ends
+  // =========================================================================
+  // Hook 5: session_end — Cleanup and memory sync
+  // =========================================================================
   api.on("session_end", async (event, ctx) => {
     try {
       const { sessionKey } = event;
@@ -216,121 +294,182 @@ export function registerHooks(api: OpenClawPluginApi): void {
       if (sessionKey) {
         const wasPrivate = isSessionMarkedPrivate(sessionKey);
         if (wasPrivate) {
-          api.logger.info(`[GuardClaw] Private session ${sessionKey} ended. Cleaning up state.`);
+          api.logger.info(
+            `[GuardClaw] Private session ${sessionKey} ended. Syncing memory…`
+          );
+
+          // Sync full memory → clean memory (strip guard agent sections)
+          const memMgr = getDefaultMemoryManager();
+          await memMgr.syncMemoryToClean();
         }
-        // Note: We keep the state for now for audit purposes
-        // If you want to clear it, uncomment: clearSessionState(sessionKey);
+        // Note: We keep session state for audit purposes
       }
     } catch (err) {
       api.logger.error(`[GuardClaw] Error in session_end hook: ${String(err)}`);
     }
   });
 
-  // Hook 6: resolve_model - Auto-switch to local model AND subsession for sensitive content
-  // SUBSESSION ISOLATION: Sensitive content goes to a separate guard session with local model
+  // =========================================================================
+  // Hook 6: resolve_model — Model + session routing
+  //
+  //   S1 → pass-through (cloud model, normal session)
+  //   S2 → desensitize content, send desensitized version to cloud model
+  //   S3 → redirect to guard subsession with local-only model
+  // =========================================================================
   api.on("resolve_model", async (event, ctx) => {
     try {
-      const { message, provider, model, isDefault } = event;
-      const { sessionKey, agentId } = ctx;
+      const { message, provider, model } = event;
+      const sessionKey = ctx.sessionKey ?? "";
 
-      if (!sessionKey) {
-        return;
-      }
-
-      // Get privacy config
-      const privacyConfig = mergeWithDefaults(
-        (api.pluginConfig?.privacy as PrivacyConfig) ?? {},
-        defaultPrivacyConfig
+      api.logger.info(
+        `[GuardClaw] resolve_model called: sessionKey=${sessionKey}, message=${String(message).slice(0, 50)}, provider=${provider}, model=${model}`
       );
 
-      // Check if privacy is enabled
-      if (!privacyConfig.enabled) {
+      if (!sessionKey) {
+        api.logger.info(`[GuardClaw] resolve_model: no sessionKey, returning`);
         return;
       }
 
-      // Get guard model config
-      const guardModel = privacyConfig.guardAgent?.model ?? "ollama/llama3.2:3b";
-      const [guardProvider, guardModelName] = guardModel.includes("/")
-        ? guardModel.split("/", 2)
-        : ["ollama", guardModel];
+      const privacyConfig = getPrivacyConfigFromApi(api);
+      api.logger.info(
+        `[GuardClaw] resolve_model: enabled=${privacyConfig.enabled}, keywords.S2=${JSON.stringify(privacyConfig.rules?.keywords?.S2)}`
+      );
+      if (!privacyConfig.enabled) {
+        api.logger.info(`[GuardClaw] resolve_model: privacy disabled, returning`);
+        return;
+      }
 
-      // Check if this is already a guard session (avoid recursive redirection)
-      const isGuardSession = sessionKey.includes(":guard");
-      if (isGuardSession) {
-        // Already in guard session, just ensure local model is used
-        if (provider !== guardProvider || model !== guardModelName) {
+      // If already in a guard session, enforce local model
+      if (isGuardSessionKey(sessionKey)) {
+        const guardCfg = getGuardAgentConfig(privacyConfig);
+        if (guardCfg && (!isLocalProvider(provider ?? "") || model !== guardCfg.modelName)) {
           return {
-            provider: guardProvider,
-            model: guardModelName,
-            reason: `GuardClaw: Guard session using local model`,
+            provider: guardCfg.provider,
+            model: guardCfg.modelName,
+            reason: "GuardClaw: guard session must use local model",
           };
         }
+        return; // already correct
+      }
+
+      // Detect sensitivity of current message
+      if (!message) {
+        api.logger.info(`[GuardClaw] resolve_model: no message, returning`);
         return;
       }
 
-      // Check the current message for sensitive content
-      if (message) {
-        const result = await detectSensitivityLevel(
-          {
-            checkpoint: "onUserMessage",
-            message,
-            sessionKey,
-            agentId,
-          },
-          api.pluginConfig
+      api.logger.info(`[GuardClaw] resolve_model: calling detectSensitivityLevel with message="${String(message).slice(0, 80)}"`);
+      
+      const result = await detectSensitivityLevel(
+        {
+          checkpoint: "onUserMessage",
+          message,
+          sessionKey,
+          agentId: ctx.agentId,
+        },
+        api.pluginConfig
+      );
+
+      api.logger.info(
+        `[GuardClaw] resolve_model: detection result: level=${result.level}, reason=${result.reason}`
+      );
+
+      recordDetection(sessionKey, result.level, "onUserMessage", result.reason);
+
+      // ── S3: full redirect to guard subsession with local model ──
+      if (result.level === "S3") {
+        const guardCfg = getGuardAgentConfig(privacyConfig);
+        const guardProvider = guardCfg?.provider ?? "ollama";
+        const guardModelName = guardCfg?.modelName ?? "llama3.2:3b";
+        const guardSessionKey = generateGuardSessionKey(sessionKey);
+
+        markSessionAsPrivate(sessionKey, result.level);
+        markSessionAsPrivate(guardSessionKey, result.level);
+
+        api.logger.info(
+          `[GuardClaw] S3 detected. Redirecting to guard subsession: ${guardSessionKey}`
         );
 
-        // Record this detection in the main session
-        recordDetection(sessionKey, result.level, "onUserMessage", result.reason);
+        // Emit UI event
+        api.emitEvent("privacy_activated", {
+          active: true,
+          level: result.level,
+          model: `${guardProvider}/${guardModelName}`,
+          provider: guardProvider,
+          reason: result.reason ?? "S3 content detected",
+          sessionKey: guardSessionKey,
+          originalSessionKey: sessionKey,
+        });
 
-        // If sensitive content detected, redirect to guard subsession
-        if (result.level === "S2" || result.level === "S3") {
-          // Generate guard session key based on main session
-          // Format: {mainSessionKey}:guard
-          const guardSessionKey = `${sessionKey}:guard`;
-          
-          // Mark both sessions appropriately
-          markSessionAsPrivate(sessionKey, result.level);
-          markSessionAsPrivate(guardSessionKey, result.level);
-          
-          api.logger.info(
-            `[GuardClaw] ${result.level} detected. Redirecting to guard subsession: ${guardSessionKey}`
-          );
+        // Write a placeholder to the main session's clean history
+        const sessionManager = getDefaultSessionManager();
+        const placeholder = buildMainSessionPlaceholder(result.level, result.reason);
+        await sessionManager.persistMessage(sessionKey, {
+          role: "user",
+          content: placeholder,
+          timestamp: Date.now(),
+          sessionKey,
+        });
 
-          // Emit event for UI indicator (using generic plugin event system)
-          api.emitEvent("privacy_activated", {
-            active: true,
-            level: result.level,
-            model: `${guardProvider}/${guardModelName}`,
-            provider: guardProvider,
-            reason: result.reason ?? `${result.level} content detected`,
-            sessionKey: guardSessionKey,
-            originalSessionKey: sessionKey,
-          });
+        const wrappedUserPrompt = buildGuardUserPrompt(message, result.level, result.reason);
 
-          // Build a wrapped user prompt that provides context to the local model
-          const wrappedUserPrompt = buildGuardUserPrompt(message, result.level, result.reason);
-
-          return {
-            provider: guardProvider,
-            model: guardModelName,
-            sessionKey: guardSessionKey,
-            deliverToOriginal: true,
-            reason: `GuardClaw: ${result.level} - redirected to isolated guard session`,
-            extraSystemPrompt: GUARD_AGENT_SYSTEM_PROMPT,
-            userPromptOverride: wrappedUserPrompt,
-          };
-        }
+        return {
+          provider: guardProvider,
+          model: guardModelName,
+          sessionKey: guardSessionKey,
+          deliverToOriginal: true,
+          reason: `GuardClaw: S3 — redirected to isolated guard session`,
+          extraSystemPrompt: GUARD_AGENT_SYSTEM_PROMPT,
+          userPromptOverride: wrappedUserPrompt,
+        };
       }
 
-      // NOTE: We no longer check if session was "previously marked as private"
-      // because the main session only stores placeholder messages like:
-      //   "🔒 [Private message - processed locally]"
-      // The actual sensitive content is ONLY stored in the guard subsession.
-      // This means it's safe to send non-sensitive messages to cloud models
-      // since the main session history doesn't contain real sensitive data.
+      // ── S2: desensitize content, then forward to cloud model ──
+      if (result.level === "S2") {
+        markSessionAsPrivate(sessionKey, result.level);
 
-      // Session is clean, no sensitive content detected - use cloud model normally
+        api.logger.info(
+          `[GuardClaw] S2 detected. Desensitizing content for cloud model.`
+        );
+
+        // Desensitize the user message (via local model or rule-based fallback)
+        const { desensitized, wasModelUsed } = await desensitizeWithLocalModel(
+          message,
+          privacyConfig
+        );
+
+        api.logger.info(
+          `[GuardClaw] Desensitization complete (model=${wasModelUsed}). Forwarding to cloud.`
+        );
+
+        // Persist the ORIGINAL message to full history
+        const sessionManager = getDefaultSessionManager();
+        await sessionManager.persistMessage(sessionKey, {
+          role: "user",
+          content: message,
+          timestamp: Date.now(),
+          sessionKey,
+        });
+
+        // Emit UI event
+        api.emitEvent("privacy_activated", {
+          active: true,
+          level: result.level,
+          desensitized: true,
+          wasModelUsed,
+          reason: result.reason ?? "S2 content detected — desensitized",
+          sessionKey,
+        });
+
+        // Forward the DESENSITIZED message to cloud (don't change provider/model)
+        return {
+          reason: `GuardClaw: S2 — content desensitized before cloud delivery`,
+          userPromptOverride: desensitized,
+        };
+      }
+
+      // ── S1: no intervention ──
+      // Session is clean, use cloud model normally
     } catch (err) {
       api.logger.error(`[GuardClaw] Error in resolve_model hook: ${String(err)}`);
     }
@@ -339,9 +478,20 @@ export function registerHooks(api: OpenClawPluginApi): void {
   api.logger.info("[GuardClaw] All hooks registered successfully");
 }
 
+// ==========================================================================
+// Helpers
+// ==========================================================================
+
 /**
- * Merge user config with defaults
+ * Merge user config with defaults and return typed PrivacyConfig
  */
+function getPrivacyConfigFromApi(api: OpenClawPluginApi): PrivacyConfig {
+  return mergeWithDefaults(
+    (api.pluginConfig?.privacy as PrivacyConfig) ?? {},
+    defaultPrivacyConfig
+  );
+}
+
 function mergeWithDefaults(
   userConfig: PrivacyConfig,
   defaults: typeof defaultPrivacyConfig
@@ -359,6 +509,10 @@ function mergeWithDefaults(
       keywords: {
         S2: userConfig.rules?.keywords?.S2 ?? defaults.rules?.keywords?.S2,
         S3: userConfig.rules?.keywords?.S3 ?? defaults.rules?.keywords?.S3,
+      },
+      patterns: {
+        S2: userConfig.rules?.patterns?.S2 ?? defaults.rules?.patterns?.S2,
+        S3: userConfig.rules?.patterns?.S3 ?? defaults.rules?.patterns?.S3,
       },
       tools: {
         S2: {
@@ -385,6 +539,7 @@ function mergeWithDefaults(
     session: {
       isolateGuardHistory:
         userConfig.session?.isolateGuardHistory ?? defaults.session?.isolateGuardHistory,
+      baseDir: userConfig.session?.baseDir ?? defaults.session?.baseDir,
     },
   };
 }
@@ -399,35 +554,47 @@ function extractMessageText(message: unknown): string | undefined {
 
   if (message && typeof message === "object") {
     const msg = message as Record<string, unknown>;
-    
-    // Try common message text fields
-    if (typeof msg.text === "string") {
-      return msg.text;
-    }
-    if (typeof msg.content === "string") {
-      return msg.content;
-    }
-    if (typeof msg.body === "string") {
-      return msg.body;
-    }
+    if (typeof msg.text === "string") return msg.text;
+    if (typeof msg.content === "string") return msg.content;
+    if (typeof msg.body === "string") return msg.body;
   }
 
   return undefined;
 }
 
 /**
- * Build a wrapped user prompt for the guard agent
- * This provides context without exposing raw sensitive data in logs
+ * Build a wrapped user prompt for the guard agent (S3)
  */
 function buildGuardUserPrompt(
   originalMessage: string,
   level: string,
   reason?: string
 ): string {
-  // Simply pass through the message - the system prompt already instructs
-  // the model not to repeat sensitive information.
-  // We just add a brief context header.
-  return `[Privacy Level: ${level}${reason ? ` - ${reason}` : ""}]
+  return `[Privacy Level: ${level}${reason ? ` — ${reason}` : ""}]
 
 ${originalMessage}`;
+}
+
+/**
+ * Extract path-like values from tool params for file-access guarding
+ */
+function extractPathValuesFromParams(params: Record<string, unknown>): string[] {
+  const paths: string[] = [];
+  const pathKeys = ["path", "file", "filepath", "filename", "dir", "directory", "target", "source"];
+
+  for (const key of pathKeys) {
+    const value = params[key];
+    if (typeof value === "string" && value.trim()) {
+      paths.push(value.trim());
+    }
+  }
+
+  // Recurse into nested objects
+  for (const value of Object.values(params)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      paths.push(...extractPathValuesFromParams(value as Record<string, unknown>));
+    }
+  }
+
+  return paths;
 }

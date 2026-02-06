@@ -1,12 +1,28 @@
 /**
  * GuardClaw Rules Detector
  * 
- * Rule-based sensitivity detection for keywords, tool types, and parameters.
+ * Rule-based sensitivity detection for keywords, regex patterns, tool types, and parameters.
  */
 
 import type { DetectionContext, DetectionResult, PrivacyConfig, SensitivityLevel } from "./types.js";
 import { levelToNumeric, maxLevel } from "./types.js";
 import { extractPathsFromParams, matchesPathPattern } from "./utils.js";
+
+/** Cache compiled regex patterns to avoid re-compilation on every call */
+const patternCache = new Map<string, RegExp>();
+
+function getOrCompileRegex(pattern: string): RegExp | null {
+  const cached = patternCache.get(pattern);
+  if (cached) return cached;
+  try {
+    const compiled = new RegExp(pattern, "i");
+    patternCache.set(pattern, compiled);
+    return compiled;
+  } catch {
+    console.warn(`[GuardClaw] Invalid regex pattern: ${pattern}`);
+    return null;
+  }
+}
 
 /**
  * Detect sensitivity level based on configured rules
@@ -29,7 +45,18 @@ export function detectByRules(
     }
   }
 
-  // 2. Check tool type and parameters
+  // 2. Check regex patterns in message
+  if (context.message) {
+    const patternResult = checkPatterns(context.message, config);
+    if (patternResult.level !== "S1") {
+      levels.push(patternResult.level);
+      if (patternResult.reason) {
+        reasons.push(patternResult.reason);
+      }
+    }
+  }
+
+  // 3. Check tool type and parameters
   if (context.toolName) {
     const toolResult = checkToolType(context.toolName, config);
     if (toolResult.level !== "S1") {
@@ -40,7 +67,7 @@ export function detectByRules(
     }
   }
 
-  // 3. Check tool parameters (paths, etc.)
+  // 4. Check tool parameters (paths, etc.)
   if (context.toolParams) {
     const paramResult = checkToolParams(context.toolParams, config);
     if (paramResult.level !== "S1") {
@@ -51,16 +78,23 @@ export function detectByRules(
     }
   }
 
-  // 4. Check tool result content
+  // 5. Check tool result content (keywords + patterns)
   if (context.toolResult) {
     const resultText = typeof context.toolResult === "string" 
       ? context.toolResult 
       : JSON.stringify(context.toolResult);
-    const resultLevel = checkKeywords(resultText, config);
-    if (resultLevel.level !== "S1") {
-      levels.push(resultLevel.level);
-      if (resultLevel.reason) {
-        reasons.push(`Result: ${resultLevel.reason}`);
+    const resultKeywordLevel = checkKeywords(resultText, config);
+    if (resultKeywordLevel.level !== "S1") {
+      levels.push(resultKeywordLevel.level);
+      if (resultKeywordLevel.reason) {
+        reasons.push(`Result: ${resultKeywordLevel.reason}`);
+      }
+    }
+    const resultPatternLevel = checkPatterns(resultText, config);
+    if (resultPatternLevel.level !== "S1") {
+      levels.push(resultPatternLevel.level);
+      if (resultPatternLevel.reason) {
+        reasons.push(`Result: ${resultPatternLevel.reason}`);
       }
     }
   }
@@ -107,6 +141,40 @@ function checkKeywords(
       return {
         level: "S2",
         reason: `S2 keyword detected: ${keyword}`,
+      };
+    }
+  }
+
+  return { level: "S1" };
+}
+
+/**
+ * Check for sensitive content using regex patterns
+ */
+function checkPatterns(
+  text: string,
+  config: PrivacyConfig
+): { level: SensitivityLevel; reason?: string } {
+  // Check S3 patterns first (higher priority)
+  const s3Patterns = config.rules?.patterns?.S3 ?? [];
+  for (const pattern of s3Patterns) {
+    const regex = getOrCompileRegex(pattern);
+    if (regex && regex.test(text)) {
+      return {
+        level: "S3",
+        reason: `S3 pattern matched: ${pattern}`,
+      };
+    }
+  }
+
+  // Check S2 patterns
+  const s2Patterns = config.rules?.patterns?.S2 ?? [];
+  for (const pattern of s2Patterns) {
+    const regex = getOrCompileRegex(pattern);
+    if (regex && regex.test(text)) {
+      return {
+        level: "S2",
+        reason: `S2 pattern matched: ${pattern}`,
       };
     }
   }

@@ -24,6 +24,11 @@ export type PrivacyConfig = {
       S2?: string[];
       S3?: string[];
     };
+    /** Regex patterns for matching sensitive content (strings are compiled to RegExp) */
+    patterns?: {
+      S2?: string[];
+      S3?: string[];
+    };
     tools?: {
       S2?: {
         tools?: string[];
@@ -48,6 +53,8 @@ export type PrivacyConfig = {
   };
   session?: {
     isolateGuardHistory?: boolean;
+    /** Base directory for session histories (default: ~/.openclaw) */
+    baseDir?: string;
   };
 };
 

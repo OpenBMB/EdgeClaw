@@ -184,6 +184,10 @@ function mergeWithDefaults(
         S2: userConfig.rules?.keywords?.S2 ?? defaults.rules?.keywords?.S2,
         S3: userConfig.rules?.keywords?.S3 ?? defaults.rules?.keywords?.S3,
       },
+      patterns: {
+        S2: userConfig.rules?.patterns?.S2 ?? defaults.rules?.patterns?.S2,
+        S3: userConfig.rules?.patterns?.S3 ?? defaults.rules?.patterns?.S3,
+      },
       tools: {
         S2: {
           tools: userConfig.rules?.tools?.S2?.tools ?? defaults.rules?.tools?.S2?.tools,
@@ -209,6 +213,7 @@ function mergeWithDefaults(
     session: {
       isolateGuardHistory:
         userConfig.session?.isolateGuardHistory ?? defaults.session?.isolateGuardHistory,
+      baseDir: userConfig.session?.baseDir ?? defaults.session?.baseDir,
     },
   };
 }

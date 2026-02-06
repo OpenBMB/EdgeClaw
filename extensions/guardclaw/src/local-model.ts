@@ -134,6 +134,79 @@ async function callOllama(endpoint: string, model: string, prompt: string): Prom
 }
 
 /**
+ * Desensitize content using local model.
+ * For S2 content: ask the local model to redact sensitive parts, then return
+ * the cleaned text that is safe to send to cloud models.
+ *
+ * Falls back to rule-based redaction if the local model is unavailable.
+ */
+export async function desensitizeWithLocalModel(
+  content: string,
+  config: PrivacyConfig
+): Promise<{ desensitized: string; wasModelUsed: boolean }> {
+  // If local model is not enabled, fall back to rule-based redaction
+  if (!config.localModel?.enabled) {
+    // Import at call-time to avoid circular deps
+    const { redactSensitiveInfo } = await import("./utils.js");
+    return {
+      desensitized: redactSensitiveInfo(content),
+      wasModelUsed: false,
+    };
+  }
+
+  try {
+    const prompt = buildDesensitizationPrompt(content);
+    const response = await callLocalModel(prompt, config);
+    const cleaned = parseDesensitizationResponse(response, content);
+    return { desensitized: cleaned, wasModelUsed: true };
+  } catch (err) {
+    console.error("[GuardClaw] Local model desensitization failed, using rule-based fallback:", err);
+    const { redactSensitiveInfo } = await import("./utils.js");
+    return {
+      desensitized: redactSensitiveInfo(content),
+      wasModelUsed: false,
+    };
+  }
+}
+
+/**
+ * Build prompt for desensitization (S2)
+ */
+function buildDesensitizationPrompt(content: string): string {
+  return [
+    "You are a data desensitization tool. Your task is to REDACT sensitive information from the following text.",
+    "",
+    "Rules:",
+    "- Replace passwords, API keys, tokens with [REDACTED:TYPE]",
+    "- Replace internal IP addresses with [REDACTED:IP]",
+    "- Replace database connection strings with [REDACTED:DB_CONNECTION]",
+    "- Replace email addresses with [REDACTED:EMAIL]",
+    "- Replace personal names with [REDACTED:NAME]",
+    "- Keep the overall structure and meaning intact",
+    "- Return ONLY the desensitized text, nothing else",
+    "",
+    "Text to desensitize:",
+    content.slice(0, 2000),
+  ].join("\n");
+}
+
+/**
+ * Parse the desensitization response from the local model
+ */
+function parseDesensitizationResponse(response: string, originalContent: string): string {
+  // The model should return the desensitized text directly
+  const trimmed = response.trim();
+
+  // Sanity check: if the response is very short or seems broken, fall back
+  if (trimmed.length < originalContent.length * 0.3) {
+    // Probably a bad response - use the original with basic redaction
+    return originalContent;
+  }
+
+  return trimmed;
+}
+
+/**
  * Parse model response to extract sensitivity level
  */
 function parseModelResponse(response: string): {

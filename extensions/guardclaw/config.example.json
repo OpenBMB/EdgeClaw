@@ -26,7 +26,19 @@
           "private_key",
           ".pem",
           ".key",
+          ".env",
           "master_password"
+        ]
+      },
+      "patterns": {
+        "S2": [
+          "\\b(?:10|172\\.(?:1[6-9]|2\\d|3[01])|192\\.168)\\.\\d{1,3}\\.\\d{1,3}\\b",
+          "(?:mysql|postgres|mongodb|redis)://[^\\s]+",
+          "\\b(?:sk|key|token)-[A-Za-z0-9]{16,}\\b"
+        ],
+        "S3": [
+          "-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+          "AKIA[0-9A-Z]{16}"
         ]
       },
       "tools": {
@@ -58,7 +70,8 @@
       "model": "ollama/llama3.2:3b"
     },
     "session": {
-      "isolateGuardHistory": true
+      "isolateGuardHistory": true,
+      "baseDir": "~/.openclaw"
     }
   },
   "agents": {

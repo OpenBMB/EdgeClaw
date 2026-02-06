@@ -466,6 +466,13 @@ export const chatHandlers: GatewayRequestHandlers = {
           );
           // Note: Plugin emits its own event through api.emitEvent() - no need to emit here
         }
+        // S2-style: no session redirect but content should be desensitized for cloud model
+        else if (hookResult?.userPromptOverride) {
+          guardUserPrompt = hookResult.userPromptOverride;
+          context.logGateway.info(
+            `[privacy] Content desensitized for cloud model (${hookResult.reason ?? "plugin"})`,
+          );
+        }
       } catch (err) {
         context.logGateway.warn(`[privacy] resolve_model hook failed: ${formatForLog(err)}`);
       }
@@ -564,10 +571,12 @@ export const chatHandlers: GatewayRequestHandlers = {
       const ctx: MsgContext = {
         Body: isGuardRedirect ? displayMessage : parsedMessage,
         // For guard redirects to local models, use custom prompt if provided,
-        // otherwise use raw message without timestamp/envelope formatting
+        // otherwise use raw message without timestamp/envelope formatting.
+        // Also supports S2 desensitization: guardUserPrompt replaces the original
+        // message with a sanitized version even without session redirect.
         BodyForAgent: isGuardRedirect 
           ? (guardUserPrompt ?? parsedMessage) 
-          : stampedMessage,
+          : (guardUserPrompt ?? stampedMessage),
         BodyForCommands: commandBody,
         RawBody: parsedMessage,
         CommandBody: commandBody,

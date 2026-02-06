@@ -43,6 +43,20 @@
                   }
                 }
               },
+              "patterns": {
+                "type": "object",
+                "description": "Regex patterns for matching sensitive content",
+                "properties": {
+                  "S2": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "S3": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  }
+                }
+              },
               "tools": {
                 "type": "object",
                 "properties": {
@@ -96,7 +110,8 @@
           "session": {
             "type": "object",
             "properties": {
-              "isolateGuardHistory": { "type": "boolean" }
+              "isolateGuardHistory": { "type": "boolean" },
+              "baseDir": { "type": "string" }
             }
           }
         }
