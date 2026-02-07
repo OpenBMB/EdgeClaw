@@ -67,6 +67,8 @@ export type DetectionContext = {
   sessionKey?: string;
   agentId?: string;
   recentContext?: string[];
+  /** Pre-read file content for file-reference messages (used for classification) */
+  fileContentSnippet?: string;
 };
 
 export type DetectionResult = {

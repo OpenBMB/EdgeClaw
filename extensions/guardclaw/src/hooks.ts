@@ -43,23 +43,17 @@ import { execSync } from "node:child_process";
  * Privacy-aware system prompt for the guard agent.
  * Instructs the model to never repeat, echo, or include sensitive information in responses.
  */
-const GUARD_AGENT_SYSTEM_PROMPT = `## 隐私保护模式 / Privacy Guard Mode
+const GUARD_AGENT_SYSTEM_PROMPT = `You are a privacy-aware analyst. Analyze the data the user provides. Do your job.
 
-你正在处理一条隐私敏感请求。严格遵守以下规则：
+RULES:
+1. Analyze the data directly. Do NOT write code. Do NOT generate programming examples or tutorials.
+2. NEVER echo raw sensitive values (exact salary, SSN, bank account, password). Use generic references like "your base salary", "the SSN on file", etc.
+3. You MAY discuss percentages, ratios, whether deductions are correct, anomalies, and recommendations.
+4. Reply ONCE, then stop. No [message_id:] tags. No multi-turn simulation.
+5. **Language rule: Reply in the SAME language the user writes in.** If the user writes in Chinese, reply entirely in Chinese. If the user writes in English, reply entirely in English.
+6. Be concise and professional.
 
-**输出格式规则（最重要）：**
-- 只回复一条消息，回复完立即停止
-- 禁止生成 [message_id:...] 或 [system:...] 标签
-- 禁止模拟多轮对话
-- 用中文回复（除非用户用英文提问）
-
-**隐私规则：**
-1. 不要复述用户消息中的敏感数据原文（工资数字、身份证号、银行账号、密码等）
-2. 可以讨论计算结果、比例、分析结论和建议
-3. 用"您的[类型]"代替实际数值，如"您的基本工资"、"您的身份证号"
-4. 重点提供：分析结论、异常发现、改进建议、操作步骤
-
-回复要简洁专业，一次说完。`;
+语言规则：必须使用与用户相同的语言回复。如果用户用中文提问，你必须用中文回答。`;
 
 /**
  * Register all GuardClaw hooks
@@ -390,6 +384,19 @@ export function registerHooks(api: OpenClawPluginApi): void {
         return;
       }
 
+      // Pre-read any referenced files BEFORE classification so the model
+      // can see actual file content and classify correctly (e.g. delivery info → S2).
+      const workspaceDir = api.config.agents?.defaults?.workspace ?? process.cwd();
+      let preReadFileContent: string | undefined;
+      try {
+        preReadFileContent = await tryReadReferencedFile(msgStr, workspaceDir);
+        if (preReadFileContent) {
+          api.logger.info(`[GuardClaw] Pre-read referenced file for classification (${preReadFileContent.length} chars)`);
+        }
+      } catch (fileErr) {
+        api.logger.warn(`[GuardClaw] Failed to pre-read file for classification: ${String(fileErr)}`);
+      }
+
       api.logger.info(`[GuardClaw] resolve_model: calling detectSensitivityLevel with message="${msgStr.slice(0, 80)}"`);
       
       const result = await detectSensitivityLevel(
@@ -398,6 +405,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
           message,
           sessionKey,
           agentId: ctx.agentId,
+          fileContentSnippet: preReadFileContent?.slice(0, 800),
         },
         api.pluginConfig
       );
@@ -408,7 +416,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       recordDetection(sessionKey, result.level, "onUserMessage", result.reason);
 
-      // ── S3: call local model directly, bypass full agent pipeline ──
+      // ── S3: call local model directly with pre-read file content ──
       if (result.level === "S3") {
         const guardCfg = getGuardAgentConfig(privacyConfig);
         const guardProvider = guardCfg?.provider ?? "ollama";
@@ -431,29 +439,33 @@ export function registerHooks(api: OpenClawPluginApi): void {
           sessionKey,
         });
 
-        // Pre-read any referenced files so the guard model has the data
-        const workspaceDir = api.config.agents?.defaults?.workspace ?? process.cwd();
-        let fileContent: string | undefined;
-        try {
-          fileContent = await tryReadReferencedFile(message, workspaceDir);
-          if (fileContent) {
-            api.logger.info(`[GuardClaw] Pre-read file for S3 guard (${fileContent.length} chars)`);
-          }
-        } catch (fileErr) {
-          api.logger.warn(`[GuardClaw] Failed to pre-read file: ${String(fileErr)}`);
-        }
+        // Use pre-read file content (already fetched above)
+        const fileContent = preReadFileContent;
 
-        // Build user prompt with file content
-        let fullUserMessage = message;
+        // Build a highly directive user prompt:
+        // - If file content is available, embed it and instruct the model to analyze it
+        // - Clearly tell the model NOT to write code
+        // - Use the same language as the user
+        let userPrompt: string;
+        const isChinese = /[\u4e00-\u9fff]/.test(msgStr);
         if (fileContent) {
-          fullUserMessage += `\n\n--- 文件内容 ---\n${fileContent}\n--- 文件内容结束 ---`;
+          // Strip the file path from the original message — keep only the task
+          const filePathPattern = /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
+          const task = msgStr.replace(filePathPattern, "").replace(/\s{2,}/g, " ").trim();
+
+          const dataIntro = isChinese
+            ? "以下是从文件中提取的实际数据，请直接分析："
+            : "Below is the actual data extracted from the file. Analyze it directly.";
+
+          userPrompt = `${task}\n\n${dataIntro}\n\n\`\`\`\n${fileContent}\n\`\`\``;
+        } else {
+          userPrompt = msgStr;
         }
 
-        // Call Ollama directly with minimal prompt — bypasses OpenClaw's 21k system prompt
         try {
           const directReply = await callLocalModelDirect(
             GUARD_AGENT_SYSTEM_PROMPT,
-            fullUserMessage,
+            userPrompt,
             { endpoint: ollamaEndpoint, model: guardModelName },
           );
 
@@ -465,7 +477,9 @@ export function registerHooks(api: OpenClawPluginApi): void {
             reason: `GuardClaw: S3 — processed locally by ${guardModelName}`,
             provider: guardProvider,
             model: guardModelName,
-            directResponse: `🔒 [本地隐私模型处理]\n\n${directReply}`,
+            directResponse: isChinese
+              ? `🔒 [已由本地隐私模型处理]\n\n${directReply}`
+              : `🔒 [Processed locally by privacy guard]\n\n${directReply}`,
           };
         } catch (ollamaErr) {
           api.logger.error(`[GuardClaw] Failed to call local model directly: ${String(ollamaErr)}`);
@@ -481,16 +495,10 @@ export function registerHooks(api: OpenClawPluginApi): void {
           `[GuardClaw] S2 detected. Desensitizing content for cloud model.`
         );
 
-        // Check if the message references a file — if so, pre-read and desensitize the FILE content
-        const workspaceDir = api.config.agents?.defaults?.workspace ?? process.cwd();
-        let fileContent: string | undefined;
-        try {
-          fileContent = await tryReadReferencedFile(message, workspaceDir);
-          if (fileContent) {
-            api.logger.info(`[GuardClaw] Pre-read file for S2 desensitization (${fileContent.length} chars)`);
-          }
-        } catch (fileErr) {
-          api.logger.warn(`[GuardClaw] Failed to pre-read file for S2: ${String(fileErr)}`);
+        // Reuse pre-read file content (already fetched before classification)
+        const fileContent = preReadFileContent;
+        if (fileContent) {
+          api.logger.info(`[GuardClaw] Using pre-read file for S2 desensitization (${fileContent.length} chars)`);
         }
 
         let desensitizedPrompt: string;
@@ -506,8 +514,14 @@ export function registerHooks(api: OpenClawPluginApi): void {
           const filePathPattern = /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
           const taskDescription = message.replace(filePathPattern, "").replace(/\s{2,}/g, " ").trim();
 
+          // Detect user language to instruct the cloud model accordingly
+          const hasChinese = /[\u4e00-\u9fff]/.test(taskDescription);
+          const langInstruction = hasChinese
+            ? `请仅根据上方已脱敏的内容完成任务。不要读取任何文件——内容已经提供。\n**重要：回复中不得出现任何 [REDACTED:xxx] 标记。直接省略隐私信息，用自然语言概括即可（例如"您的地址"、"您的电话"等）。请用中文回复。**`
+            : `Complete the task based ONLY on the desensitized content above. Do NOT read any files — the content is already provided.\n**IMPORTANT: Your reply must NOT contain any [REDACTED:xxx] tags. Simply omit private details or describe them in natural language (e.g. "your address", "your phone number", "the recipient", etc.). Reply in the same language the user used.**`;
+
           // Build a prompt: task description (no file path) + desensitized content + clear instructions
-          desensitizedPrompt = `用户请求：${taskDescription}\n\n以下是文件内容（已脱敏，隐私信息已替换为 [REDACTED:xxx] 标记）：\n--- 文件内容 ---\n${desensitizedFile}\n--- 文件内容结束 ---\n\n请直接基于上述已脱敏的文件内容完成任务。不需要读取任何文件，内容已提供在上方。在你的回复中，不要出现任何 [REDACTED:xxx] 标记——直接省略隐私信息，用自然语言概括即可（例如"您的地址"、"您的电话"等）。`;
+          desensitizedPrompt = `${taskDescription}\n\n--- FILE CONTENT ---\n${desensitizedFile}\n--- END FILE CONTENT ---\n\n${langInstruction}`;
           api.logger.info(
             `[GuardClaw] S2 file desensitization complete (model=${wasModelUsed}, ${desensitizedFile.length} chars)`
           );
@@ -727,16 +741,17 @@ async function tryReadReferencedFile(
           }
         }
       } else if (ext === "docx") {
-        // Try to extract text from docx
-        try {
-          const text = execSync(
-            `python3 -c "from docx import Document; d=Document('${absPath}'); print('\\n'.join(p.text for p in d.paragraphs))"`,
-            { encoding: "utf-8", timeout: 10000 }
-          );
-          return `[Extracted from ${filePath}]\n${text}`;
-        } catch {
-          return undefined;
+        // Try to extract text from docx — try multiple python paths
+        const pyCmd = `"from docx import Document; d=Document('${absPath}'); print('\\n'.join(p.text for p in d.paragraphs))"`;
+        for (const py of ["python3", `${process.env.HOME}/miniconda3/bin/python3`]) {
+          try {
+            const text = execSync(`${py} -c ${pyCmd}`, { encoding: "utf-8", timeout: 10000 });
+            return `[Extracted from ${filePath}]\n${text}`;
+          } catch {
+            continue;
+          }
         }
+        return undefined;
       } else {
         // Text file — read directly
         const content = await readFile(absPath, "utf-8");

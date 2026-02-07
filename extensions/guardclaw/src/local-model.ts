@@ -30,9 +30,22 @@ export async function detectByLocalModel(
     const response = await callLocalModel(prompt, config);
     const parsed = parseModelResponse(response);
 
+    let { level } = parsed;
+
+    // If the LLM says S1 but we have file content with obvious PII, bump to S2.
+    // This handles cases where the message itself is innocent but the file has PII.
+    if (level === "S1" && context.fileContentSnippet) {
+      const piiLevel = quickPiiScan(context.fileContentSnippet);
+      if (piiLevel !== "S1") {
+        console.log(`[GuardClaw] LLM said S1 but file PII scan found ${piiLevel} — bumping`);
+        level = piiLevel;
+        parsed.reason = `${parsed.reason ?? ""}; file content contains PII (auto-bumped to ${piiLevel})`;
+      }
+    }
+
     return {
-      level: parsed.level,
-      levelNumeric: levelToNumeric(parsed.level),
+      level,
+      levelNumeric: levelToNumeric(level),
       reason: parsed.reason,
       detectorType: "localModelDetector",
       confidence: parsed.confidence ?? 0.8,
@@ -51,6 +64,49 @@ export async function detectByLocalModel(
 }
 
 /**
+ * Quick regex-based PII scan for file content.
+ * Not used for primary detection — only as a safety net when the LLM says S1
+ * but the file content clearly contains PII that should be at least S2.
+ */
+function quickPiiScan(content: string): SensitivityLevel {
+  const s3Patterns = [
+    /\bpassword\s*[:=]/i,
+    /\b密码\s*[:：]/,
+    /\bAPI[_\s]?key\s*[:=]/i,
+    /\bsecret\s*[:=]/i,
+    /\btoken\s*[:=]/i,
+    /\bprivate[_\s]?key/i,
+    /\bid_rsa\b/i,
+  ];
+  for (const p of s3Patterns) {
+    if (p.test(content)) return "S3";
+  }
+
+  let piiHits = 0;
+  const s2Patterns = [
+    /\(\d{3}\)\s?\d{3}-\d{4}/,                    // US phone (415) 867-5321
+    /\b1[3-9]\d{9}\b/,                              // CN mobile 13867554321
+    /\b\d{3}-\d{2}-\d{4}\b/,                        // US SSN 518-73-6294
+    /\b\d{6}(?:19|20)\d{8}\b/,                      // CN ID 330106196208158821
+    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i, // email
+    /\b\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b/,           // card number
+    /\b(?:gate|door|access)\s*code\s*[:：]?\s*\S+/i, // gate code
+    /门禁码\s*[:：]?\s*\S+/,                         // CN gate code
+    /\b(?:tracking|单号)\s*[:：]?\s*\S+/i,           // tracking number
+    /\b(?:license\s*plate|车牌号?)\s*[:：]?\s*\S+/i, // license plate
+    /\b[沪京粤苏浙鲁豫川闽湘鄂]\w[·]?\w{4,5}\b/,    // CN license plate
+    /\b\d{1,5}\s+\w+\s+(?:St|Street|Ave|Avenue|Blvd|Dr|Drive|Rd|Road|Ln|Lane)\b/i, // US address
+    /(?:路|街|弄|号|巷|村)\d+/,                      // CN address
+  ];
+  for (const p of s2Patterns) {
+    if (p.test(content)) piiHits++;
+  }
+
+  // Need at least 2 PII pattern matches to classify as S2
+  return piiHits >= 2 ? "S2" : "S1";
+}
+
+/**
  * Build detection prompt for the local model.
  *
  * The prompt is bilingual (English + Chinese) so the judge works well with
@@ -62,40 +118,39 @@ export async function detectByLocalModel(
 function buildDetectionPrompt(context: DetectionContext): string {
   // Compact prompt with explicit examples — tuned for MiniCPM4.1 and similar 8B models
   const parts: string[] = [
-    `[SYSTEM] You are a strict privacy classifier. Output ONLY one JSON object.
+    `[SYSTEM] You are a strict privacy classifier. Output ONLY a single JSON object — nothing else.
 
-Classify by BOTH actual data AND intent. If the user INTENDS to process sensitive data (e.g. asks to read a payslip file), classify based on what the data WILL contain.
+Classify by BOTH actual data AND intent. If the user asks to read/analyze a file, classify based on what the file WILL contain.
 
-Levels (choose exactly one):
+S3 = PRIVATE (local only, never cloud):
+  - Financial: payslip, salary, tax, bank account, SSN, 工资单, 报销单, 税表
+  - Medical: health records, diagnoses, prescriptions, lab results, 病历, 体检报告
+  - Credentials: passwords, API keys, secrets, tokens, private keys
+  - ANY request to read/analyze a file about the above topics → S3
+  "evaluate these passwords" → S3
+  "check my payslip" → S3
+  "summarize the medical record" → S3
 
-S3 = PRIVATE (must process locally, never send to cloud):
-  - Financial records: 工资单/payslip, 报销单/expense, 税表/tax, 收入/income, bank account
-  - Medical/Health: 体检报告, 病历, diagnoses, prescriptions, health metrics
-  - Credentials: passwords, API keys, verification codes/验证码
-  - Requests to READ/ANALYZE files containing above data
-  Example: "帮我看一下工资单" → S3 (intent to process financial records)
-  Example: "分析一下体检报告" → S3 (intent to process medical data)
-  Example: "基本工资 15000, 个税 1200" → S3 (actual financial data)
-  Example: "密码 Abc123" → S3 (actual credential)
+S2 = SENSITIVE (redact PII, then send to cloud):
+  - Addresses, gate/door codes, pickup codes, delivery tracking numbers
+  - Phone numbers, email addresses, real names used as contact PII
+  - License plates, SSN/ID mixed with personal context, chat logs with PII
+  - File content containing the above PII → S2
+  "1847 Elm St, gate code 4523#" → S2
+  "张伟 手机13912345678" → S2
 
-S2 = SENSITIVE (redact then send to cloud):
-  - Home addresses with details: 街道/弄/号楼/单元/室
-  - Door codes/门禁码, pickup codes/取件码, delivery tracking
-  - Phone numbers, emails, real names as contact PII
-  - Chat logs with names + contact info
-  Example: "地址浦东新区张杨路500弄, 门禁码1234" → S2
-  Example: "张伟 手机13912345678 邮箱xx@xx.com" → S2
+S1 = SAFE: No sensitive data or intent.
+  "write a poem about spring" → S1
+  "how to read Excel with pandas" → S1
 
-S1 = SAFE: No sensitive data or intent to process sensitive data.
-  Example: "写一首春天的诗" → S1
-  Example: "今天天气怎么样" → S1
+Rules:
+- Passwords/credentials → ALWAYS S3 (never S2)
+- Medical data → ALWAYS S3 (never S2)
+- Gate/access/pickup codes → S2 (not S3)
+- If file content is provided and contains PII → at least S2
+- When unsure → pick higher level
 
-Key rules:
-- 门禁码/取件码 are S2 (physical access codes), NOT S3
-- Health/medical data is ALWAYS S3, never S2
-- When genuinely unsure → pick higher
-
-Format: {"level":"S1|S2|S3","reason":"brief","confidence":0.0-1.0}`,
+Output format: {"level":"S1|S2|S3","reason":"brief"}`,
     "",
     "[CONTENT]",
   ];
@@ -310,13 +365,13 @@ async function extractPiiWithModel(
   const textSnippet = content.slice(0, 3000);
   const prompt = `Task: Extract ALL PII (personally identifiable information) from text as a JSON array.
 
-Types: NAME (ALL人名,每个人都要提取), PHONE, ADDRESS (all variants), ACCESS_CODE, DELIVERY (tracking/快递单号), ID, CARD (bank/medical/insurance卡号), LICENSE_PLATE (车牌号), EMAIL, PASSWORD, PAYMENT (支付宝/微信), BIRTHDAY
+Types: NAME (every person), PHONE, ADDRESS (all variants including shortened), ACCESS_CODE (gate/door/门禁码), DELIVERY (tracking numbers, pickup codes/取件码), ID (SSN/身份证), CARD (bank/medical/insurance), LICENSE_PLATE (plate numbers/车牌), EMAIL, PASSWORD, PAYMENT (Venmo/PayPal/支付宝), BIRTHDAY, TIME (appointment/delivery times), NOTE (private instructions)
 
-Important: Extract EVERY person's name and EVERY address variant (even shortened forms).
+Important: Extract EVERY person's name and EVERY address variant.
 
 Example:
-Input: 张伟住在北京市朝阳区建国路88号。李娜电话13912345678，门禁码1234#，医保卡号YB330-123，车牌号京A12345，顺丰SF123
-Output: [{"type":"NAME","value":"张伟"},{"type":"NAME","value":"李娜"},{"type":"ADDRESS","value":"北京市朝阳区建国路88号"},{"type":"PHONE","value":"13912345678"},{"type":"ACCESS_CODE","value":"1234#"},{"type":"CARD","value":"YB330-123"},{"type":"LICENSE_PLATE","value":"京A12345"},{"type":"DELIVERY","value":"SF123"}]
+Input: Alex lives at 123 Main St. Li Na phone 13912345678, gate code 1234#, card YB330-123, plate 京A12345, tracking SF123, Venmo @alex99
+Output: [{"type":"NAME","value":"Alex"},{"type":"NAME","value":"Li Na"},{"type":"ADDRESS","value":"123 Main St"},{"type":"PHONE","value":"13912345678"},{"type":"ACCESS_CODE","value":"1234#"},{"type":"CARD","value":"YB330-123"},{"type":"LICENSE_PLATE","value":"京A12345"},{"type":"DELIVERY","value":"SF123"},{"type":"PAYMENT","value":"@alex99"}]
 
 Input: ${textSnippet}
 Output: [`;
@@ -331,8 +386,8 @@ Output: [`;
       stream: false,
       options: {
         temperature: 0.0,
-        num_predict: 1200,
-        stop: ["\n\n", "Input:", "Task:"],
+        num_predict: 2500,
+        stop: ["Input:", "Task:", "\n\n"],
       },
     }),
   });
@@ -351,25 +406,45 @@ Output: [`;
     raw = raw.slice(lastThink + "</think>".length).trim();
   }
 
-  // Complete the JSON array
-  const jsonStr = "[" + raw;
-  // Find the last ] to cut off any trailing garbage
+  // Normalize whitespace (model may use newlines between items)
+  raw = raw.replace(/\s+/g, " ");
+
+  // Complete the JSON array (prompt already started with "[")
+  let jsonStr = "[" + raw;
+
+  // Find the last ] to cut off any trailing garbage (explanations, etc.)
   const lastBracket = jsonStr.lastIndexOf("]");
-  if (lastBracket < 0) return [];
-  const cleaned = jsonStr.slice(0, lastBracket + 1);
+  if (lastBracket >= 0) {
+    jsonStr = jsonStr.slice(0, lastBracket + 1);
+  } else {
+    // No closing ] — model was cut off. Close after the last complete object.
+    const lastCloseBrace = jsonStr.lastIndexOf("}");
+    if (lastCloseBrace >= 0) {
+      jsonStr = jsonStr.slice(0, lastCloseBrace + 1) + "]";
+    } else {
+      return [];
+    }
+  }
+
+  // Fix trailing commas before ]
+  jsonStr = jsonStr.replace(/,\s*\]/g, "]");
+
+  console.log(`[GuardClaw] PII extraction raw JSON (${jsonStr.length} chars): ${jsonStr.slice(0, 300)}...`);
 
   try {
-    const arr = JSON.parse(cleaned);
+    const arr = JSON.parse(jsonStr);
     if (!Array.isArray(arr)) return [];
-    return arr.filter(
+    const items = arr.filter(
       (item: unknown) =>
         item &&
         typeof item === "object" &&
         typeof (item as Record<string, unknown>).type === "string" &&
         typeof (item as Record<string, unknown>).value === "string"
     ) as Array<{ type: string; value: string }>;
+    console.log(`[GuardClaw] PII extraction found ${items.length} items: ${items.map(i => `${i.type}=${i.value}`).join(", ")}`);
+    return items;
   } catch {
-    console.error("[GuardClaw] Failed to parse PII extraction JSON:", cleaned.slice(0, 200));
+    console.error("[GuardClaw] Failed to parse PII extraction JSON:", jsonStr.slice(0, 300));
     return [];
   }
 }
@@ -481,8 +556,7 @@ async function callOllamaChat(
 
 /**
  * Call Ollama directly for an S3 analysis task, bypassing the full agent pipeline.
- * Uses a minimal system prompt and stops at the first [message_id: tag to prevent
- * degenerate repetitive output from small models.
+ * Uses /api/generate with repeat_penalty to prevent degenerate repetitive output.
  */
 export async function callLocalModelDirect(
   systemPrompt: string,
@@ -491,10 +565,40 @@ export async function callLocalModelDirect(
 ): Promise<string> {
   const endpoint = config.endpoint ?? "http://localhost:11434";
   const model = config.model ?? "openbmb/minicpm4.1";
+  const url = `${endpoint}/api/generate`;
 
-  let result = await callOllamaChat(endpoint, model, systemPrompt, userMessage, {
-    stop: ["[message_id:", "[Message_id:", "[system:", "--- FILE CONTENT"],
+  // Combine system + user into a single prompt for /api/generate
+  const prompt = `${systemPrompt}\n\n${userMessage}\n\nAnalysis:`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      prompt,
+      stream: false,
+      options: {
+        temperature: 0.3,
+        num_predict: 1500,
+        repeat_penalty: 1.3,
+        stop: ["[message_id:", "[Message_id:", "[system:", "Instructions:", "Data:"],
+      },
+    }),
   });
+
+  if (!response.ok) {
+    throw new Error(`Ollama generate API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = (await response.json()) as { response?: string };
+  let result = data.response ?? "";
+
+  // Strip thinking output
+  result = result.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  const lastThink = result.lastIndexOf("</think>");
+  if (lastThink !== -1) {
+    result = result.slice(lastThink + "</think>".length).trim();
+  }
 
   // Truncate at any remaining [message_id: artifacts
   for (const marker of ["[message_id:", "[Message_id:"]) {
