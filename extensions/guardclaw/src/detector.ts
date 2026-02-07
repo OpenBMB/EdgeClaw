@@ -69,16 +69,17 @@ function getDetectorsForCheckpoint(
   config: PrivacyConfig
 ): DetectorType[] {
   const checkpoints = config.checkpoints ?? {};
+  const fallback: DetectorType[] = ["localModelDetector"];
   
   switch (checkpoint) {
     case "onUserMessage":
-      return checkpoints.onUserMessage ?? ["ruleDetector"];
+      return checkpoints.onUserMessage ?? fallback;
     case "onToolCallProposed":
-      return checkpoints.onToolCallProposed ?? ["ruleDetector"];
+      return checkpoints.onToolCallProposed ?? fallback;
     case "onToolCallExecuted":
-      return checkpoints.onToolCallExecuted ?? ["ruleDetector"];
+      return checkpoints.onToolCallExecuted ?? fallback;
     default:
-      return ["ruleDetector"];
+      return fallback;
   }
 }
 

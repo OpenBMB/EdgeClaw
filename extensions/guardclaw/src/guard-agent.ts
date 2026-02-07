@@ -39,8 +39,10 @@ export function getGuardAgentConfig(config: PrivacyConfig): {
   }
 
   const fullModel = config.guardAgent?.model ?? "ollama/llama3.2:3b";
-  const [provider, modelName] = fullModel.includes("/")
-    ? fullModel.split("/", 2)
+  // Split on FIRST slash only — model names like "openbmb/minicpm4.1" contain slashes
+  const firstSlash = fullModel.indexOf("/");
+  const [provider, modelName] = firstSlash >= 0
+    ? [fullModel.slice(0, firstSlash), fullModel.slice(firstSlash + 1)]
     : ["ollama", fullModel];
 
   return {

@@ -120,6 +120,44 @@ export function getAllSessionStates(): Map<string, SessionPrivacyState> {
   return new Map(sessionStates);
 }
 
+// ── Pre-read file tracking ──────────────────────────────────────────────
+// Track file paths that were pre-read and desensitized in the S2 flow,
+// so we can block tool calls that attempt to read them raw.
+const preReadFiles = new Map<string, Set<string>>();
+
+/**
+ * Mark file paths as already pre-read for a session's S2 desensitization.
+ * Extracts file paths from the message and stores them.
+ */
+export function markPreReadFiles(sessionKey: string, message: string): void {
+  const pattern = /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
+  const matches: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(message)) !== null) {
+    matches.push(m[0]);
+  }
+  if (matches.length > 0) {
+    const existing = preReadFiles.get(sessionKey) ?? new Set();
+    for (const f of matches) existing.add(f);
+    preReadFiles.set(sessionKey, existing);
+  }
+}
+
+/**
+ * Check if a file path was already pre-read for this session.
+ */
+export function isFilePreRead(sessionKey: string, filePath: string): boolean {
+  const files = preReadFiles.get(sessionKey);
+  if (!files) return false;
+  // Check if any pre-read path is a suffix of (or equals) the target
+  for (const f of files) {
+    if (filePath === f || filePath.endsWith("/" + f) || filePath.endsWith("\\" + f)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Helper to compare and return higher level
  */

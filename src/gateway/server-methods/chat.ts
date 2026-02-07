@@ -454,6 +454,53 @@ export const chatHandlers: GatewayRequestHandlers = {
             messageProvider: INTERNAL_MESSAGE_CHANNEL,
           },
         );
+        // Direct response: plugin handled the LLM call itself, skip agent run
+        if (hookResult?.directResponse) {
+          context.logGateway.info(
+            `[privacy] Direct response from plugin (${hookResult.reason ?? "plugin"})`,
+          );
+
+          // Ack the request
+          respond(true, { runId: clientRunId }, undefined, { runId: clientRunId });
+
+          // Append user + assistant messages to the session transcript
+          const { storePath, entry: sessionEntry } = loadSessionEntry(p.sessionKey);
+          const sessionId = sessionEntry?.sessionId ?? clientRunId;
+
+          appendUserTranscriptMessage({
+            message: parsedMessage,
+            sessionId,
+            storePath,
+            sessionFile: sessionEntry?.sessionFile,
+            createIfMissing: true,
+          });
+
+          const appended = appendAssistantTranscriptMessage({
+            message: hookResult.directResponse,
+            label: "🔒 Response from local model",
+            sessionId,
+            storePath,
+            sessionFile: sessionEntry?.sessionFile,
+            createIfMissing: true,
+          });
+
+          // Broadcast final response to the UI
+          broadcastChatFinal({
+            context,
+            runId: clientRunId,
+            sessionKey: p.sessionKey,
+            message: appended.ok
+              ? appended.message
+              : {
+                  role: "assistant",
+                  content: [{ type: "text", text: hookResult.directResponse }],
+                  timestamp: Date.now(),
+                  stopReason: "injected",
+                  usage: { input: 0, output: 0, totalTokens: 0 },
+                },
+          });
+          return;
+        }
         // Check if hook wants to redirect to a different session (subsession isolation)
         if (hookResult?.sessionKey && hookResult.sessionKey !== p.sessionKey) {
           originalSessionKey = p.sessionKey;

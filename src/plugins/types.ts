@@ -516,6 +516,13 @@ export type PluginHookResolveModelResult = {
    * Useful for wrapping sensitive messages with instructions or redacting content.
    */
   userPromptOverride?: string;
+  /**
+   * If set, skip the normal agent run entirely and deliver this text as the response.
+   * The plugin handles the LLM call itself (e.g., calling a local model directly).
+   * Useful when the standard agent pipeline (system prompt, tools, etc.) is too heavy
+   * for a lightweight local model.
+   */
+  directResponse?: string;
 };
 
 // Hook handler types mapped by hook name

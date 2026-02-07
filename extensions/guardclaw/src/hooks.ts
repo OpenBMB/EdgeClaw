@@ -18,8 +18,10 @@ import {
   recordDetection,
   isSessionMarkedPrivate,
   getSessionSensitivity,
+  markPreReadFiles,
+  isFilePreRead,
 } from "./session-state.js";
-import { desensitizeWithLocalModel } from "./local-model.js";
+import { desensitizeWithLocalModel, callLocalModelDirect } from "./local-model.js";
 import { getDefaultSessionManager, type SessionMessage } from "./session-manager.js";
 import { getDefaultMemoryManager } from "./memory-isolation.js";
 import {
@@ -32,23 +34,32 @@ import {
 import { redactSensitiveInfo, isProtectedMemoryPath } from "./utils.js";
 import type { PrivacyConfig } from "./types.js";
 import { defaultPrivacyConfig } from "./config-schema.js";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { execSync } from "node:child_process";
 
 /**
  * Privacy-aware system prompt for the guard agent.
  * Instructs the model to never repeat, echo, or include sensitive information in responses.
  */
-const GUARD_AGENT_SYSTEM_PROMPT = `## Privacy Guidelines
+const GUARD_AGENT_SYSTEM_PROMPT = `## 隐私保护模式 / Privacy Guard Mode
 
-You are handling a privacy-sensitive request. Follow these critical rules:
+你正在处理一条隐私敏感请求。严格遵守以下规则：
 
-1. **NEVER repeat or echo back** any sensitive information from the user's message (passwords, API keys, tokens, private data, etc.)
-2. **NEVER include** passwords, keys, credentials, or other secrets in your response
-3. If asked about credentials or secrets, provide guidance WITHOUT showing the actual values
-4. Use placeholders like [REDACTED], <password>, or <api-key> when referencing sensitive values
-5. Focus on helping the user accomplish their task safely without exposing their private information
-6. If you need to reference something sensitive, describe it generically (e.g., "your password" instead of showing it)
+**输出格式规则（最重要）：**
+- 只回复一条消息，回复完立即停止
+- 禁止生成 [message_id:...] 或 [system:...] 标签
+- 禁止模拟多轮对话
+- 用中文回复（除非用户用英文提问）
 
-Remember: Your response may be logged or displayed elsewhere. Protect the user's privacy at all times.`;
+**隐私规则：**
+1. 不要复述用户消息中的敏感数据原文（工资数字、身份证号、银行账号、密码等）
+2. 可以讨论计算结果、比例、分析结论和建议
+3. 用"您的[类型]"代替实际数值，如"您的基本工资"、"您的身份证号"
+4. 重点提供：分析结论、异常发现、改进建议、操作步骤
+
+回复要简洁专业，一次说完。`;
 
 /**
  * Register all GuardClaw hooks
@@ -159,6 +170,20 @@ export function registerHooks(api: OpenClawPluginApi): void {
               };
             }
           }
+        }
+      }
+
+      // ── Block tool reads for files already pre-read in S2 desensitization ──
+      if (toolName === "read" || toolName === "read_file" || toolName === "cat") {
+        const filePath = String(typedParams?.path ?? typedParams?.file ?? typedParams?.target ?? "");
+        if (filePath && isFilePreRead(sessionKey, filePath)) {
+          api.logger.info(
+            `[GuardClaw] BLOCKED tool ${toolName} for pre-read file: ${filePath} (content already desensitized in prompt)`
+          );
+          return {
+            block: true,
+            blockReason: `File content has already been provided in the conversation (desensitized for privacy). No need to read it again.`,
+          };
         }
       }
 
@@ -332,7 +357,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       const privacyConfig = getPrivacyConfigFromApi(api);
       api.logger.info(
-        `[GuardClaw] resolve_model: enabled=${privacyConfig.enabled}, keywords.S2=${JSON.stringify(privacyConfig.rules?.keywords?.S2)}`
+        `[GuardClaw] resolve_model: enabled=${privacyConfig.enabled}, localModel=${privacyConfig.localModel?.enabled}, checkpoints=${JSON.stringify(privacyConfig.checkpoints?.onUserMessage)}`
       );
       if (!privacyConfig.enabled) {
         api.logger.info(`[GuardClaw] resolve_model: privacy disabled, returning`);
@@ -358,7 +383,14 @@ export function registerHooks(api: OpenClawPluginApi): void {
         return;
       }
 
-      api.logger.info(`[GuardClaw] resolve_model: calling detectSensitivityLevel with message="${String(message).slice(0, 80)}"`);
+      // Skip if message was already desensitized (prevent double resolve_model runs)
+      const msgStr = String(message);
+      if (msgStr.includes("[REDACTED:") || msgStr.startsWith("[SYSTEM]")) {
+        api.logger.info(`[GuardClaw] resolve_model: already processed or internal prompt, skipping`);
+        return;
+      }
+
+      api.logger.info(`[GuardClaw] resolve_model: calling detectSensitivityLevel with message="${msgStr.slice(0, 80)}"`);
       
       const result = await detectSensitivityLevel(
         {
@@ -376,18 +408,17 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       recordDetection(sessionKey, result.level, "onUserMessage", result.reason);
 
-      // ── S3: full redirect to guard subsession with local model ──
+      // ── S3: call local model directly, bypass full agent pipeline ──
       if (result.level === "S3") {
         const guardCfg = getGuardAgentConfig(privacyConfig);
         const guardProvider = guardCfg?.provider ?? "ollama";
-        const guardModelName = guardCfg?.modelName ?? "llama3.2:3b";
-        const guardSessionKey = generateGuardSessionKey(sessionKey);
+        const guardModelName = guardCfg?.modelName ?? "openbmb/minicpm4.1";
+        const ollamaEndpoint = privacyConfig.localModel?.endpoint ?? "http://localhost:11434";
 
         markSessionAsPrivate(sessionKey, result.level);
-        markSessionAsPrivate(guardSessionKey, result.level);
 
         api.logger.info(
-          `[GuardClaw] S3 detected. Redirecting to guard subsession: ${guardSessionKey}`
+          `[GuardClaw] S3 detected. Calling local model directly: ${guardModelName}`
         );
 
         // Emit UI event
@@ -397,31 +428,49 @@ export function registerHooks(api: OpenClawPluginApi): void {
           model: `${guardProvider}/${guardModelName}`,
           provider: guardProvider,
           reason: result.reason ?? "S3 content detected",
-          sessionKey: guardSessionKey,
-          originalSessionKey: sessionKey,
-        });
-
-        // Write a placeholder to the main session's clean history
-        const sessionManager = getDefaultSessionManager();
-        const placeholder = buildMainSessionPlaceholder(result.level, result.reason);
-        await sessionManager.persistMessage(sessionKey, {
-          role: "user",
-          content: placeholder,
-          timestamp: Date.now(),
           sessionKey,
         });
 
-        const wrappedUserPrompt = buildGuardUserPrompt(message, result.level, result.reason);
+        // Pre-read any referenced files so the guard model has the data
+        const workspaceDir = api.config.agents?.defaults?.workspace ?? process.cwd();
+        let fileContent: string | undefined;
+        try {
+          fileContent = await tryReadReferencedFile(message, workspaceDir);
+          if (fileContent) {
+            api.logger.info(`[GuardClaw] Pre-read file for S3 guard (${fileContent.length} chars)`);
+          }
+        } catch (fileErr) {
+          api.logger.warn(`[GuardClaw] Failed to pre-read file: ${String(fileErr)}`);
+        }
 
-        return {
-          provider: guardProvider,
-          model: guardModelName,
-          sessionKey: guardSessionKey,
-          deliverToOriginal: true,
-          reason: `GuardClaw: S3 — redirected to isolated guard session`,
-          extraSystemPrompt: GUARD_AGENT_SYSTEM_PROMPT,
-          userPromptOverride: wrappedUserPrompt,
-        };
+        // Build user prompt with file content
+        let fullUserMessage = message;
+        if (fileContent) {
+          fullUserMessage += `\n\n--- 文件内容 ---\n${fileContent}\n--- 文件内容结束 ---`;
+        }
+
+        // Call Ollama directly with minimal prompt — bypasses OpenClaw's 21k system prompt
+        try {
+          const directReply = await callLocalModelDirect(
+            GUARD_AGENT_SYSTEM_PROMPT,
+            fullUserMessage,
+            { endpoint: ollamaEndpoint, model: guardModelName },
+          );
+
+          api.logger.info(
+            `[GuardClaw] S3 direct response (${directReply.length} chars): "${directReply.slice(0, 100)}..."`
+          );
+
+          return {
+            reason: `GuardClaw: S3 — processed locally by ${guardModelName}`,
+            provider: guardProvider,
+            model: guardModelName,
+            directResponse: `🔒 [本地隐私模型处理]\n\n${directReply}`,
+          };
+        } catch (ollamaErr) {
+          api.logger.error(`[GuardClaw] Failed to call local model directly: ${String(ollamaErr)}`);
+          // Fall through to let normal pipeline handle it as a fallback
+        }
       }
 
       // ── S2: desensitize content, then forward to cloud model ──
@@ -432,15 +481,49 @@ export function registerHooks(api: OpenClawPluginApi): void {
           `[GuardClaw] S2 detected. Desensitizing content for cloud model.`
         );
 
-        // Desensitize the user message (via local model or rule-based fallback)
-        const { desensitized, wasModelUsed } = await desensitizeWithLocalModel(
-          message,
-          privacyConfig
-        );
+        // Check if the message references a file — if so, pre-read and desensitize the FILE content
+        const workspaceDir = api.config.agents?.defaults?.workspace ?? process.cwd();
+        let fileContent: string | undefined;
+        try {
+          fileContent = await tryReadReferencedFile(message, workspaceDir);
+          if (fileContent) {
+            api.logger.info(`[GuardClaw] Pre-read file for S2 desensitization (${fileContent.length} chars)`);
+          }
+        } catch (fileErr) {
+          api.logger.warn(`[GuardClaw] Failed to pre-read file for S2: ${String(fileErr)}`);
+        }
 
-        api.logger.info(
-          `[GuardClaw] Desensitization complete (model=${wasModelUsed}). Forwarding to cloud.`
-        );
+        let desensitizedPrompt: string;
+        let wasModelUsed = false;
+
+        if (fileContent) {
+          // File-reference case: desensitize the FILE CONTENT, keep the request intact
+          const { desensitized: desensitizedFile, wasModelUsed: fileModelUsed } =
+            await desensitizeWithLocalModel(fileContent, privacyConfig);
+          wasModelUsed = fileModelUsed;
+
+          // Strip file path from message so cloud model doesn't try to read it again
+          const filePathPattern = /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
+          const taskDescription = message.replace(filePathPattern, "").replace(/\s{2,}/g, " ").trim();
+
+          // Build a prompt: task description (no file path) + desensitized content + clear instructions
+          desensitizedPrompt = `用户请求：${taskDescription}\n\n以下是文件内容（已脱敏，隐私信息已替换为 [REDACTED:xxx] 标记）：\n--- 文件内容 ---\n${desensitizedFile}\n--- 文件内容结束 ---\n\n请直接基于上述已脱敏的文件内容完成任务。不需要读取任何文件，内容已提供在上方。在你的回复中，不要出现任何 [REDACTED:xxx] 标记——直接省略隐私信息，用自然语言概括即可（例如"您的地址"、"您的电话"等）。`;
+          api.logger.info(
+            `[GuardClaw] S2 file desensitization complete (model=${wasModelUsed}, ${desensitizedFile.length} chars)`
+          );
+
+          // Track which files were pre-read so we can block tool reads for them
+          markPreReadFiles(sessionKey, message);
+        } else {
+          // Inline PII case: desensitize the user message directly
+          const { desensitized, wasModelUsed: msgModelUsed } =
+            await desensitizeWithLocalModel(message, privacyConfig);
+          wasModelUsed = msgModelUsed;
+          desensitizedPrompt = desensitized;
+          api.logger.info(
+            `[GuardClaw] S2 message desensitization complete (model=${wasModelUsed})`
+          );
+        }
 
         // Persist the ORIGINAL message to full history
         const sessionManager = getDefaultSessionManager();
@@ -461,10 +544,10 @@ export function registerHooks(api: OpenClawPluginApi): void {
           sessionKey,
         });
 
-        // Forward the DESENSITIZED message to cloud (don't change provider/model)
+        // Forward the DESENSITIZED content to cloud (don't change provider/model)
         return {
           reason: `GuardClaw: S2 — content desensitized before cloud delivery`,
-          userPromptOverride: desensitized,
+          userPromptOverride: desensitizedPrompt,
         };
       }
 
@@ -568,11 +651,104 @@ function extractMessageText(message: unknown): string | undefined {
 function buildGuardUserPrompt(
   originalMessage: string,
   level: string,
-  reason?: string
+  reason?: string,
+  fileContent?: string
 ): string {
-  return `[Privacy Level: ${level}${reason ? ` — ${reason}` : ""}]
+  let prompt = `[Privacy Level: ${level}${reason ? ` — ${reason}` : ""}]
 
 ${originalMessage}`;
+
+  if (fileContent) {
+    prompt += `\n\n--- FILE CONTENT (read locally, never sent to cloud) ---\n${fileContent}\n--- END FILE CONTENT ---`;
+  }
+
+  return prompt;
+}
+
+/**
+ * Try to read a file referenced in the user message.
+ * Supports text files directly and xlsx/docx via conversion.
+ */
+async function tryReadReferencedFile(
+  message: string,
+  workspaceDir: string
+): Promise<string | undefined> {
+  // Extract file paths from the message (e.g. test-files/foo.xlsx, /path/to/file.txt)
+  const filePattern = /(?:^|\s)((?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md))\b/g;
+  const matches: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = filePattern.exec(message)) !== null) {
+    matches.push(m[1]);
+  }
+
+  if (matches.length === 0) return undefined;
+
+  // Try multiple base directories — workspace first, cwd, then parent of cwd as fallback
+  const cwd = process.cwd();
+  const baseDirs = [
+    workspaceDir,
+    cwd,
+    resolve(cwd, ".."),  // parent dir (gateway may run from openclaw/ subdir)
+  ].filter(Boolean);
+
+  for (const filePath of matches) {
+    try {
+      let absPath = "";
+      for (const base of baseDirs) {
+        const candidate = resolve(base, filePath);
+        if (existsSync(candidate)) {
+          absPath = candidate;
+          break;
+        }
+      }
+      // Also try the file path as-is (if absolute)
+      if (!absPath && existsSync(filePath)) absPath = resolve(filePath);
+      if (!absPath) continue;
+
+      const ext = filePath.split(".").pop()?.toLowerCase();
+
+      if (ext === "xlsx" || ext === "xls") {
+        // Convert xlsx → csv via xlsx2csv or python
+        try {
+          const csv = execSync(`xlsx2csv "${absPath}"`, {
+            encoding: "utf-8",
+            timeout: 10000,
+          });
+          return `[Converted from ${filePath}]\n${csv}`;
+        } catch {
+          try {
+            const csv = execSync(
+              `python3 -c "import openpyxl; wb=openpyxl.load_workbook('${absPath}'); ws=wb.active; [print(','.join(str(c.value or '') for c in row)) for row in ws.iter_rows()]"`,
+              { encoding: "utf-8", timeout: 10000 }
+            );
+            return `[Converted from ${filePath}]\n${csv}`;
+          } catch {
+            return undefined;
+          }
+        }
+      } else if (ext === "docx") {
+        // Try to extract text from docx
+        try {
+          const text = execSync(
+            `python3 -c "from docx import Document; d=Document('${absPath}'); print('\\n'.join(p.text for p in d.paragraphs))"`,
+            { encoding: "utf-8", timeout: 10000 }
+          );
+          return `[Extracted from ${filePath}]\n${text}`;
+        } catch {
+          return undefined;
+        }
+      } else {
+        // Text file — read directly
+        const content = await readFile(absPath, "utf-8");
+        return `[Content of ${filePath}]\n${content.slice(0, 10000)}`;
+      }
+    } catch {
+      // Skip files we can't read
+      continue;
+    }
+  }
+
+  return undefined;
 }
 
 /**

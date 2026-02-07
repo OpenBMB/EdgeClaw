@@ -87,58 +87,42 @@ export const guardClawConfigSchema = Type.Object({
 });
 
 /**
- * Default configuration values
+ * Default configuration values.
+ *
+ * Detection relies entirely on the local LLM judge (localModelDetector).
+ * Rule-based detection is kept as an optional fallback but NOT enabled by default.
  */
 export const defaultPrivacyConfig = {
   enabled: true,
   checkpoints: {
-    onUserMessage: ["ruleDetector" as const],
-    onToolCallProposed: ["ruleDetector" as const],
-    onToolCallExecuted: ["ruleDetector" as const],
+    onUserMessage: ["localModelDetector" as const],
+    onToolCallProposed: ["localModelDetector" as const],
+    onToolCallExecuted: ["localModelDetector" as const],
   },
   rules: {
     keywords: {
-      S2: ["password", "api_key", "secret", "token", "credential", "auth_token", "credit card", "card number", "ssn", "pin code"],
-      S3: ["ssh", "id_rsa", "private_key", ".pem", ".key", ".env", "master_password"],
+      S2: [] as string[],
+      S3: [] as string[],
     },
-    /** Regex patterns compiled at runtime for matching sensitive content */
     patterns: {
-      S2: [
-        // IP addresses (internal ranges)
-        "\\b(?:10|172\\.(?:1[6-9]|2\\d|3[01])|192\\.168)\\.\\d{1,3}\\.\\d{1,3}\\b",
-        // Database connection strings
-        "(?:mysql|postgres|mongodb|redis)://[^\\s]+",
-        // API key patterns (sk-xxx, key-xxx)
-        "\\b(?:sk|key|token)-[A-Za-z0-9]{16,}\\b",
-      ],
-      S3: [
-        // SSH private key header
-        "-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
-        // AWS credentials
-        "AKIA[0-9A-Z]{16}",
-      ],
+      S2: [] as string[],
+      S3: [] as string[],
     },
     tools: {
-      S2: {
-        tools: ["exec", "shell"],
-        paths: ["~/secrets", "~/private"],
-      },
-      S3: {
-        tools: ["system.run", "sudo"],
-        paths: ["~/.ssh", "/etc", "~/.aws", "~/.config/credentials", "/root"],
-      },
+      S2: { tools: [] as string[], paths: [] as string[] },
+      S3: { tools: [] as string[], paths: [] as string[] },
     },
   },
   localModel: {
-    enabled: false,
+    enabled: true,
     provider: "ollama",
-    model: "llama3.2:3b",
+    model: "openbmb/minicpm4.1",
     endpoint: "http://localhost:11434",
   },
   guardAgent: {
     id: "guard",
     workspace: "~/.openclaw/workspace-guard",
-    model: "ollama/llama3.2:3b",
+    model: "ollama/openbmb/minicpm4.1",
   },
   session: {
     isolateGuardHistory: true,

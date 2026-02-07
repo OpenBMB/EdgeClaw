@@ -139,6 +139,31 @@ export function redactSensitiveInfo(text: string): string {
     "[REDACTED:CARD_NUMBER]"
   );
 
+  // ── Phase 1b: Chinese PII pattern-based redaction ──────────────────────────
+  // Chinese mobile phone numbers (13x-19x, 11 digits)
+  redacted = redacted.replace(/\b1[3-9]\d{9}\b/g, "[REDACTED:PHONE]");
+
+  // Chinese ID card numbers (18 digits or 17+X)
+  redacted = redacted.replace(/\b\d{17}[\dXx]\b/g, "[REDACTED:ID]");
+
+  // Chinese delivery tracking numbers (common carriers, 10-20 alphanumeric)
+  redacted = redacted.replace(
+    /(?:快递单号|运单号|取件码)[：:\s]*[A-Za-z0-9]{6,20}/g,
+    "[REDACTED:DELIVERY]"
+  );
+
+  // Door access codes following keywords
+  redacted = redacted.replace(
+    /(?:门禁码|门禁密码|门锁密码|开门密码)[：:\s]*[A-Za-z0-9#*]{3,12}/g,
+    "[REDACTED:ACCESS_CODE]"
+  );
+
+  // Chinese address patterns (省/市/区/路/号/弄/栋/幢/室)
+  redacted = redacted.replace(
+    /[\u4e00-\u9fa5]{2,}(?:省|市|区|县|镇|路|街|巷|弄|号|栋|幢|室|楼|单元|门牌)\d*[\u4e00-\u9fa5\d]*/g,
+    "[REDACTED:ADDRESS]"
+  );
+
   // ── Phase 2: Context-based redaction ──────────────────────────────────────
   // Match: <keyword> <connecting words> <actual value>
   // This catches patterns like "password is abc123", "credit card number is in 12896489bf"

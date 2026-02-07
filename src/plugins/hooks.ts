@@ -422,7 +422,7 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
       ctx,
       // Merge overrides - model, session, delivery, and content options
       (acc, next) => {
-        if (next.model || next.provider || next.sessionKey || next.userPromptOverride || next.extraSystemPrompt) {
+        if (next.model || next.provider || next.sessionKey || next.userPromptOverride || next.extraSystemPrompt || next.directResponse) {
           return {
             provider: next.provider ?? acc?.provider,
             model: next.model ?? acc?.model,
@@ -431,6 +431,7 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
             deliverToOriginal: next.deliverToOriginal ?? acc?.deliverToOriginal,
             extraSystemPrompt: next.extraSystemPrompt ?? acc?.extraSystemPrompt,
             userPromptOverride: next.userPromptOverride ?? acc?.userPromptOverride,
+            directResponse: next.directResponse ?? acc?.directResponse,
           };
         }
         return acc;
