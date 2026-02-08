@@ -98,14 +98,19 @@ function renderPrivacyIndicator(status: PrivacyIndicatorStatus | null | undefine
     return nothing;
   }
 
-  const levelLabel = status.level === "S3" ? "High Sensitivity" : "Moderate Sensitivity";
-  const levelEmoji = status.level === "S3" ? "🔒" : "🛡️";
+  const isS3 = status.level === "S3";
+  const levelLabel = isS3 ? "High Sensitivity" : "Moderate Sensitivity";
+  const levelEmoji = isS3 ? "🔒" : "🛡️";
+  // S3 uses danger (red), S2 uses warn (amber) — matching existing callout semantics
+  const borderColor = isS3 ? "var(--danger)" : "var(--warn)";
+  const labelColor = isS3 ? "var(--danger)" : "var(--warn)";
+  const pulseColor = isS3 ? "var(--danger-subtle)" : "var(--warn-subtle)";
 
   return html`
-    <div class="callout warning privacy-indicator privacy-indicator--active" style="
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      border: 1px solid #e94560;
-      border-radius: 8px;
+    <div class="callout privacy-indicator privacy-indicator--active" style="
+      background: var(--secondary);
+      border: 1px solid ${borderColor};
+      border-radius: var(--radius-md);
       padding: 12px 16px;
       margin-bottom: 12px;
       display: flex;
@@ -115,19 +120,19 @@ function renderPrivacyIndicator(status: PrivacyIndicatorStatus | null | undefine
     ">
       <span style="font-size: 24px;">${levelEmoji}</span>
       <div style="flex: 1;">
-        <div style="font-weight: 600; color: #e94560; margin-bottom: 2px;">
+        <div style="font-weight: 600; color: ${labelColor}; margin-bottom: 2px;">
           Privacy Guard Active · ${levelLabel}
         </div>
-        <div style="font-size: 12px; color: #a0a0a0;">
-          Using local model: <code style="background: #2a2a4a; padding: 2px 6px; border-radius: 4px; color: #4ade80;">${status.model || "ollama/llama3.2:3b"}</code>
+        <div style="font-size: 12px; color: var(--muted);">
+          Using local model: <code style="background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--ok);">${status.model || "ollama/llama3.2:3b"}</code>
         </div>
       </div>
-      <span style="font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px;">Privacy Protected</span>
+      <span style="font-size: 10px; color: var(--muted-strong); text-transform: uppercase; letter-spacing: 1px;">Privacy Protected</span>
     </div>
     <style>
       @keyframes privacy-pulse {
-        0%, 100% { box-shadow: 0 0 10px rgba(233, 69, 96, 0.3); }
-        50% { box-shadow: 0 0 20px rgba(233, 69, 96, 0.5); }
+        0%, 100% { box-shadow: 0 0 10px ${pulseColor}; }
+        50% { box-shadow: 0 0 20px ${pulseColor}; }
       }
     </style>
   `;

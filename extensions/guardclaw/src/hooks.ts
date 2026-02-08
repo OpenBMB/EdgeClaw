@@ -34,16 +34,17 @@ import {
 import { redactSensitiveInfo, isProtectedMemoryPath } from "./utils.js";
 import type { PrivacyConfig } from "./types.js";
 import { defaultPrivacyConfig } from "./config-schema.js";
+import { loadPrompt } from "./prompt-loader.js";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
 
 /**
- * Privacy-aware system prompt for the guard agent.
- * Instructs the model to never repeat, echo, or include sensitive information in responses.
+ * Default guard agent system prompt (used as fallback if prompts/guard-agent-system.md is missing).
+ * To customize, edit: extension/prompts/guard-agent-system.md
  */
-const GUARD_AGENT_SYSTEM_PROMPT = `You are a privacy-aware analyst. Analyze the data the user provides. Do your job.
+const DEFAULT_GUARD_AGENT_SYSTEM_PROMPT = `You are a privacy-aware analyst. Analyze the data the user provides. Do your job.
 
 RULES:
 1. Analyze the data directly. Do NOT write code. Do NOT generate programming examples or tutorials.
@@ -54,6 +55,11 @@ RULES:
 6. Be concise and professional.
 
 语言规则：必须使用与用户相同的语言回复。如果用户用中文提问，你必须用中文回答。`;
+
+/** Load guard agent system prompt from prompts/guard-agent-system.md (or use default) */
+function getGuardAgentSystemPrompt(): string {
+  return loadPrompt("guard-agent-system", DEFAULT_GUARD_AGENT_SYSTEM_PROMPT);
+}
 
 /**
  * Register all GuardClaw hooks
@@ -464,7 +470,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
         try {
           const directReply = await callLocalModelDirect(
-            GUARD_AGENT_SYSTEM_PROMPT,
+            getGuardAgentSystemPrompt(),
             userPrompt,
             { endpoint: ollamaEndpoint, model: guardModelName },
           );

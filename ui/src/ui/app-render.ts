@@ -909,7 +909,7 @@ export function renderApp(state: AppViewState) {
                   (state as unknown as OpenClawApp).handleSplitRatioChange(ratio),
                 assistantName: state.assistantName,
                 assistantAvatar: state.assistantAvatar,
-                guardClawStatus: (state as unknown as OpenClawApp).guardClawStatus,
+                privacyStatus: (state as unknown as OpenClawApp).privacyStatus,
               })
             : nothing
         }

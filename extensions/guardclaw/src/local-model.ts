@@ -6,6 +6,7 @@
 
 import type { DetectionContext, DetectionResult, PrivacyConfig, SensitivityLevel } from "./types.js";
 import { levelToNumeric } from "./types.js";
+import { loadPrompt, loadPromptWithVars } from "./prompt-loader.js";
 
 /**
  * Detect sensitivity level using a local model
@@ -106,19 +107,8 @@ function quickPiiScan(content: string): SensitivityLevel {
   return piiHits >= 2 ? "S2" : "S1";
 }
 
-/**
- * Build detection prompt for the local model.
- *
- * The prompt is bilingual (English + Chinese) so the judge works well with
- * both English developer-oriented content and Chinese daily-life scenarios
- * described in CASES.md.
- *
- * Tuned for MiniCPM4.1-8B but works with other 8B-class models (Qwen3, Llama).
- */
-function buildDetectionPrompt(context: DetectionContext): string {
-  // Compact prompt with explicit examples — tuned for MiniCPM4.1 and similar 8B models
-  const parts: string[] = [
-    `[SYSTEM] You are a strict privacy classifier. Output ONLY a single JSON object — nothing else.
+/** Default detection system prompt (fallback if prompts/detection-system.md is missing) */
+const DEFAULT_DETECTION_SYSTEM_PROMPT = `[SYSTEM] You are a strict privacy classifier. Output ONLY a single JSON object — nothing else.
 
 Classify by BOTH actual data AND intent. If the user asks to read/analyze a file, classify based on what the file WILL contain.
 
@@ -132,12 +122,16 @@ S3 = PRIVATE (local only, never cloud):
   "summarize the medical record" → S3
 
 S2 = SENSITIVE (redact PII, then send to cloud):
-  - Addresses, gate/door codes, pickup codes, delivery tracking numbers
+  - Addresses (ANY physical address, 地址, 住址, street, road, apartment, 路, 街, 小区, 弄, 号)
+  - Gate/door codes, pickup codes, delivery tracking numbers
   - Phone numbers, email addresses, real names used as contact PII
   - License plates, SSN/ID mixed with personal context, chat logs with PII
   - File content containing the above PII → S2
+  - ANY mention of "address"/"地址" with actual location data → S2
   "1847 Elm St, gate code 4523#" → S2
+  "我的地址是北京市朝阳区xxx" → S2
   "张伟 手机13912345678" → S2
+  "my address is 123 Main St" → S2
 
 S1 = SAFE: No sensitive data or intent.
   "write a poem about spring" → S1
@@ -150,7 +144,21 @@ Rules:
 - If file content is provided and contains PII → at least S2
 - When unsure → pick higher level
 
-Output format: {"level":"S1|S2|S3","reason":"brief"}`,
+Output format: {"level":"S1|S2|S3","reason":"brief"}`;
+
+/**
+ * Build detection prompt for the local model.
+ *
+ * The system instruction is loaded from prompts/detection-system.md (editable by users).
+ * The dynamic [CONTENT] block with message/tool info is appended by code.
+ *
+ * Tuned for MiniCPM4.1-8B but works with other 8B-class models (Qwen3, Llama).
+ */
+function buildDetectionPrompt(context: DetectionContext): string {
+  const systemPrompt = loadPrompt("detection-system", DEFAULT_DETECTION_SYSTEM_PROMPT);
+
+  const parts: string[] = [
+    systemPrompt,
     "",
     "[CONTENT]",
   ];
@@ -363,7 +371,9 @@ async function extractPiiWithModel(
   content: string,
 ): Promise<Array<{ type: string; value: string }>> {
   const textSnippet = content.slice(0, 3000);
-  const prompt = `Task: Extract ALL PII (personally identifiable information) from text as a JSON array.
+
+  /** Default PII extraction prompt (fallback if prompts/pii-extraction.md is missing) */
+  const DEFAULT_PII_PROMPT = `Task: Extract ALL PII (personally identifiable information) from text as a JSON array.
 
 Types: NAME (every person), PHONE, ADDRESS (all variants including shortened), ACCESS_CODE (gate/door/门禁码), DELIVERY (tracking numbers, pickup codes/取件码), ID (SSN/身份证), CARD (bank/medical/insurance), LICENSE_PLATE (plate numbers/车牌), EMAIL, PASSWORD, PAYMENT (Venmo/PayPal/支付宝), BIRTHDAY, TIME (appointment/delivery times), NOTE (private instructions)
 
@@ -373,8 +383,12 @@ Example:
 Input: Alex lives at 123 Main St. Li Na phone 13912345678, gate code 1234#, card YB330-123, plate 京A12345, tracking SF123, Venmo @alex99
 Output: [{"type":"NAME","value":"Alex"},{"type":"NAME","value":"Li Na"},{"type":"ADDRESS","value":"123 Main St"},{"type":"PHONE","value":"13912345678"},{"type":"ACCESS_CODE","value":"1234#"},{"type":"CARD","value":"YB330-123"},{"type":"LICENSE_PLATE","value":"京A12345"},{"type":"DELIVERY","value":"SF123"},{"type":"PAYMENT","value":"@alex99"}]
 
-Input: ${textSnippet}
+Input: {{CONTENT}}
 Output: [`;
+
+  const prompt = loadPromptWithVars("pii-extraction", DEFAULT_PII_PROMPT, {
+    CONTENT: textSnippet,
+  });
 
   const url = `${endpoint}/api/generate`;
   const response = await fetch(url, {
