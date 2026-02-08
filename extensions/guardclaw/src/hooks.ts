@@ -139,6 +139,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
   //   S3 tools → BLOCK the call and return an error
   //   S2 tools → allow but log
   //   Also: block cloud model access to protected memory/history paths
+  //   Also: guard subagent spawn / A2A send (sessions_spawn, sessions_send)
   // =========================================================================
   api.on("before_tool_call", async (event, ctx) => {
     try {
@@ -187,7 +188,68 @@ export function registerHooks(api: OpenClawPluginApi): void {
         }
       }
 
-      // ── Sensitivity detection ──
+      // ── Subagent / A2A guard ──
+      // sessions_spawn: scan the task for sensitivity before it reaches the subagent
+      // sessions_send:  scan the message for sensitivity before A2A delivery
+      const isSpawn = toolName === "sessions_spawn";
+      const isSend  = toolName === "sessions_send";
+
+      if (isSpawn || isSend) {
+        const contentField = isSpawn
+          ? String(typedParams?.task ?? "")
+          : String(typedParams?.message ?? "");
+
+        if (contentField.trim()) {
+          const subagentResult = await detectSensitivityLevel(
+            {
+              checkpoint: "onToolCallProposed",
+              message: contentField,
+              toolName,
+              toolParams: typedParams,
+              sessionKey,
+              agentId: ctx.agentId,
+            },
+            api.pluginConfig
+          );
+
+          const label = isSpawn ? "subagent task" : "A2A message";
+          recordDetection(sessionKey, subagentResult.level, "onToolCallProposed", subagentResult.reason);
+
+          if (subagentResult.level === "S3") {
+            markSessionAsPrivate(sessionKey, subagentResult.level);
+            api.logger.warn(
+              `[GuardClaw] BLOCKED ${toolName}: ${label} contains S3 content. ` +
+              `Reason: ${subagentResult.reason ?? "private data detected"}`
+            );
+            return {
+              block: true,
+              blockReason:
+                `GuardClaw: ${label} blocked — S3 sensitivity detected in ${toolName} ` +
+                `(${subagentResult.reason ?? "private data must not leave local boundary"})`,
+            };
+          }
+
+          if (subagentResult.level === "S2") {
+            markSessionAsPrivate(sessionKey, subagentResult.level);
+            api.logger.info(
+              `[GuardClaw] S2 detected in ${toolName} ${label}. Desensitizing before forwarding.`
+            );
+
+            const privacyConfig = getPrivacyConfigFromApi(api);
+            const { desensitized } = await desensitizeWithLocalModel(contentField, privacyConfig);
+
+            // Return modified params with desensitized content
+            const fieldName = isSpawn ? "task" : "message";
+            return {
+              params: { ...typedParams, [fieldName]: desensitized },
+            };
+          }
+
+          // S1: fall through to normal detection below
+        }
+      }
+
+      // ── Sensitivity detection (general) ──
       const result = await detectSensitivityLevel(
         {
           checkpoint: "onToolCallProposed",
@@ -578,7 +640,143 @@ export function registerHooks(api: OpenClawPluginApi): void {
     }
   });
 
-  api.logger.info("[GuardClaw] All hooks registered successfully");
+  // =========================================================================
+  // Hook 7: message_sending — Guard subagent announce & outbound messages
+  //
+  //   When a subagent finishes and announces results back to the requester
+  //   chat, this hook scans the outbound content. If the announce reply
+  //   leaks S3 data, we cancel it. If S2 PII is found, we redact before
+  //   delivery. This is the safety-net: even if the subagent processed
+  //   sensitive data, the announce message is scrubbed.
+  // =========================================================================
+  api.on("message_sending", async (event, _ctx) => {
+    try {
+      const { content } = event;
+
+      if (!content || !content.trim()) {
+        return;
+      }
+
+      const privacyConfig = getPrivacyConfigFromApi(api);
+      if (!privacyConfig.enabled) {
+        return;
+      }
+
+      // Run detection on the outbound message content
+      const result = await detectSensitivityLevel(
+        {
+          checkpoint: "onToolCallExecuted", // reuse post-execution checkpoint config
+          message: content,
+        },
+        api.pluginConfig
+      );
+
+      if (result.level === "S3") {
+        api.logger.warn(
+          `[GuardClaw] BLOCKED outbound message: S3 content detected in message_sending. ` +
+          `Reason: ${result.reason ?? "private data"}`
+        );
+        return {
+          cancel: true,
+        };
+      }
+
+      if (result.level === "S2") {
+        api.logger.info(
+          `[GuardClaw] S2 content in outbound message. Redacting PII before delivery.`
+        );
+        const { desensitized } = await desensitizeWithLocalModel(content, privacyConfig);
+        return {
+          content: desensitized,
+        };
+      }
+
+      // S1: pass through
+    } catch (err) {
+      api.logger.error(`[GuardClaw] Error in message_sending hook: ${String(err)}`);
+    }
+  });
+
+  // =========================================================================
+  // Hook 8: before_agent_start — Guard subagent session prompts
+  //
+  //   When any agent run starts (including subagent runs whose session keys
+  //   contain ":subagent:"), we scan the initial prompt for sensitive content.
+  //   This catches cases where a parent agent embeds private data into the
+  //   subagent's task description or bootstrap context.
+  //
+  //   S3 → inject a system prompt warning the subagent to refuse and explain
+  //   S2 → inject a system prompt instructing the subagent to redact PII
+  // =========================================================================
+  api.on("before_agent_start", async (event, ctx) => {
+    try {
+      const { prompt } = event;
+      const sessionKey = ctx.sessionKey ?? "";
+
+      // Only apply to subagent sessions (session key contains ":subagent:")
+      if (!sessionKey.includes(":subagent:")) {
+        return;
+      }
+
+      if (!prompt || !prompt.trim()) {
+        return;
+      }
+
+      const privacyConfig = getPrivacyConfigFromApi(api);
+      if (!privacyConfig.enabled) {
+        return;
+      }
+
+      const result = await detectSensitivityLevel(
+        {
+          checkpoint: "onUserMessage",
+          message: prompt,
+          sessionKey,
+          agentId: ctx.agentId,
+        },
+        api.pluginConfig
+      );
+
+      if (result.level === "S3") {
+        api.logger.warn(
+          `[GuardClaw] Subagent session ${sessionKey} prompt contains S3 content! ` +
+          `Injecting privacy guard instructions. Reason: ${result.reason ?? "private data"}`
+        );
+
+        // Inject a system prompt that tells the subagent to refuse processing
+        // and explain that the task contains private data
+        return {
+          systemPrompt:
+            `[PRIVACY GUARD] This task contains S3-level PRIVATE content (${result.reason ?? "sensitive data detected"}). ` +
+            `You MUST NOT process, analyze, or echo any of this data. ` +
+            `Reply with: "This task contains private data that cannot be processed by a cloud model. ` +
+            `Please handle it directly in the main session where local-model privacy guard is available." ` +
+            `Do NOT attempt the task.`,
+        };
+      }
+
+      if (result.level === "S2") {
+        api.logger.info(
+          `[GuardClaw] Subagent session ${sessionKey} prompt contains S2 content. ` +
+          `Injecting PII handling instructions.`
+        );
+
+        return {
+          prependContext:
+            `[PRIVACY NOTICE] The task below may contain personally identifiable information (PII). ` +
+            `When producing output, do NOT echo exact PII values (addresses, phone numbers, emails, names). ` +
+            `Use generic references instead (e.g. "the recipient's address", "the phone number on file"). ` +
+            `Never include raw PII in your final response.`,
+        };
+      }
+
+      // S1: no intervention
+    } catch (err) {
+      api.logger.error(`[GuardClaw] Error in before_agent_start hook: ${String(err)}`);
+    }
+  });
+
+  api.logger.info("[GuardClaw] All hooks registered successfully (8 hooks: message, tool, result, persist, session, model, outbound, subagent)");
 }
 
 // ==========================================================================
