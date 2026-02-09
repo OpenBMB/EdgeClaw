@@ -558,6 +558,14 @@ export function registerHooks(api: OpenClawPluginApi): void {
             `[GuardClaw] S3 direct response (${directReply.length} chars): "${directReply.slice(0, 100)}..."`,
           );
 
+          // Return directResponse + userPromptOverride (sanitized placeholder).
+          // The core writes userPromptOverride to the session transcript instead
+          // of the raw message, preventing S3 content from leaking into history
+          // that cloud models may later load.
+          const sanitizedPlaceholder = isChinese
+            ? `🔒 [隐私内容 — 已由本地模型处理]`
+            : `🔒 [Private content — processed locally]`;
+
           return {
             reason: `GuardClaw: S3 — processed locally by ${guardModelName}`,
             provider: guardProvider,
@@ -565,6 +573,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
             directResponse: isChinese
               ? `🔒 [已由本地隐私模型处理]\n\n${directReply}`
               : `🔒 [Processed locally by privacy guard]\n\n${directReply}`,
+            userPromptOverride: sanitizedPlaceholder,
           };
         } catch (ollamaErr) {
           api.logger.error(`[GuardClaw] Failed to call local model directly: ${String(ollamaErr)}`);

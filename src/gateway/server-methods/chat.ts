@@ -14,6 +14,7 @@ import {
   extractShortModelName,
   type ResponsePrefixContext,
 } from "../../auto-reply/reply/response-prefix-template.js";
+import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 import {
@@ -42,7 +43,6 @@ import {
 } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
-import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 
 type TranscriptAppendResult = {
   ok: boolean;
@@ -467,8 +467,11 @@ export const chatHandlers: GatewayRequestHandlers = {
           const { storePath, entry: sessionEntry } = loadSessionEntry(p.sessionKey);
           const sessionId = sessionEntry?.sessionId ?? clientRunId;
 
+          // If the plugin provided a userPromptOverride, write that to the transcript
+          // instead of the raw message. This prevents S3 sensitive content (passwords,
+          // SSH keys, etc.) from leaking into the session JSONL that cloud models read.
           appendUserTranscriptMessage({
-            message: parsedMessage,
+            message: hookResult.userPromptOverride ?? parsedMessage,
             sessionId,
             storePath,
             sessionFile: sessionEntry?.sessionFile,
@@ -526,9 +529,8 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
 
     // Load effective session entry for the (potentially redirected) session
-    const { entry: effectiveEntry } = effectiveSessionKey !== p.sessionKey
-      ? loadSessionEntry(effectiveSessionKey)
-      : { entry };
+    const { entry: effectiveEntry } =
+      effectiveSessionKey !== p.sessionKey ? loadSessionEntry(effectiveSessionKey) : { entry };
 
     const sendPolicy = resolveSendPolicy({
       cfg,
@@ -611,7 +613,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       // If redirected to guard session, use placeholder for UI display
       // but send actual message to guard session for processing
       const isGuardRedirect = Boolean(originalSessionKey);
-      const displayMessage = isGuardRedirect 
+      const displayMessage = isGuardRedirect
         ? `🔒 [Private message - processed locally]`
         : parsedMessage;
 
@@ -621,8 +623,8 @@ export const chatHandlers: GatewayRequestHandlers = {
         // otherwise use raw message without timestamp/envelope formatting.
         // Also supports S2 desensitization: guardUserPrompt replaces the original
         // message with a sanitized version even without session redirect.
-        BodyForAgent: isGuardRedirect 
-          ? (guardUserPrompt ?? parsedMessage) 
+        BodyForAgent: isGuardRedirect
+          ? (guardUserPrompt ?? parsedMessage)
           : (guardUserPrompt ?? stampedMessage),
         BodyForCommands: commandBody,
         RawBody: parsedMessage,
@@ -695,7 +697,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       })
         .then(() => {
           let message: Record<string, unknown> | undefined;
-          
+
           // For non-streaming responses, build message from finalReplyParts
           if (!agentRunStarted) {
             const combinedReply = finalReplyParts
@@ -705,9 +707,8 @@ export const chatHandlers: GatewayRequestHandlers = {
               .trim();
             if (combinedReply) {
               // Write transcript to the effective (guard) session
-              const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(
-                effectiveSessionKey,
-              );
+              const { storePath: latestStorePath, entry: latestEntry } =
+                loadSessionEntry(effectiveSessionKey);
               const sessionId = latestEntry?.sessionId ?? effectiveEntry?.sessionId ?? clientRunId;
               const appended = appendAssistantTranscriptMessage({
                 message: combinedReply,
@@ -740,16 +741,15 @@ export const chatHandlers: GatewayRequestHandlers = {
               message,
             });
           }
-          
+
           // If using guard session isolation, inject placeholder and response to main session
           // This runs for both streaming and non-streaming responses
           if (originalSessionKey && originalSessionKey !== effectiveSessionKey) {
             // Load the guard session transcript to get the final response
-            const { storePath: guardStorePath, entry: guardEntry } = loadSessionEntry(
-              effectiveSessionKey,
-            );
+            const { storePath: guardStorePath, entry: guardEntry } =
+              loadSessionEntry(effectiveSessionKey);
             let guardResponse = "";
-            
+
             // Read the last assistant message from the guard session transcript
             if (guardEntry?.sessionFile && fs.existsSync(guardEntry.sessionFile)) {
               try {
@@ -780,13 +780,12 @@ export const chatHandlers: GatewayRequestHandlers = {
                 );
               }
             }
-            
+
             if (guardResponse) {
-              const { storePath: mainStorePath, entry: mainEntry } = loadSessionEntry(
-                originalSessionKey,
-              );
+              const { storePath: mainStorePath, entry: mainEntry } =
+                loadSessionEntry(originalSessionKey);
               const mainSessionId = mainEntry?.sessionId ?? clientRunId;
-              
+
               // First, inject a placeholder for the user's private message
               appendUserTranscriptMessage({
                 message: `🔒 [Private message - processed locally]`,
@@ -795,7 +794,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                 sessionFile: mainEntry?.sessionFile,
                 createIfMissing: true,
               });
-              
+
               // Then inject the assistant's response
               const mainAppended = appendAssistantTranscriptMessage({
                 message: `🔒 [Response from local model]\n\n${guardResponse}`,
@@ -804,7 +803,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                 sessionFile: mainEntry?.sessionFile,
                 createIfMissing: true,
               });
-              
+
               if (!mainAppended.ok) {
                 context.logGateway.warn(
                   `[privacy] Failed to inject response into main session: ${mainAppended.error ?? "unknown"}`,
@@ -823,7 +822,7 @@ export const chatHandlers: GatewayRequestHandlers = {
               }
             }
           }
-          
+
           context.dedupe.set(`chat:${clientRunId}`, {
             ts: Date.now(),
             ok: true,
