@@ -1,6 +1,6 @@
 /**
  * GuardClaw Hooks Registration
- * 
+ *
  * Registers all plugin hooks for sensitivity detection at various checkpoints.
  * Implements:
  *   - S1: pass-through (no intervention)
@@ -12,7 +12,24 @@
  */
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import type { PrivacyConfig } from "./types.js";
+import { defaultPrivacyConfig } from "./config-schema.js";
 import { detectSensitivityLevel } from "./detector.js";
+import {
+  generateGuardSessionKey,
+  isGuardSessionKey,
+  getGuardAgentConfig,
+  buildMainSessionPlaceholder,
+  isLocalProvider,
+} from "./guard-agent.js";
+import { desensitizeWithLocalModel, callLocalModelDirect } from "./local-model.js";
+import { getDefaultMemoryManager } from "./memory-isolation.js";
+import { loadPrompt } from "./prompt-loader.js";
+import { getDefaultSessionManager, type SessionMessage } from "./session-manager.js";
 import {
   markSessionAsPrivate,
   recordDetection,
@@ -21,24 +38,7 @@ import {
   markPreReadFiles,
   isFilePreRead,
 } from "./session-state.js";
-import { desensitizeWithLocalModel, callLocalModelDirect } from "./local-model.js";
-import { getDefaultSessionManager, type SessionMessage } from "./session-manager.js";
-import { getDefaultMemoryManager } from "./memory-isolation.js";
-import {
-  generateGuardSessionKey,
-  isGuardSessionKey,
-  getGuardAgentConfig,
-  buildMainSessionPlaceholder,
-  isLocalProvider,
-} from "./guard-agent.js";
 import { redactSensitiveInfo, isProtectedMemoryPath } from "./utils.js";
-import type { PrivacyConfig } from "./types.js";
-import { defaultPrivacyConfig } from "./config-schema.js";
-import { loadPrompt } from "./prompt-loader.js";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { execSync } from "node:child_process";
 
 /**
  * Default guard agent system prompt (used as fallback if prompts/guard-agent-system.md is missing).
@@ -95,7 +95,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
           sessionKey,
           agentId,
         },
-        api.pluginConfig
+        api.pluginConfig,
       );
 
       // Record detection
@@ -103,7 +103,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       if (result.level !== "S1") {
         api.logger.info(
-          `[GuardClaw] Message sensitivity: ${result.level} for session ${sessionKey} — ${result.reason ?? "no reason"}`
+          `[GuardClaw] Message sensitivity: ${result.level} for session ${sessionKey} — ${result.reason ?? "no reason"}`,
         );
       }
 
@@ -120,13 +120,11 @@ export function registerHooks(api: OpenClawPluginApi): void {
       // Mark session state
       if (result.level === "S3") {
         markSessionAsPrivate(sessionKey, result.level);
-        api.logger.warn(
-          `[GuardClaw] Session ${sessionKey} marked as PRIVATE (S3 detected)`
-        );
+        api.logger.warn(`[GuardClaw] Session ${sessionKey} marked as PRIVATE (S3 detected)`);
       } else if (result.level === "S2") {
         markSessionAsPrivate(sessionKey, result.level);
         api.logger.info(
-          `[GuardClaw] S2 detected for session ${sessionKey}. Content will be desensitized for cloud.`
+          `[GuardClaw] S2 detected for session ${sessionKey}. Content will be desensitized for cloud.`,
         );
       }
     } catch (err) {
@@ -163,7 +161,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
           for (const p of pathValues) {
             if (isProtectedMemoryPath(p, baseDir)) {
               api.logger.warn(
-                `[GuardClaw] BLOCKED: cloud model tried to access protected path: ${p}`
+                `[GuardClaw] BLOCKED: cloud model tried to access protected path: ${p}`,
               );
               return {
                 block: true,
@@ -176,10 +174,12 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       // ── Block tool reads for files already pre-read in S2 desensitization ──
       if (toolName === "read" || toolName === "read_file" || toolName === "cat") {
-        const filePath = String(typedParams?.path ?? typedParams?.file ?? typedParams?.target ?? "");
+        const filePath = String(
+          typedParams?.path ?? typedParams?.file ?? typedParams?.target ?? "",
+        );
         if (filePath && isFilePreRead(sessionKey, filePath)) {
           api.logger.info(
-            `[GuardClaw] BLOCKED tool ${toolName} for pre-read file: ${filePath} (content already desensitized in prompt)`
+            `[GuardClaw] BLOCKED tool ${toolName} for pre-read file: ${filePath} (content already desensitized in prompt)`,
           );
           return {
             block: true,
@@ -192,7 +192,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
       // sessions_spawn: scan the task for sensitivity before it reaches the subagent
       // sessions_send:  scan the message for sensitivity before A2A delivery
       const isSpawn = toolName === "sessions_spawn";
-      const isSend  = toolName === "sessions_send";
+      const isSend = toolName === "sessions_send";
 
       if (isSpawn || isSend) {
         const contentField = isSpawn
@@ -209,17 +209,22 @@ export function registerHooks(api: OpenClawPluginApi): void {
               sessionKey,
               agentId: ctx.agentId,
             },
-            api.pluginConfig
+            api.pluginConfig,
           );
 
           const label = isSpawn ? "subagent task" : "A2A message";
-          recordDetection(sessionKey, subagentResult.level, "onToolCallProposed", subagentResult.reason);
+          recordDetection(
+            sessionKey,
+            subagentResult.level,
+            "onToolCallProposed",
+            subagentResult.reason,
+          );
 
           if (subagentResult.level === "S3") {
             markSessionAsPrivate(sessionKey, subagentResult.level);
             api.logger.warn(
               `[GuardClaw] BLOCKED ${toolName}: ${label} contains S3 content. ` +
-              `Reason: ${subagentResult.reason ?? "private data detected"}`
+                `Reason: ${subagentResult.reason ?? "private data detected"}`,
             );
             return {
               block: true,
@@ -232,7 +237,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
           if (subagentResult.level === "S2") {
             markSessionAsPrivate(sessionKey, subagentResult.level);
             api.logger.info(
-              `[GuardClaw] S2 detected in ${toolName} ${label}. Desensitizing before forwarding.`
+              `[GuardClaw] S2 detected in ${toolName} ${label}. Desensitizing before forwarding.`,
             );
 
             const privacyConfig = getPrivacyConfigFromApi(api);
@@ -258,14 +263,14 @@ export function registerHooks(api: OpenClawPluginApi): void {
           sessionKey,
           agentId: ctx.agentId,
         },
-        api.pluginConfig
+        api.pluginConfig,
       );
 
       recordDetection(sessionKey, result.level, "onToolCallProposed", result.reason);
 
       if (result.level !== "S1") {
         api.logger.info(
-          `[GuardClaw] Tool call sensitivity: ${result.level} for ${toolName} — ${result.reason ?? "no reason"}`
+          `[GuardClaw] Tool call sensitivity: ${result.level} for ${toolName} — ${result.reason ?? "no reason"}`,
         );
       }
 
@@ -273,7 +278,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
       if (result.level === "S3") {
         markSessionAsPrivate(sessionKey, result.level);
         api.logger.warn(
-          `[GuardClaw] BLOCKED tool ${toolName} (S3). Session ${sessionKey} marked as PRIVATE.`
+          `[GuardClaw] BLOCKED tool ${toolName} (S3). Session ${sessionKey} marked as PRIVATE.`,
         );
         return {
           block: true,
@@ -310,19 +315,19 @@ export function registerHooks(api: OpenClawPluginApi): void {
           sessionKey,
           agentId: ctx.agentId,
         },
-        api.pluginConfig
+        api.pluginConfig,
       );
 
       recordDetection(
         sessionKey,
         detectionResult.level,
         "onToolCallExecuted",
-        detectionResult.reason
+        detectionResult.reason,
       );
 
       if (detectionResult.level !== "S1") {
         api.logger.info(
-          `[GuardClaw] Tool result sensitivity: ${detectionResult.level} for ${toolName} — ${detectionResult.reason ?? "no reason"}`
+          `[GuardClaw] Tool result sensitivity: ${detectionResult.level} for ${toolName} — ${detectionResult.reason ?? "no reason"}`,
         );
       }
 
@@ -330,7 +335,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
         markSessionAsPrivate(sessionKey, detectionResult.level);
         if (detectionResult.level === "S3") {
           api.logger.warn(
-            `[GuardClaw] Tool ${toolName} result contains S3 content. Session ${sessionKey} marked as PRIVATE.`
+            `[GuardClaw] Tool ${toolName} result contains S3 content. Session ${sessionKey} marked as PRIVATE.`,
           );
         }
       }
@@ -363,7 +368,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
         });
 
         api.logger.debug(
-          `[GuardClaw] Tool result in private session ${sessionKey}, dual history write triggered`
+          `[GuardClaw] Tool result in private session ${sessionKey}, dual history write triggered`,
         );
       }
     } catch (err) {
@@ -380,15 +385,18 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       if (sessionKey) {
         const wasPrivate = isSessionMarkedPrivate(sessionKey);
-        if (wasPrivate) {
-          api.logger.info(
-            `[GuardClaw] Private session ${sessionKey} ended. Syncing memory…`
-          );
+        const sessionType = wasPrivate ? "private (local)" : "cloud";
 
-          // Sync full memory → clean memory (strip guard agent sections)
-          const memMgr = getDefaultMemoryManager();
-          await memMgr.syncMemoryToClean();
-        }
+        api.logger.info(`[GuardClaw] ${sessionType} session ${sessionKey} ended. Syncing memory…`);
+
+        // Always sync: merges cloud MEMORY.md additions into MEMORY-FULL.md,
+        // then sanitizes FULL → CLEAN (guard strip + PII redact).
+        // This ensures cloud memory always contains sanitized local knowledge,
+        // and local memory always captures cloud additions.
+        const memMgr = getDefaultMemoryManager();
+        const privacyConfig = getPrivacyConfigFromApi(api);
+        await memMgr.syncAllMemoryToClean(privacyConfig);
+
         // Note: We keep session state for audit purposes
       }
     } catch (err) {
@@ -409,7 +417,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
       const sessionKey = ctx.sessionKey ?? "";
 
       api.logger.info(
-        `[GuardClaw] resolve_model called: sessionKey=${sessionKey}, message=${String(message).slice(0, 50)}, provider=${provider}, model=${model}`
+        `[GuardClaw] resolve_model called: sessionKey=${sessionKey}, message=${String(message).slice(0, 50)}, provider=${provider}, model=${model}`,
       );
 
       if (!sessionKey) {
@@ -419,7 +427,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       const privacyConfig = getPrivacyConfigFromApi(api);
       api.logger.info(
-        `[GuardClaw] resolve_model: enabled=${privacyConfig.enabled}, localModel=${privacyConfig.localModel?.enabled}, checkpoints=${JSON.stringify(privacyConfig.checkpoints?.onUserMessage)}`
+        `[GuardClaw] resolve_model: enabled=${privacyConfig.enabled}, localModel=${privacyConfig.localModel?.enabled}, checkpoints=${JSON.stringify(privacyConfig.checkpoints?.onUserMessage)}`,
       );
       if (!privacyConfig.enabled) {
         api.logger.info(`[GuardClaw] resolve_model: privacy disabled, returning`);
@@ -448,7 +456,9 @@ export function registerHooks(api: OpenClawPluginApi): void {
       // Skip if message was already desensitized (prevent double resolve_model runs)
       const msgStr = String(message);
       if (msgStr.includes("[REDACTED:") || msgStr.startsWith("[SYSTEM]")) {
-        api.logger.info(`[GuardClaw] resolve_model: already processed or internal prompt, skipping`);
+        api.logger.info(
+          `[GuardClaw] resolve_model: already processed or internal prompt, skipping`,
+        );
         return;
       }
 
@@ -459,14 +469,20 @@ export function registerHooks(api: OpenClawPluginApi): void {
       try {
         preReadFileContent = await tryReadReferencedFile(msgStr, workspaceDir);
         if (preReadFileContent) {
-          api.logger.info(`[GuardClaw] Pre-read referenced file for classification (${preReadFileContent.length} chars)`);
+          api.logger.info(
+            `[GuardClaw] Pre-read referenced file for classification (${preReadFileContent.length} chars)`,
+          );
         }
       } catch (fileErr) {
-        api.logger.warn(`[GuardClaw] Failed to pre-read file for classification: ${String(fileErr)}`);
+        api.logger.warn(
+          `[GuardClaw] Failed to pre-read file for classification: ${String(fileErr)}`,
+        );
       }
 
-      api.logger.info(`[GuardClaw] resolve_model: calling detectSensitivityLevel with message="${msgStr.slice(0, 80)}"`);
-      
+      api.logger.info(
+        `[GuardClaw] resolve_model: calling detectSensitivityLevel with message="${msgStr.slice(0, 80)}"`,
+      );
+
       const result = await detectSensitivityLevel(
         {
           checkpoint: "onUserMessage",
@@ -475,11 +491,11 @@ export function registerHooks(api: OpenClawPluginApi): void {
           agentId: ctx.agentId,
           fileContentSnippet: preReadFileContent?.slice(0, 800),
         },
-        api.pluginConfig
+        api.pluginConfig,
       );
 
       api.logger.info(
-        `[GuardClaw] resolve_model: detection result: level=${result.level}, reason=${result.reason}`
+        `[GuardClaw] resolve_model: detection result: level=${result.level}, reason=${result.reason}`,
       );
 
       recordDetection(sessionKey, result.level, "onUserMessage", result.reason);
@@ -493,9 +509,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
         markSessionAsPrivate(sessionKey, result.level);
 
-        api.logger.info(
-          `[GuardClaw] S3 detected. Calling local model directly: ${guardModelName}`
-        );
+        api.logger.info(`[GuardClaw] S3 detected. Calling local model directly: ${guardModelName}`);
 
         // Emit UI event
         api.emitEvent("privacy_activated", {
@@ -518,8 +532,12 @@ export function registerHooks(api: OpenClawPluginApi): void {
         const isChinese = /[\u4e00-\u9fff]/.test(msgStr);
         if (fileContent) {
           // Strip the file path from the original message — keep only the task
-          const filePathPattern = /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
-          const task = msgStr.replace(filePathPattern, "").replace(/\s{2,}/g, " ").trim();
+          const filePathPattern =
+            /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
+          const task = msgStr
+            .replace(filePathPattern, "")
+            .replace(/\s{2,}/g, " ")
+            .trim();
 
           const dataIntro = isChinese
             ? "以下是从文件中提取的实际数据，请直接分析："
@@ -531,14 +549,13 @@ export function registerHooks(api: OpenClawPluginApi): void {
         }
 
         try {
-          const directReply = await callLocalModelDirect(
-            getGuardAgentSystemPrompt(),
-            userPrompt,
-            { endpoint: ollamaEndpoint, model: guardModelName },
-          );
+          const directReply = await callLocalModelDirect(getGuardAgentSystemPrompt(), userPrompt, {
+            endpoint: ollamaEndpoint,
+            model: guardModelName,
+          });
 
           api.logger.info(
-            `[GuardClaw] S3 direct response (${directReply.length} chars): "${directReply.slice(0, 100)}..."`
+            `[GuardClaw] S3 direct response (${directReply.length} chars): "${directReply.slice(0, 100)}..."`,
           );
 
           return {
@@ -559,14 +576,14 @@ export function registerHooks(api: OpenClawPluginApi): void {
       if (result.level === "S2") {
         markSessionAsPrivate(sessionKey, result.level);
 
-        api.logger.info(
-          `[GuardClaw] S2 detected. Desensitizing content for cloud model.`
-        );
+        api.logger.info(`[GuardClaw] S2 detected. Desensitizing content for cloud model.`);
 
         // Reuse pre-read file content (already fetched before classification)
         const fileContent = preReadFileContent;
         if (fileContent) {
-          api.logger.info(`[GuardClaw] Using pre-read file for S2 desensitization (${fileContent.length} chars)`);
+          api.logger.info(
+            `[GuardClaw] Using pre-read file for S2 desensitization (${fileContent.length} chars)`,
+          );
         }
 
         let desensitizedPrompt: string;
@@ -579,8 +596,12 @@ export function registerHooks(api: OpenClawPluginApi): void {
           wasModelUsed = fileModelUsed;
 
           // Strip file path from message so cloud model doesn't try to read it again
-          const filePathPattern = /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
-          const taskDescription = message.replace(filePathPattern, "").replace(/\s{2,}/g, " ").trim();
+          const filePathPattern =
+            /(?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md)/g;
+          const taskDescription = message
+            .replace(filePathPattern, "")
+            .replace(/\s{2,}/g, " ")
+            .trim();
 
           // Detect user language to instruct the cloud model accordingly
           const hasChinese = /[\u4e00-\u9fff]/.test(taskDescription);
@@ -591,19 +612,21 @@ export function registerHooks(api: OpenClawPluginApi): void {
           // Build a prompt: task description (no file path) + desensitized content + clear instructions
           desensitizedPrompt = `${taskDescription}\n\n--- FILE CONTENT ---\n${desensitizedFile}\n--- END FILE CONTENT ---\n\n${langInstruction}`;
           api.logger.info(
-            `[GuardClaw] S2 file desensitization complete (model=${wasModelUsed}, ${desensitizedFile.length} chars)`
+            `[GuardClaw] S2 file desensitization complete (model=${wasModelUsed}, ${desensitizedFile.length} chars)`,
           );
 
           // Track which files were pre-read so we can block tool reads for them
           markPreReadFiles(sessionKey, message);
         } else {
           // Inline PII case: desensitize the user message directly
-          const { desensitized, wasModelUsed: msgModelUsed } =
-            await desensitizeWithLocalModel(message, privacyConfig);
+          const { desensitized, wasModelUsed: msgModelUsed } = await desensitizeWithLocalModel(
+            message,
+            privacyConfig,
+          );
           wasModelUsed = msgModelUsed;
           desensitizedPrompt = desensitized;
           api.logger.info(
-            `[GuardClaw] S2 message desensitization complete (model=${wasModelUsed})`
+            `[GuardClaw] S2 message desensitization complete (model=${wasModelUsed})`,
           );
         }
 
@@ -668,13 +691,13 @@ export function registerHooks(api: OpenClawPluginApi): void {
           checkpoint: "onToolCallExecuted", // reuse post-execution checkpoint config
           message: content,
         },
-        api.pluginConfig
+        api.pluginConfig,
       );
 
       if (result.level === "S3") {
         api.logger.warn(
           `[GuardClaw] BLOCKED outbound message: S3 content detected in message_sending. ` +
-          `Reason: ${result.reason ?? "private data"}`
+            `Reason: ${result.reason ?? "private data"}`,
         );
         return {
           cancel: true,
@@ -683,7 +706,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
       if (result.level === "S2") {
         api.logger.info(
-          `[GuardClaw] S2 content in outbound message. Redacting PII before delivery.`
+          `[GuardClaw] S2 content in outbound message. Redacting PII before delivery.`,
         );
         const { desensitized } = await desensitizeWithLocalModel(content, privacyConfig);
         return {
@@ -734,13 +757,13 @@ export function registerHooks(api: OpenClawPluginApi): void {
           sessionKey,
           agentId: ctx.agentId,
         },
-        api.pluginConfig
+        api.pluginConfig,
       );
 
       if (result.level === "S3") {
         api.logger.warn(
           `[GuardClaw] Subagent session ${sessionKey} prompt contains S3 content! ` +
-          `Injecting privacy guard instructions. Reason: ${result.reason ?? "private data"}`
+            `Injecting privacy guard instructions. Reason: ${result.reason ?? "private data"}`,
         );
 
         // Inject a system prompt that tells the subagent to refuse processing
@@ -758,7 +781,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
       if (result.level === "S2") {
         api.logger.info(
           `[GuardClaw] Subagent session ${sessionKey} prompt contains S2 content. ` +
-          `Injecting PII handling instructions.`
+            `Injecting PII handling instructions.`,
         );
 
         return {
@@ -776,7 +799,9 @@ export function registerHooks(api: OpenClawPluginApi): void {
     }
   });
 
-  api.logger.info("[GuardClaw] All hooks registered successfully (8 hooks: message, tool, result, persist, session, model, outbound, subagent)");
+  api.logger.info(
+    "[GuardClaw] All hooks registered successfully (8 hooks: message, tool, result, persist, session, model, outbound, subagent)",
+  );
 }
 
 // ==========================================================================
@@ -789,13 +814,13 @@ export function registerHooks(api: OpenClawPluginApi): void {
 function getPrivacyConfigFromApi(api: OpenClawPluginApi): PrivacyConfig {
   return mergeWithDefaults(
     (api.pluginConfig?.privacy as PrivacyConfig) ?? {},
-    defaultPrivacyConfig
+    defaultPrivacyConfig,
   );
 }
 
 function mergeWithDefaults(
   userConfig: PrivacyConfig,
-  defaults: typeof defaultPrivacyConfig
+  defaults: typeof defaultPrivacyConfig,
 ): PrivacyConfig {
   return {
     enabled: userConfig.enabled ?? defaults.enabled,
@@ -870,7 +895,7 @@ function buildGuardUserPrompt(
   originalMessage: string,
   level: string,
   reason?: string,
-  fileContent?: string
+  fileContent?: string,
 ): string {
   let prompt = `[Privacy Level: ${level}${reason ? ` — ${reason}` : ""}]
 
@@ -889,10 +914,11 @@ ${originalMessage}`;
  */
 async function tryReadReferencedFile(
   message: string,
-  workspaceDir: string
+  workspaceDir: string,
 ): Promise<string | undefined> {
   // Extract file paths from the message (e.g. test-files/foo.xlsx, /path/to/file.txt)
-  const filePattern = /(?:^|\s)((?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md))\b/g;
+  const filePattern =
+    /(?:^|\s)((?:[\w./-]+\/)?[\w\u4e00-\u9fff._-]+\.(?:xlsx|xls|csv|txt|docx|json|md))\b/g;
   const matches: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = filePattern.exec(message)) !== null) {
@@ -906,7 +932,7 @@ async function tryReadReferencedFile(
   const baseDirs = [
     workspaceDir,
     cwd,
-    resolve(cwd, ".."),  // parent dir (gateway may run from openclaw/ subdir)
+    resolve(cwd, ".."), // parent dir (gateway may run from openclaw/ subdir)
   ].filter(Boolean);
 
   for (const filePath of matches) {
@@ -937,7 +963,7 @@ async function tryReadReferencedFile(
           try {
             const csv = execSync(
               `python3 -c "import openpyxl; wb=openpyxl.load_workbook('${absPath}'); ws=wb.active; [print(','.join(str(c.value or '') for c in row)) for row in ws.iter_rows()]"`,
-              { encoding: "utf-8", timeout: 10000 }
+              { encoding: "utf-8", timeout: 10000 },
             );
             return `[Converted from ${filePath}]\n${csv}`;
           } catch {

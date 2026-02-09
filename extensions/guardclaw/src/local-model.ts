@@ -1,19 +1,24 @@
 /**
  * GuardClaw Local Model Detector
- * 
+ *
  * Local model-based sensitivity detection using Ollama or other local providers.
  */
 
-import type { DetectionContext, DetectionResult, PrivacyConfig, SensitivityLevel } from "./types.js";
-import { levelToNumeric } from "./types.js";
+import type {
+  DetectionContext,
+  DetectionResult,
+  PrivacyConfig,
+  SensitivityLevel,
+} from "./types.js";
 import { loadPrompt, loadPromptWithVars } from "./prompt-loader.js";
+import { levelToNumeric } from "./types.js";
 
 /**
  * Detect sensitivity level using a local model
  */
 export async function detectByLocalModel(
   context: DetectionContext,
-  config: PrivacyConfig
+  config: PrivacyConfig,
 ): Promise<DetectionResult> {
   // Check if local model is enabled
   if (!config.localModel?.enabled) {
@@ -85,19 +90,19 @@ function quickPiiScan(content: string): SensitivityLevel {
 
   let piiHits = 0;
   const s2Patterns = [
-    /\(\d{3}\)\s?\d{3}-\d{4}/,                    // US phone (415) 867-5321
-    /\b1[3-9]\d{9}\b/,                              // CN mobile 13867554321
-    /\b\d{3}-\d{2}-\d{4}\b/,                        // US SSN 518-73-6294
-    /\b\d{6}(?:19|20)\d{8}\b/,                      // CN ID 330106196208158821
+    /\(\d{3}\)\s?\d{3}-\d{4}/, // US phone (415) 867-5321
+    /\b1[3-9]\d{9}\b/, // CN mobile 13867554321
+    /\b\d{3}-\d{2}-\d{4}\b/, // US SSN 518-73-6294
+    /\b\d{6}(?:19|20)\d{8}\b/, // CN ID 330106196208158821
     /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i, // email
-    /\b\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b/,           // card number
+    /\b\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b/, // card number
     /\b(?:gate|door|access)\s*code\s*[:：]?\s*\S+/i, // gate code
-    /门禁码\s*[:：]?\s*\S+/,                         // CN gate code
-    /\b(?:tracking|单号)\s*[:：]?\s*\S+/i,           // tracking number
+    /门禁码\s*[:：]?\s*\S+/, // CN gate code
+    /\b(?:tracking|单号)\s*[:：]?\s*\S+/i, // tracking number
     /\b(?:license\s*plate|车牌号?)\s*[:：]?\s*\S+/i, // license plate
-    /\b[沪京粤苏浙鲁豫川闽湘鄂]\w[·]?\w{4,5}\b/,    // CN license plate
+    /\b[沪京粤苏浙鲁豫川闽湘鄂]\w[·]?\w{4,5}\b/, // CN license plate
     /\b\d{1,5}\s+\w+\s+(?:St|Street|Ave|Avenue|Blvd|Dr|Drive|Rd|Road|Ln|Lane)\b/i, // US address
-    /(?:路|街|弄|号|巷|村)\d+/,                      // CN address
+    /(?:路|街|弄|号|巷|村)\d+/, // CN address
   ];
   for (const p of s2Patterns) {
     if (p.test(content)) piiHits++;
@@ -157,11 +162,7 @@ Output format: {"level":"S1|S2|S3","reason":"brief"}`;
 function buildDetectionPrompt(context: DetectionContext): string {
   const systemPrompt = loadPrompt("detection-system", DEFAULT_DETECTION_SYSTEM_PROMPT);
 
-  const parts: string[] = [
-    systemPrompt,
-    "",
-    "[CONTENT]",
-  ];
+  const parts: string[] = [systemPrompt, "", "[CONTENT]"];
 
   if (context.message) {
     parts.push(`Message: ${context.message.slice(0, 1500)}`);
@@ -177,9 +178,10 @@ function buildDetectionPrompt(context: DetectionContext): string {
   }
 
   if (context.toolResult) {
-    const resultStr = typeof context.toolResult === "string"
-      ? context.toolResult
-      : JSON.stringify(context.toolResult);
+    const resultStr =
+      typeof context.toolResult === "string"
+        ? context.toolResult
+        : JSON.stringify(context.toolResult);
     parts.push(`Tool Result: ${resultStr.slice(0, 800)}`);
   }
 
@@ -218,9 +220,7 @@ async function callOllama(endpoint: string, model: string, prompt: string): Prom
   // Model-specific prompt adjustments:
   // - Qwen3: prefix with /no_think to suppress chain-of-thought output
   // - MiniCPM / others: use prompt as-is
-  const finalPrompt = modelLower.includes("qwen")
-    ? `/no_think\n${prompt}`
-    : prompt;
+  const finalPrompt = modelLower.includes("qwen") ? `/no_think\n${prompt}` : prompt;
 
   const response = await fetch(url, {
     method: "POST",
@@ -275,7 +275,7 @@ async function callOllama(endpoint: string, model: string, prompt: string): Prom
  */
 export async function desensitizeWithLocalModel(
   content: string,
-  config: PrivacyConfig
+  config: PrivacyConfig,
 ): Promise<{ desensitized: string; wasModelUsed: boolean }> {
   if (!config.localModel?.enabled) {
     return { desensitized: content, wasModelUsed: false };
@@ -443,7 +443,22 @@ Output: [`;
   // Fix trailing commas before ]
   jsonStr = jsonStr.replace(/,\s*\]/g, "]");
 
-  console.log(`[GuardClaw] PII extraction raw JSON (${jsonStr.length} chars): ${jsonStr.slice(0, 300)}...`);
+  // Normalize Python-style single-quoted JSON to double-quoted JSON.
+  // Some local models (e.g. minicpm4.1) output {'key': 'value'} instead of {"key": "value"}.
+  // Strategy: replace single-quoted keys/values while preserving apostrophes in natural text.
+  jsonStr = jsonStr
+    .replace(
+      /(?<=[\[,{]\s*)'([^']+?)'(?=\s*:)/g,
+      '"$1"', // keys: 'type' → "type"
+    )
+    .replace(
+      /(?<=:\s*)'([^']*?)'(?=\s*[,}\]])/g,
+      '"$1"', // values: 'PHONE' → "PHONE"
+    );
+
+  console.log(
+    `[GuardClaw] PII extraction raw JSON (${jsonStr.length} chars): ${jsonStr.slice(0, 300)}...`,
+  );
 
   try {
     const arr = JSON.parse(jsonStr);
@@ -453,9 +468,11 @@ Output: [`;
         item &&
         typeof item === "object" &&
         typeof (item as Record<string, unknown>).type === "string" &&
-        typeof (item as Record<string, unknown>).value === "string"
+        typeof (item as Record<string, unknown>).value === "string",
     ) as Array<{ type: string; value: string }>;
-    console.log(`[GuardClaw] PII extraction found ${items.length} items: ${items.map(i => `${i.type}=${i.value}`).join(", ")}`);
+    console.log(
+      `[GuardClaw] PII extraction found ${items.length} items: ${items.map((i) => `${i.type}=${i.value}`).join(", ")}`,
+    );
     return items;
   } catch {
     console.error("[GuardClaw] Failed to parse PII extraction JSON:", jsonStr.slice(0, 300));
