@@ -14,9 +14,9 @@
 
 ## 概述
 
-EdgeClaw是由THUNLP、中国人民大学RUCBM和ModelBest基于OpenClaw联合开发的开源AI智能体云端安全协同方案。
+EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[Renmin University of China](http://ai.ruc.edu.cn/)，[面壁智能](https://modelbest.cn/en) 与 [OpenBMB](https://www.openbmb.cn/home)基于[OpenClaw](https://github.com/openclaw/openclaw)联合开发的开源AI智能体云端安全协同方案。
 
-专为解决 AI Agent 数据泄露难题打造，EdgeClaw 构建了完善的可自定义三级安全体系（S1直通/S2脱敏/S3本地），将安全护栏标准化为通用的 Guard Protocol（Hooker→ Detector → Action）。配合 端云协同 的智能路由能力，开发者无需修改业务逻辑，即可在 OpenClaw 中实现“公开数据上云、私密数据落地”的无感隐私保护，兼顾大模型的极致效能与核心数据的绝对安全。
+专为解决 AI Agent 数据泄露难题打造，EdgeClaw 构建了完善的可自定义三级安全体系（S1直通/S2脱敏/S3本地），将安全护栏标准化为通用的 Guard Protocol（Hooker→ Detector → Action）。配合 端云协同 的智能路由能力，开发者无需修改业务逻辑，即可在 OpenClaw 中实现"公开数据上云、私密数据落地"的无感隐私保护，兼顾大模型的极致效能与核心数据的绝对安全。
 
 ## 演示案例：
 
@@ -236,7 +236,8 @@ GuardClaw 可自定义配置与规则等：
 
 - 添加新的敏感信息类型（如行业编号、内部 ID）
 - 调整提取示例以提高准确率
-  修改 `.md` 文件后，内置 fallback 机制确保变更在下次请求时生效，无需重启。
+
+修改 `.md` 文件后，内置 fallback 机制确保变更在下次请求时生效，无需重启。
 
 ## Guard Protocol 规范
 
@@ -248,76 +249,90 @@ Guard Protocol 是一个面向 AI Agent 框架的隐私安全中间件协议，�
 
 设 Agent 系统中存在以下基本集合：
 
-- 隐私级别集合 $\mathcal{L} = \{S_1, S_2, S_3\}$，配备全序关系 $S_1 \prec S_2 \prec S_3$，其中$S_1$ 表示无隐私数据，$S_2$ 表示含可脱敏的隐私信息，$S_3$ 表示深度隐私数据。
-- 检查点集合 $\mathcal{C} = \{c_{\text{msg}},\; c_{\text{route}},\; c_{\text{toolpre}},\; c_{\text{toolpost}},\; c_{\text{persist}},\; c_{\text{end}}\}$，分别对应消息接收、模型路由、工具调用前、工具调用后、结果持久化、会话结束六个生命周期阶段。
-- 检测器集合 $\mathcal{D} = \{d_{\text{rule}},\; d_{\text{model}}\}$，其中 $d_{\text{rule}}$ 为基于正则与关键词的规则检测器，$d_{\text{model}}$ 为基于本地语言模型的语义检测器。
-- 动作集合 $\mathcal{A} = \{\text{passthrough},\; \text{desensitize},\; \text{redirect}\}$，分别表示直通放行、脱敏后转发、重定向至本地模型。
+- **隐私级别集合** ℒ = {S₁, S₂, S₃}，配备全序关系 S₁ ≺ S₂ ≺ S₃，其中 S₁ 表示无隐私数据，S₂ 表示含可脱敏的隐私信息，S₃ 表示深度隐私数据。
+- **检查点集合** 𝒞 = {c<sub>msg</sub>, c<sub>route</sub>, c<sub>tool_pre</sub>, c<sub>tool_post</sub>, c<sub>persist</sub>, c<sub>end</sub>}，分别对应消息接收、模型路由、工具调用前、工具调用后、结果持久化、会话结束六个生命周期阶段。
+- **检测器集合** 𝒟 = {d<sub>rule</sub>, d<sub>model</sub>}，其中 d<sub>rule</sub> 为基于正则与关键词的规则检测器，d<sub>model</sub> 为基于本地语言模型的语义检测器。
+- **动作集合** 𝒜 = {passthrough, desensitize, redirect}，分别表示直通放行、脱敏后转发、重定向至本地模型。
 
 #### 定义 1：检测函数
 
-每个检测器 $d \in \mathcal{D}$ 定义为一个函数，将上下文映射到隐私级别：
+每个检测器 *d* ∈ 𝒟 定义为一个函数，将上下文映射到隐私级别：
 
-$$d : \mathcal{X} \to \mathcal{L}$$
+<p align="center"><i>d</i> : 𝒳 → ℒ</p>
 
-其中上下文 $x \in \mathcal{X}$ 可能包含消息内容、工具调用信息、文件内容等，具体取决于检查点类型。具体地，规则检测器 $d_{\text{rule}}$ 基于预定义规则集 $\mathcal{R} = \{r_l\}_{l \in \mathcal{L}}$ 进行确定性匹配，模型检测器 $d_{\text{model}}$ 使用本地 LLM $\theta_{\text{local}}$ 进行语义分类。
+其中上下文 *x* ∈ 𝒳 可能包含消息内容、工具调用信息、文件内容等，具体取决于检查点类型。具体地，规则检测器 d<sub>rule</sub> 基于预定义规则集 ℛ = {r<sub>l</sub>}<sub>l ∈ ℒ</sub> 进行确定性匹配，模型检测器 d<sub>model</sub> 使用本地 LLM θ<sub>local</sub> 进行语义分类。
 
-在检查点 $c \in \mathcal{C}$ 上，配置函数 $\Phi(c) \subseteq \mathcal{D}$ 返回该检查点启用的检测器子集。所有检测器并行运行，聚合结果取最高级别：
+在检查点 *c* ∈ 𝒞 上，配置函数 Φ(*c*) ⊆ 𝒟 返回该检查点启用的检测器子集。所有检测器并行运行，聚合结果取最高级别：
 
-$$\text{Detect}(x, c) = \max_{\preceq}\;\{d(x) \;\big|\; d \in \Phi(c)\}$$
+<p align="center">Detect(<i>x</i>, <i>c</i>) = max<sub>≼</sub> { <i>d</i>(<i>x</i>) | <i>d</i> ∈ Φ(<i>c</i>) }</p>
 
 #### 定义 2：路由函数
 
-路由函数 $R$ 将检测结果映射到动作空间，决定消息如何处理：
+路由函数 *R* 将检测结果映射到动作空间，决定消息如何处理：
 
-$$R : \mathcal{L} \to \mathcal{A}$$
+<p align="center"><i>R</i> : ℒ → 𝒜</p>
 
-$$R(l) = \begin{cases} \text{passthrough} & \text{if } l = S_1 \\ \text{desensitize} & \text{if } l = S_2 \\ \text{redirect} & \text{if } l = S_3 \end{cases}$$
+```
+         ⎧ passthrough    if l = S₁
+R(l)  =  ⎨ desensitize    if l = S₂
+         ⎩ redirect       if l = S₃
+```
 
 #### 定义 3：脱敏函数
 
-对于 $S_2$ 级内容，脱敏函数 $\text{De}$ 将含隐私信息的原始内容映射为安全内容：
+对于 S₂ 级内容，脱敏函数 De 将含隐私信息的原始内容映射为安全内容：
 
-$$\text{De} : \mathcal{M}_{\text{raw}} \to \mathcal{M}_{\text{safe}}$$
+<p align="center">De : ℳ<sub>raw</sub> → ℳ<sub>safe</sub></p>
 
-满足：原始内容 $m$ 中的所有隐私实体均被替换为不可逆的脱敏标记，输出 $\text{De}(m)$ 不含任何原始隐私信息，同时保留语义可用性。
+满足：原始内容 *m* 中的所有隐私实体均被替换为不可逆的脱敏标记，输出 De(*m*) 不含任何原始隐私信息，同时保留语义可用性。
 
 #### 定义 4：双轨持久化
 
-定义两个历史轨道 $H_{\text{full}}$（完整）和 $H_{\text{clean}}$（干净），持久化函数 $W$ 基于级别选择写入策略：
+定义两个历史轨道 H<sub>full</sub>（完整）和 H<sub>clean</sub>（干净），持久化函数 *W* 基于级别选择写入策略：
 
-$$W(m, l) = \begin{cases} H_{\text{full}} \leftarrow m, \quad H_{\text{clean}} \leftarrow m & \text{if } l = S_1 \\ H_{\text{full}} \leftarrow m, \quad H_{\text{clean}} \leftarrow \text{De}(m) & \text{if } l = S_2 \\ H_{\text{full}} \leftarrow m, \quad H_{\text{clean}} \leftarrow \bot & \text{if } l = S_3 \end{cases}$$
+```
+            ⎧ H_full ← m,  H_clean ← m        if l = S₁
+W(m, l)  =  ⎨ H_full ← m,  H_clean ← De(m)   if l = S₂
+            ⎩ H_full ← m,  H_clean ← ⊥        if l = S₃
+```
 
-其中 $\bot$ 表示占位符（如 🔒 [Private content]）。
+其中 ⊥ 表示占位符（如 🔒 [Private content]）。
 
-云端模型 $\theta_{\text{cloud}}$ 仅可见 $H_{\text{clean}}$，本地模型 $\theta_{\text{local}}$ 可见 $H_{\text{full}}$：
+云端模型 θ<sub>cloud</sub> 仅可见 H<sub>clean</sub>，本地模型 θ<sub>local</sub> 可见 H<sub>full</sub>：
 
-$$\theta_{\text{cloud}}.\text{context} = H_{\text{clean}}, \quad \theta_{\text{local}}.\text{context} = H_{\text{full}}$$
+<p align="center">θ<sub>cloud</sub>.context = H<sub>clean</sub> , &nbsp; θ<sub>local</sub>.context = H<sub>full</sub></p>
 
 #### 定义 5：记忆同步
 
-会话结束时，同步函数 $\text{Sync}$ 在双轨记忆 $M_{\text{full}}$ 与 $M_{\text{clean}}$ 之间执行双向更新：
+会话结束时，同步函数 Sync 在双轨记忆 M<sub>full</sub> 与 M<sub>clean</sub> 之间执行双向更新：
 
-$$\text{Sync}: \quad M_{\text{clean}} = \text{De}\bigl(\text{Filter}(M_{\text{full}})\bigr)$$
+<p align="center">Sync: &nbsp; M<sub>clean</sub> = De( Filter( M<sub>full</sub> ) )</p>
 
-其中 $\text{Filter}$ 移除 Guard Agent 交互内容，$\text{De}$ 对残留 隐私信息 做最终脱敏。
+其中 Filter 移除 Guard Agent 交互内容，De 对残留隐私信息做最终脱敏。
 
 ### 端到端流程
 
-一条用户消息 $m$ 经过 Guard Protocol 的完整处理管道：
+一条用户消息 *m* 经过 Guard Protocol 的完整处理管道：
 
-$$m \xrightarrow{c_{\text{msg}}} \text{Detect}(m) \to l \xrightarrow{c_{\text{route}}} R(l) \to a \xrightarrow{} \begin{cases} \theta_{\text{cloud}}(m) & a = \text{passthrough} \\ \theta_{\text{cloud}}(\text{De}(m)) & a = \text{desensitize} \\ \theta_{\text{local}}(m) & a = \text{redirect} \end{cases} \xrightarrow{c_{\text{persist}}} W(m, l) \xrightarrow{c_{\text{end}}} \text{Sync}$$
+```
+                                                    ⎧ θ_cloud(m)        if a = passthrough
+m ─[c_msg]→ Detect(m) → l ─[c_route]→ R(l) → a → ⎨ θ_cloud(De(m))    if a = desensitize
+                                                    ⎩ θ_local(m)        if a = redirect
+
+  ─[c_persist]→ W(m, l) ─[c_end]→ Sync
+```
 
 ### 安全性保证
 
-设 $x$ 为任意数据单元（消息 $m$ 或记忆条目 $e$），$\text{Cloud}(x)$ 表示 $x$ 在云端的可见形式（含 $\text{View}(\theta_{\text{cloud}})$ 与 $M_{\text{clean}}$）。
+设 *x* 为任意数据单元（消息 *m* 或记忆条目 *e*），Cloud(*x*) 表示 *x* 在云端的可见形式（含 View(θ<sub>cloud</sub>) 与 M<sub>clean</sub>）。
 
-定理 1（云端不可见性）： 对于任意 $S_3$ 级数据单元 $x$，其原始内容在云端侧完全不可见：
+**定理 1（云端不可见性）：** 对于任意 S₃ 级数据单元 *x*，其原始内容在云端侧完全不可见：
 
-$$\forall x,\; \text{Detect}(x) = S_3 \implies x \notin \text{Cloud}(x)$$
+<p align="center">∀ <i>x</i>, &nbsp; Detect(<i>x</i>) = S₃ &nbsp;⟹&nbsp; <i>x</i> ∉ Cloud(<i>x</i>)</p>
 
-定理 2（脱敏完整性）： 对于任意 $S_2$ 级数据单元 $x$，其云端可见形式中不包含任何原始隐私实体值：
+**定理 2（脱敏完整性）：** 对于任意 S₂ 级数据单元 *x*，其云端可见形式中不包含任何原始隐私实体值：
 
-$$\forall x,\; \text{Detect}(x) = S_2 \implies \forall (t_i, v_i) \in \text{Extract}(x),\; v_i \notin \text{Cloud}(x)$$
+<p align="center">∀ <i>x</i>, &nbsp; Detect(<i>x</i>) = S₂ &nbsp;⟹&nbsp; ∀ (<i>t<sub>i</sub></i>, <i>v<sub>i</sub></i>) ∈ Extract(<i>x</i>), &nbsp; <i>v<sub>i</sub></i> ∉ Cloud(<i>x</i>)</p>
 
 ### 设计结构
 
@@ -326,7 +341,6 @@ $$\forall x,\; \text{Detect}(x) = S_2 \implies \forall (t_i, v_i) \in \text{Extr
 6 个 Hook 覆盖 Agent 完整生命周期：
 
 ```
-
 用户消息 ──▶ ① message_received    检测消息敏感度
                     │
           ② resolve_model          ★ 核心路由: S1→云 / S2→脱敏→云 / S3→本地
