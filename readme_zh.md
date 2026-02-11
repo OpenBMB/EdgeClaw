@@ -16,7 +16,7 @@
 
 EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[Renmin University of China](http://ai.ruc.edu.cn/)，[面壁智能](https://modelbest.cn/en) 与 [OpenBMB](https://www.openbmb.cn/home)基于[OpenClaw](https://github.com/openclaw/openclaw)联合开发的开源AI智能体云端安全协同方案。
 
-专为解决 AI Agent 数据泄露难题打造，EdgeClaw 构建了完善的可自定义三级安全体系（S1直通/S2脱敏/S3本地），将安全护栏标准化为通用的 Guard Protocol（Hooker→ Detector → Action）。配合 端云协同 的智能路由能力，开发者无需修改业务逻辑，即可在 OpenClaw 中实现"公开数据上云、私密数据落地"的无感隐私保护，兼顾大模型的极致效能与核心数据的绝对安全。
+专为解决 AI Agent 数据泄露难题打造，EdgeClaw 构建了完善的可自定义三级安全体系（S1直通/S2脱敏/S3本地），将安全护栏标准化为通用的 GuardAgent Protocol（Hooker→ Detector → Action）。配合 端云协同 的智能路由能力，开发者无需修改业务逻辑，即可在 OpenClaw 中实现"公开数据上云、私密数据落地"的无感隐私保护，兼顾大模型的极致效能与核心数据的绝对安全。
 
 ## 演示案例：
 
@@ -239,9 +239,9 @@ GuardClaw 可自定义配置与规则等：
 
 修改 `.md` 文件后，内置 fallback 机制确保变更在下次请求时生效，无需重启。
 
-## Guard Protocol 规范
+## GuardAgent Protocol 规范
 
-Guard Protocol 是一个面向 AI Agent 框架的隐私安全中间件协议，定义了在 Agent 生命周期中如何检测、分类和处理敏感数据。
+GuardAgent Protocol 是一个面向 AI Agent 框架的隐私安全中间件协议，定义了在 Agent 生命周期中如何检测、分类和处理敏感数据。
 
 ### 形式化定义
 
@@ -312,7 +312,7 @@ W(m, l)  =  ⎨ H_full ← m,  H_clean ← De(m)   if l = S₂
 
 ### 端到端流程
 
-一条用户消息 *m* 经过 Guard Protocol 的完整处理管道：
+一条用户消息 *m* 经过 GuardAgent Protocol 的完整处理管道：
 
 ```
                                                     ⎧ θ_cloud(m)        if a = passthrough

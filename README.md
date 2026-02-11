@@ -16,7 +16,7 @@
 
 EdgeClaw is an open-source edge-cloud collaborative safety solution for AI agents, jointly developed by [THUNLP](https://nlp.csai.tsinghua.edu.cn), [Renmin University of China](http://ai.ruc.edu.cn/), [ModelBest](https://modelbest.cn/en) and [OpenBMB](https://www.openbmb.cn/home), built on top of [OpenClaw](https://github.com/openclaw/openclaw).
 
-Designed to tackle the AI Agent data leakage challenge, EdgeClaw provides a comprehensive, customizable three-tier security system (S1 passthrough / S2 desensitization / S3 local). It standardizes safety guardrails into a universal Guard Protocol (Hooker → Detector → Action). Combined with intelligent edge-cloud routing capabilities, developers can achieve seamless privacy protection — "public data to the cloud, private data stays local" — within OpenClaw without modifying any business logic, balancing the peak performance of large models with absolute security of sensitive data.
+Designed to tackle the AI Agent data leakage challenge, EdgeClaw provides a comprehensive, customizable three-tier security system (S1 passthrough / S2 desensitization / S3 local). It standardizes safety guardrails into a universal GuardAgent Protocol (Hooker → Detector → Action). Combined with intelligent edge-cloud routing capabilities, developers can achieve seamless privacy protection — "public data to the cloud, private data stays local" — within OpenClaw without modifying any business logic, balancing the peak performance of large models with absolute security of sensitive data.
 
 ## Demo
 
@@ -239,9 +239,9 @@ Controls which sensitive information types are extracted during S2 desensitizati
 
 After modifying `.md` files, the built-in fallback mechanism ensures changes take effect on the next request — no restart needed.
 
-## Guard Protocol Specification
+## GuardAgent Protocol Specification
 
-Guard Protocol is a privacy-security middleware protocol for AI Agent frameworks, defining how sensitive data is detected, classified, and processed throughout the Agent lifecycle.
+GuardAgent Protocol is a privacy-security middleware protocol for AI Agent frameworks, defining how sensitive data is detected, classified, and processed throughout the Agent lifecycle.
 
 ### Formal Definitions
 
@@ -312,7 +312,7 @@ where Filter removes Guard Agent interaction content, and De performs final dese
 
 ### End-to-End Pipeline
 
-A user message *m* passes through the full Guard Protocol processing pipeline:
+A user message *m* passes through the full GuardAgent Protocol processing pipeline:
 
 ```
                                                     ⎧ θ_cloud(m)        if a = passthrough
