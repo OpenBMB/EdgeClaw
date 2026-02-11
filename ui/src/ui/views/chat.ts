@@ -124,7 +124,7 @@ function renderPrivacyIndicator(status: PrivacyIndicatorStatus | null | undefine
           Privacy Guard Active · ${levelLabel}
         </div>
         <div style="font-size: 12px; color: var(--muted);">
-          Using local model: <code style="background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--ok);">${status.model || "ollama/llama3.2:3b"}</code>
+          Using local model: <code style="background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--ok);">${status.model || "ollama/openbmb/minicpm4.1"}</code>
         </div>
       </div>
       <span style="font-size: 10px; color: var(--muted-strong); text-transform: uppercase; letter-spacing: 1px;">Privacy Protected</span>

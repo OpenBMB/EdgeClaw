@@ -649,9 +649,13 @@ export function registerHooks(api: OpenClawPluginApi): void {
         });
 
         // Emit UI event
+        const localModelId = privacyConfig.localModel?.model ?? "openbmb/minicpm4.1";
+        const localProvider = privacyConfig.localModel?.provider ?? "ollama";
         api.emitEvent("privacy_activated", {
           active: true,
           level: result.level,
+          model: `${localProvider}/${localModelId}`,
+          provider: localProvider,
           desensitized: true,
           wasModelUsed,
           reason: result.reason ?? "S2 content detected — desensitized",

@@ -199,7 +199,7 @@ function buildDetectionPrompt(context: DetectionContext): string {
  */
 async function callLocalModel(prompt: string, config: PrivacyConfig): Promise<string> {
   const provider = config.localModel?.provider ?? "ollama";
-  const model = config.localModel?.model ?? "llama3.2:3b";
+  const model = config.localModel?.model ?? "openbmb/minicpm4.1";
   const endpoint = config.localModel?.endpoint ?? "http://localhost:11434";
 
   if (provider === "ollama") {

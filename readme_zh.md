@@ -249,7 +249,7 @@ Guard Protocol 是一个面向 AI Agent 框架的隐私安全中间件协议，�
 设 Agent 系统中存在以下基本集合：
 
 - 隐私级别集合 $\mathcal{L} = \{S_1, S_2, S_3\}$，配备全序关系 $S_1 \prec S_2 \prec S_3$，其中$S_1$ 表示无隐私数据，$S_2$ 表示含可脱敏的隐私信息，$S_3$ 表示深度隐私数据。
-- 检查点集合 $\mathcal{C} = \{c_{\text{msg}},\; c_{\text{route}},\; c_{\text{tool\_pre}},\; c_{\text{tool\_post}},\; c_{\text{persist}},\; c_{\text{end}}\}$，分别对应消息接收、模型路由、工具调用前、工具调用后、结果持久化、会话结束六个生命周期阶段。
+- 检查点集合 $\mathcal{C} = \{c_{\text{msg}},\; c_{\text{route}},\; c_{\text{toolpre}},\; c_{\text{toolpost}},\; c_{\text{persist}},\; c_{\text{end}}\}$，分别对应消息接收、模型路由、工具调用前、工具调用后、结果持久化、会话结束六个生命周期阶段。
 - 检测器集合 $\mathcal{D} = \{d_{\text{rule}},\; d_{\text{model}}\}$，其中 $d_{\text{rule}}$ 为基于正则与关键词的规则检测器，$d_{\text{model}}$ 为基于本地语言模型的语义检测器。
 - 动作集合 $\mathcal{A} = \{\text{passthrough},\; \text{desensitize},\; \text{redirect}\}$，分别表示直通放行、脱敏后转发、重定向至本地模型。
 
@@ -263,7 +263,7 @@ $$d : \mathcal{X} \to \mathcal{L}$$
 
 在检查点 $c \in \mathcal{C}$ 上，配置函数 $\Phi(c) \subseteq \mathcal{D}$ 返回该检查点启用的检测器子集。所有检测器并行运行，聚合结果取最高级别：
 
-$$\text{Detect}(x, c) = \max_{\preceq}\;\bigl\{d(x) \;\big|\; d \in \Phi(c)\bigr\}$$
+$$\text{Detect}(x, c) = \max_{\preceq}\;\{d(x) \;\big|\; d \in \Phi(c)\}$$
 
 #### 定义 2：路由函数
 
