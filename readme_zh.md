@@ -1,4 +1,4 @@
-# EdgeClaw： 端云协同的AI智能体安全护栏
+# EdgeClaw： 端云协同的AI智能体
 
 <div align="center">
   <img src="../assets/EdgeClaw-logo.png" alt="EdgeClaw 标志" width="400em"></img>
@@ -8,15 +8,19 @@
     【中文 | <a href="./README.md"><b>English</b></a>】
 </p>
 
-## 新闻
+## 新闻Edge
 
-- [2026-02-12] 🚀🚀🚀我们开源了EdgeClaw，一个端云协同的AI智能体安全护栏
+- [2026-02-12] 🚀🚀🚀我们开源了EdgeClaw，端云协同的AI智能体
 
 ## 概述
 
-EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[Renmin University of China](http://ai.ruc.edu.cn/)，[面壁智能](https://modelbest.cn/en) 与 [OpenBMB](https://www.openbmb.cn/home)基于[OpenClaw](https://github.com/openclaw/openclaw)联合开发的开源AI智能体云端安全协同方案。
+EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[中国人民大学](http://ai.ruc.edu.cn/)，[AI9Stars](https://github.com/AI9Stars)，[面壁智能](https://modelbest.cn/en) 与 [OpenBMB](https://www.openbmb.cn/home)基于[OpenClaw](https://github.com/openclaw/openclaw)联合开发的端云协同的AI智能体。
 
-专为解决 AI Agent 数据泄露难题打造，EdgeClaw 构建了完善的可自定义三级安全体系（S1直通/S2脱敏/S3本地），将安全护栏标准化为通用的 GuardAgent Protocol（Hooker→ Detector → Action）。配合 端云协同 的智能路由能力，开发者无需修改业务逻辑，即可在 OpenClaw 中实现"公开数据上云、私密数据落地"的无感隐私保护，兼顾大模型的极致效能与核心数据的绝对安全。
+专为解决 AI Agent 数据泄露难题打造，EdgeClaw 构建了完善的可自定义三级安全体系（S1直通/S2脱敏/S3本地），将安全护栏标准化为通用的 GuardAgent Protocol（Hooker→ Detector → Action）。配合端云协同的智能路由能力，开发者无需修改业务逻辑，即可在 OpenClaw 中实现"公开数据上云、私密数据落地"的无感隐私保护，兼顾大模型的极致效能与核心数据的绝对安全。
+
+<div align="center">
+  <img src="../assets/EdgeClaw-arch.png" alt="EdgeClaw 架构" width="100%"></img>
+</div>
 
 ## 演示案例：
 

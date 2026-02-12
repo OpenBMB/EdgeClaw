@@ -1,4 +1,4 @@
-# EdgeClaw: Edge-Cloud Collaborative AI Agent Safety Guardrails
+# EdgeClaw: Edge-Cloud Collaborative Personal AI Assistant
 
 <div align="center">
   <img src="../assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="400em"></img>
@@ -10,13 +10,17 @@
 
 ## News
 
-- [2026-02-12] 🚀🚀🚀 We open-source EdgeClaw, an edge-cloud collaborative AI agent safety guardrail
+- [2026-02-12] 🚀🚀🚀 We open-source EdgeClaw, an edge-cloud collaborative AI assistant
 
 ## Overview
 
-EdgeClaw is an open-source edge-cloud collaborative safety solution for AI agents, jointly developed by [THUNLP](https://nlp.csai.tsinghua.edu.cn), [Renmin University of China](http://ai.ruc.edu.cn/), [ModelBest](https://modelbest.cn/en) and [OpenBMB](https://www.openbmb.cn/home), built on top of [OpenClaw](https://github.com/openclaw/openclaw).
+EdgeClaw is an edge-cloud collaborative personal AI assistant, jointly developed by [THUNLP](https://nlp.csai.tsinghua.edu.cn), [Renmin University of China](http://ai.ruc.edu.cn/), [AI9Stars](https://github.com/AI9Stars), [ModelBest](https://modelbest.cn/en) and [OpenBMB](https://www.openbmb.cn/home), built on top of [OpenClaw](https://github.com/openclaw/openclaw).
 
 Designed to tackle the AI Agent data leakage challenge, EdgeClaw provides a comprehensive, customizable three-tier security system (S1 passthrough / S2 desensitization / S3 local). It standardizes safety guardrails into a universal GuardAgent Protocol (Hooker → Detector → Action). Combined with intelligent edge-cloud routing capabilities, developers can achieve seamless privacy protection — "public data to the cloud, private data stays local" — within OpenClaw without modifying any business logic, balancing the peak performance of large models with absolute security of sensitive data.
+
+<div align="center">
+  <img src="../assets/EdgeClaw-arch.png" alt="EdgeClaw Architecture" width="100%"></img>
+</div>
 
 ## Demo
 
