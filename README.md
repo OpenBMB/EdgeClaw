@@ -1,7 +1,7 @@
 # EdgeClaw: Edge-Cloud Collaborative Personal AI Assistant
 
 <div align="center">
-  <img src="../assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="400em"></img>
+  <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="400em"></img>
 </div>
 
 <p align="center">
@@ -19,7 +19,7 @@ EdgeClaw is an edge-cloud collaborative personal AI assistant, jointly developed
 Designed to tackle the AI Agent data leakage challenge, EdgeClaw provides a comprehensive, customizable three-tier security system (S1 passthrough / S2 desensitization / S3 local). It standardizes safety guardrails into a universal GuardAgent Protocol (Hooker → Detector → Action). Combined with intelligent edge-cloud routing capabilities, developers can achieve seamless privacy protection — "public data to the cloud, private data stays local" — within OpenClaw without modifying any business logic, balancing the peak performance of large models with absolute security of sensitive data.
 
 <div align="center">
-  <img src="../assets/EdgeClaw-arch.png" alt="EdgeClaw Architecture" width="100%"></img>
+  <img src="./assets/EdgeClaw-arch.png" alt="EdgeClaw Architecture" width="100%"></img>
 </div>
 
 ## Demo
