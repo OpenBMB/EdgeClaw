@@ -8,7 +8,7 @@
     【中文 | <a href="./README.md"><b>English</b></a>】
 </p>
 
-## 新闻Edge
+## 新闻
 
 - [2026-02-12] 🚀🚀🚀我们开源了EdgeClaw，端云协同的AI智能体
 
