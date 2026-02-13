@@ -39,8 +39,8 @@ Same as OpenClaw:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/openbmb/openclaw.git
-cd openclaw
+git clone https://github.com/openbmb/edgeclaw.git
+cd edgeclaw
 ```
 
 ### 2. Install Dependencies + Build

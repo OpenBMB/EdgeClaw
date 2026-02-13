@@ -40,8 +40,8 @@ EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[中国人民大学](
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/openbmb/openclaw.git
-cd openclaw
+git clone https://github.com/openbmb/edgeclaw.git
+cd edgeclaw
 ```
 
 ### 2. 安装依赖 + 构建
