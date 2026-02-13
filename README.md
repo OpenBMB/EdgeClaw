@@ -28,9 +28,9 @@ Designed to tackle the AI Agent data leakage challenge, EdgeClaw provides a comp
 
 ## Demo
 
-<!-- <div align="center">
-  <a href="https://www.bilibili.com/video/BV1DYkLBNE6f"><img src="https://i0.hdslb.com/bfs/archive/05f18d5914b8691316161021298a5b63da54eaeb.jpg", width=70%></a>
-</div> -->
+<div align="center">
+  <a href="https://youtu.be/xggfxybLVHw"><img src="https://img.youtube.com/vi/xggfxybLVHw/mqdefault.jpg", width=70%></a>
+</div>
 
 ## Installation
 
