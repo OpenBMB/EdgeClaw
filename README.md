@@ -1,4 +1,4 @@
-# EdgeClaw: Edge-Cloud Collaborative Personal AI Assistant
+# EdgeClaw: Edge-Cloud Collaborative Personal AI Assistant based on OpenClaw
 
 <div align="center">
   <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="400em"></img>
@@ -10,13 +10,15 @@
 
 ## News
 
-- [2026-02-12] 🚀🚀🚀 We open-source EdgeClaw, an edge-cloud collaborative AI assistant
+- [2026-02-12] 🚀🚀🚀 We open-source EdgeClaw, an edge-cloud collaborative AI assistant based on OpenClaw
 
 ## Overview
 
-EdgeClaw is an edge-cloud collaborative personal AI assistant, jointly developed by [THUNLP](https://nlp.csai.tsinghua.edu.cn), [Renmin University of China](http://ai.ruc.edu.cn/), [AI9Stars](https://github.com/AI9Stars), [ModelBest](https://modelbest.cn/en) and [OpenBMB](https://www.openbmb.cn/home), built on top of [OpenClaw](https://github.com/openclaw/openclaw).
+EdgeClaw is an edge-cloud collaborative personal AI assistant, jointly developed by [THUNLP](https://nlp.csai.tsinghua.edu.cn), [Renmin University of China](http://ai.ruc.edu.cn/), [AI9Stars](https://github.com/AI9Stars), [ModelBest](https://modelbest.cn/en) and [OpenBMB](https://www.openbmb.cn/home), built on top of [OpenClaw](https://github.com/openclaw/openclaw).[1]
 
 Designed to tackle the AI Agent data leakage challenge, EdgeClaw provides a comprehensive, customizable three-tier security system (S1 passthrough / S2 desensitization / S3 local). It standardizes safety guardrails into a universal GuardAgent Protocol (Hooker → Detector → Action). Combined with intelligent edge-cloud routing capabilities, developers can achieve seamless privacy protection — "public data to the cloud, private data stays local" — within OpenClaw without modifying any business logic, balancing the peak performance of large models with absolute security of sensitive data.
+
+[1] OpenClaw：https://github.com/openclaw/openclaw
 
 <div align="center">
   <img src="./assets/EdgeClaw-arch.png" alt="EdgeClaw Architecture" width="100%"></img>
@@ -260,19 +262,19 @@ Let the following basic sets exist in an Agent system:
 
 #### Definition 1: Detection Function
 
-Each detector *d* ∈ 𝒟 is defined as a function mapping context to a privacy level:
+Each detector _d_ ∈ 𝒟 is defined as a function mapping context to a privacy level:
 
 <p align="center"><i>d</i> : 𝒳 → ℒ</p>
 
-where context *x* ∈ 𝒳 may contain message content, tool call information, file contents, etc., depending on the checkpoint type. Specifically, the rule detector d<sub>rule</sub> performs deterministic matching based on a predefined rule set ℛ = {r<sub>l</sub>}<sub>l ∈ ℒ</sub>, and the model detector d<sub>model</sub> uses a local LLM θ<sub>local</sub> for semantic classification.
+where context _x_ ∈ 𝒳 may contain message content, tool call information, file contents, etc., depending on the checkpoint type. Specifically, the rule detector d<sub>rule</sub> performs deterministic matching based on a predefined rule set ℛ = {r<sub>l</sub>}<sub>l ∈ ℒ</sub>, and the model detector d<sub>model</sub> uses a local LLM θ<sub>local</sub> for semantic classification.
 
-At checkpoint *c* ∈ 𝒞, the configuration function Φ(*c*) ⊆ 𝒟 returns the subset of detectors enabled for that checkpoint. All detectors run in parallel, and the aggregated result takes the highest level:
+At checkpoint _c_ ∈ 𝒞, the configuration function Φ(_c_) ⊆ 𝒟 returns the subset of detectors enabled for that checkpoint. All detectors run in parallel, and the aggregated result takes the highest level:
 
 <p align="center">Detect(<i>x</i>, <i>c</i>) = max<sub>≼</sub> { <i>d</i>(<i>x</i>) | <i>d</i> ∈ Φ(<i>c</i>) }</p>
 
 #### Definition 2: Routing Function
 
-The routing function *R* maps detection results to the action space, determining how a message is processed:
+The routing function _R_ maps detection results to the action space, determining how a message is processed:
 
 <p align="center"><i>R</i> : ℒ → 𝒜</p>
 
@@ -288,11 +290,11 @@ For S₂-level content, the desensitization function De maps raw content contain
 
 <p align="center">De : ℳ<sub>raw</sub> → ℳ<sub>safe</sub></p>
 
-Constraint: all privacy entities in the original content *m* are replaced with irreversible desensitization tokens, the output De(*m*) contains no original private information, while preserving semantic usability.
+Constraint: all privacy entities in the original content _m_ are replaced with irreversible desensitization tokens, the output De(_m_) contains no original private information, while preserving semantic usability.
 
 #### Definition 4: Dual-Track Persistence
 
-Define two history tracks H<sub>full</sub> (complete) and H<sub>clean</sub> (sanitized). The persistence function *W* selects a write strategy based on the privacy level:
+Define two history tracks H<sub>full</sub> (complete) and H<sub>clean</sub> (sanitized). The persistence function _W_ selects a write strategy based on the privacy level:
 
 ```
             ⎧ H_full ← m,  H_clean ← m        if l = S₁
@@ -316,7 +318,7 @@ where Filter removes Guard Agent interaction content, and De performs final dese
 
 ### End-to-End Pipeline
 
-A user message *m* passes through the full GuardAgent Protocol processing pipeline:
+A user message _m_ passes through the full GuardAgent Protocol processing pipeline:
 
 ```
                                                     ⎧ θ_cloud(m)        if a = passthrough
@@ -328,13 +330,13 @@ m ─[c_msg]→ Detect(m) → l ─[c_route]→ R(l) → a → ⎨ θ_cloud(De(m
 
 ### Security Guarantees
 
-Let *x* be an arbitrary data unit (message *m* or memory entry *e*), and Cloud(*x*) denote the visible form of *x* on the cloud side (including View(θ<sub>cloud</sub>) and M<sub>clean</sub>).
+Let _x_ be an arbitrary data unit (message _m_ or memory entry _e_), and Cloud(_x_) denote the visible form of _x_ on the cloud side (including View(θ<sub>cloud</sub>) and M<sub>clean</sub>).
 
-**Theorem 1 (Cloud Invisibility):** For any S₃-level data unit *x*, its original content is completely invisible on the cloud side:
+**Theorem 1 (Cloud Invisibility):** For any S₃-level data unit _x_, its original content is completely invisible on the cloud side:
 
 <p align="center">∀ <i>x</i>, &nbsp; Detect(<i>x</i>) = S₃ &nbsp;⟹&nbsp; <i>x</i> ∉ Cloud(<i>x</i>)</p>
 
-**Theorem 2 (Desensitization Completeness):** For any S₂-level data unit *x*, its cloud-visible form contains no original privacy entity values:
+**Theorem 2 (Desensitization Completeness):** For any S₂-level data unit _x_, its cloud-visible form contains no original privacy entity values:
 
 <p align="center">∀ <i>x</i>, &nbsp; Detect(<i>x</i>) = S₂ &nbsp;⟹&nbsp; ∀ (<i>t<sub>i</sub></i>, <i>v<sub>i</sub></i>) ∈ Extract(<i>x</i>), &nbsp; <i>v<sub>i</sub></i> ∉ Cloud(<i>x</i>)</p>
 

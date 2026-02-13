@@ -1,4 +1,4 @@
-# EdgeClaw： 端云协同的AI智能体
+# EdgeClaw： 基于OpenClaw的端云协同的AI智能体
 
 <div align="center">
   <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw 标志" width="400em"></img>
@@ -10,13 +10,15 @@
 
 ## 新闻Edge
 
-- [2026-02-12] 🚀🚀🚀我们开源了EdgeClaw，端云协同的AI智能体
+- [2026-02-12] 🚀🚀🚀我们开源了EdgeClaw， 基于OpenClaw的端云协同的AI智能体
 
 ## 概述
 
-EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[中国人民大学](http://ai.ruc.edu.cn/)，[AI9Stars](https://github.com/AI9Stars)，[面壁智能](https://modelbest.cn/en) 与 [OpenBMB](https://www.openbmb.cn/home)基于[OpenClaw](https://github.com/openclaw/openclaw)联合开发的端云协同的AI智能体。
+EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[中国人民大学](http://ai.ruc.edu.cn/)，[AI9Stars](https://github.com/AI9Stars)，[面壁智能](https://modelbest.cn/en) 与 [OpenBMB](https://www.openbmb.cn/home)基于[OpenClaw](https://github.com/openclaw/openclaw)[1]联合开发的端云协同的AI智能体。
 
 专为解决 AI Agent 数据泄露难题打造，EdgeClaw 构建了完善的可自定义三级安全体系（S1直通/S2脱敏/S3本地），将安全护栏标准化为通用的 GuardAgent Protocol（Hooker→ Detector → Action）。配合端云协同的智能路由能力，开发者无需修改业务逻辑，即可在 OpenClaw 中实现"公开数据上云、私密数据落地"的无感隐私保护，兼顾大模型的极致效能与核心数据的绝对安全。
+
+[1] OpenClaw：https://github.com/openclaw/openclaw
 
 <div align="center">
   <img src="./assets/EdgeClaw-arch.png" alt="EdgeClaw 架构" width="100%"></img>
@@ -24,9 +26,9 @@ EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[中国人民大学](
 
 ## 演示案例：
 
-<div align="center">
+<!-- <div align="center">
   <a href="https://www.bilibili.com/video/BV1DYkLBNE6f"><img src="https://i0.hdslb.com/bfs/archive/05f18d5914b8691316161021298a5b63da54eaeb.jpg", width=70%></a>
-</div>
+</div> -->
 
 ## 安装
 
@@ -260,19 +262,19 @@ GuardAgent Protocol 是一个面向 AI Agent 框架的隐私安全中间件协�
 
 #### 定义 1：检测函数
 
-每个检测器 *d* ∈ 𝒟 定义为一个函数，将上下文映射到隐私级别：
+每个检测器 _d_ ∈ 𝒟 定义为一个函数，将上下文映射到隐私级别：
 
 <p align="center"><i>d</i> : 𝒳 → ℒ</p>
 
-其中上下文 *x* ∈ 𝒳 可能包含消息内容、工具调用信息、文件内容等，具体取决于检查点类型。具体地，规则检测器 d<sub>rule</sub> 基于预定义规则集 ℛ = {r<sub>l</sub>}<sub>l ∈ ℒ</sub> 进行确定性匹配，模型检测器 d<sub>model</sub> 使用本地 LLM θ<sub>local</sub> 进行语义分类。
+其中上下文 _x_ ∈ 𝒳 可能包含消息内容、工具调用信息、文件内容等，具体取决于检查点类型。具体地，规则检测器 d<sub>rule</sub> 基于预定义规则集 ℛ = {r<sub>l</sub>}<sub>l ∈ ℒ</sub> 进行确定性匹配，模型检测器 d<sub>model</sub> 使用本地 LLM θ<sub>local</sub> 进行语义分类。
 
-在检查点 *c* ∈ 𝒞 上，配置函数 Φ(*c*) ⊆ 𝒟 返回该检查点启用的检测器子集。所有检测器并行运行，聚合结果取最高级别：
+在检查点 _c_ ∈ 𝒞 上，配置函数 Φ(_c_) ⊆ 𝒟 返回该检查点启用的检测器子集。所有检测器并行运行，聚合结果取最高级别：
 
 <p align="center">Detect(<i>x</i>, <i>c</i>) = max<sub>≼</sub> { <i>d</i>(<i>x</i>) | <i>d</i> ∈ Φ(<i>c</i>) }</p>
 
 #### 定义 2：路由函数
 
-路由函数 *R* 将检测结果映射到动作空间，决定消息如何处理：
+路由函数 _R_ 将检测结果映射到动作空间，决定消息如何处理：
 
 <p align="center"><i>R</i> : ℒ → 𝒜</p>
 
@@ -288,11 +290,11 @@ R(l)  =  ⎨ desensitize    if l = S₂
 
 <p align="center">De : ℳ<sub>raw</sub> → ℳ<sub>safe</sub></p>
 
-满足：原始内容 *m* 中的所有隐私实体均被替换为不可逆的脱敏标记，输出 De(*m*) 不含任何原始隐私信息，同时保留语义可用性。
+满足：原始内容 _m_ 中的所有隐私实体均被替换为不可逆的脱敏标记，输出 De(_m_) 不含任何原始隐私信息，同时保留语义可用性。
 
 #### 定义 4：双轨持久化
 
-定义两个历史轨道 H<sub>full</sub>（完整）和 H<sub>clean</sub>（干净），持久化函数 *W* 基于级别选择写入策略：
+定义两个历史轨道 H<sub>full</sub>（完整）和 H<sub>clean</sub>（干净），持久化函数 _W_ 基于级别选择写入策略：
 
 ```
             ⎧ H_full ← m,  H_clean ← m        if l = S₁
@@ -316,7 +318,7 @@ W(m, l)  =  ⎨ H_full ← m,  H_clean ← De(m)   if l = S₂
 
 ### 端到端流程
 
-一条用户消息 *m* 经过 GuardAgent Protocol 的完整处理管道：
+一条用户消息 _m_ 经过 GuardAgent Protocol 的完整处理管道：
 
 ```
                                                     ⎧ θ_cloud(m)        if a = passthrough
@@ -328,13 +330,13 @@ m ─[c_msg]→ Detect(m) → l ─[c_route]→ R(l) → a → ⎨ θ_cloud(De(m
 
 ### 安全性保证
 
-设 *x* 为任意数据单元（消息 *m* 或记忆条目 *e*），Cloud(*x*) 表示 *x* 在云端的可见形式（含 View(θ<sub>cloud</sub>) 与 M<sub>clean</sub>）。
+设 _x_ 为任意数据单元（消息 _m_ 或记忆条目 _e_），Cloud(_x_) 表示 _x_ 在云端的可见形式（含 View(θ<sub>cloud</sub>) 与 M<sub>clean</sub>）。
 
-**定理 1（云端不可见性）：** 对于任意 S₃ 级数据单元 *x*，其原始内容在云端侧完全不可见：
+**定理 1（云端不可见性）：** 对于任意 S₃ 级数据单元 _x_，其原始内容在云端侧完全不可见：
 
 <p align="center">∀ <i>x</i>, &nbsp; Detect(<i>x</i>) = S₃ &nbsp;⟹&nbsp; <i>x</i> ∉ Cloud(<i>x</i>)</p>
 
-**定理 2（脱敏完整性）：** 对于任意 S₂ 级数据单元 *x*，其云端可见形式中不包含任何原始隐私实体值：
+**定理 2（脱敏完整性）：** 对于任意 S₂ 级数据单元 _x_，其云端可见形式中不包含任何原始隐私实体值：
 
 <p align="center">∀ <i>x</i>, &nbsp; Detect(<i>x</i>) = S₂ &nbsp;⟹&nbsp; ∀ (<i>t<sub>i</sub></i>, <i>v<sub>i</sub></i>) ∈ Extract(<i>x</i>), &nbsp; <i>v<sub>i</sub></i> ∉ Cloud(<i>x</i>)</p>
 
