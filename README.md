@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="55%"></img>
+  <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="25%"></img>
 </div>
 
 <h3 align="center">
