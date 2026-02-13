@@ -1,8 +1,10 @@
-# EdgeClaw: Edge-Cloud Collaborative Personal AI Assistant based on OpenClaw
-
 <div align="center">
-  <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="100em"></img>
+  <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="55%"></img>
 </div>
+
+<h3 align="center">
+EdgeClaw: Edge-Cloud Collaborative Personal AI Assistant based on OpenClaw
+</h3>
 
 <p align="center">
     【<a href="./readme_zh.md"><b>中文</b></a> | English】

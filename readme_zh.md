@@ -1,8 +1,11 @@
-# EdgeClaw： 基于OpenClaw的端云协同的AI智能体
-
 <div align="center">
-  <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw 标志" width="100em"></img>
+  <img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="55%"></img>
 </div>
+
+<h3 align="center">
+EdgeClaw： 基于OpenClaw的端云协同的AI智能体
+</h3>
+
 
 <p align="center">
     【中文 | <a href="./README.md"><b>English</b></a>】
