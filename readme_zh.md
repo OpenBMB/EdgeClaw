@@ -30,7 +30,7 @@ EdgeClaw是由[THUNLP](https://nlp.csai.tsinghua.edu.cn)，[中国人民大学](
 ## 演示案例：
 
 <div align="center">
-  <a href="https://youtu.be/xggfxybLVHw"><img src="https://img.youtube.com/vi/xggfxybLVHw/mqdefault.jpg", width=70%></a>
+  <a href="https://youtu.be/xggfxybLVHw"><img src="https://img.youtube.com/vi/xggfxybLVHw/maxresdefault.jpg", width=70%></a>
 </div>
 
 ## 安装
