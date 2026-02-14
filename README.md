@@ -398,4 +398,4 @@ Thanks to all contributors for their efforts in code submissions and testing. We
 
 ### Contact Us
 
-- f you have any questions, feedback, or would like to get in touch, please use GitHub Issues.
+- If you have any questions, feedback, or would like to get in touch, please use GitHub Issues.
