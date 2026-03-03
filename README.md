@@ -49,7 +49,7 @@ cd edgeclaw
 pnpm install
 pnpm build
 pnpm ui:build
-pnpm openclaw --install-daemon
+pnpm openclaw onboard --install-daemo
 ```
 
 ### 3. Install the Extension
