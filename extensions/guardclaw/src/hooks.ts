@@ -462,6 +462,17 @@ export function registerHooks(api: OpenClawPluginApi): void {
         return;
       }
 
+      // Skip messages with timestamp prefix — these come from the reply pipeline's
+      // second resolve_model call; detection was already done in the gateway layer.
+      const TIMESTAMP_PREFIX =
+        /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/;
+      if (TIMESTAMP_PREFIX.test(msgStr)) {
+        api.logger.info(
+          `[GuardClaw] resolve_model: timestamped message (reply pipeline), skipping duplicate detection`,
+        );
+        return;
+      }
+
       // Pre-read any referenced files BEFORE classification so the model
       // can see actual file content and classify correctly (e.g. delivery info → S2).
       const workspaceDir = api.config.agents?.defaults?.workspace ?? process.cwd();
