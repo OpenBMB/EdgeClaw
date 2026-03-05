@@ -1,7 +1,8 @@
 /**
  * GuardClaw Local Model Detector
  *
- * Local model-based sensitivity detection using Ollama or other local providers.
+ * Local model-based sensitivity detection via OpenAI-compatible chat completions API.
+ * Works with any backend that exposes /v1/chat/completions (Ollama, vLLM, LiteLLM, etc.).
  */
 
 import type {
@@ -12,6 +13,62 @@ import type {
 } from "./types.js";
 import { loadPrompt, loadPromptWithVars } from "./prompt-loader.js";
 import { levelToNumeric } from "./types.js";
+
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+/**
+ * Unified OpenAI-compatible chat completions call.
+ * Sends POST to ${endpoint}/v1/chat/completions — works with Ollama, vLLM, LiteLLM, etc.
+ */
+async function callChatCompletion(
+  endpoint: string,
+  model: string,
+  messages: ChatMessage[],
+  options?: {
+    temperature?: number;
+    maxTokens?: number;
+    stop?: string[];
+    frequencyPenalty?: number;
+  },
+): Promise<string> {
+  const url = `${endpoint}/v1/chat/completions`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: options?.temperature ?? 0.1,
+      max_tokens: options?.maxTokens ?? 800,
+      stream: false,
+      ...(options?.stop ? { stop: options.stop } : {}),
+      ...(options?.frequencyPenalty != null ? { frequency_penalty: options.frequencyPenalty } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Chat completions API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  let result = data.choices?.[0]?.message?.content ?? "";
+
+  result = stripThinkingTags(result);
+  return result;
+}
+
+/** Strip <think>...</think> blocks emitted by reasoning models (MiniCPM, Qwen3, etc.) */
+function stripThinkingTags(text: string): string {
+  let result = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  const lastThinkClose = result.lastIndexOf("</think>");
+  if (lastThinkClose !== -1) {
+    result = result.slice(lastThinkClose + "</think>".length).trim();
+  }
+  return result;
+}
 
 /**
  * Detect sensitivity level using a local model
@@ -32,8 +89,8 @@ export async function detectByLocalModel(
   }
 
   try {
-    const prompt = buildDetectionPrompt(context);
-    const response = await callLocalModel(prompt, config);
+    const { system, user } = buildDetectionMessages(context);
+    const response = await callLocalModel(system, user, config);
     const parsed = parseModelResponse(response);
 
     let { level } = parsed;
@@ -152,17 +209,15 @@ Rules:
 Output format: {"level":"S1|S2|S3","reason":"brief"}`;
 
 /**
- * Build detection prompt for the local model.
+ * Build separate system/user messages for the detection prompt.
  *
- * The system instruction is loaded from prompts/detection-system.md (editable by users).
- * The dynamic [CONTENT] block with message/tool info is appended by code.
- *
- * Tuned for MiniCPM4.1-8B but works with other 8B-class models (Qwen3, Llama).
+ * System instruction is loaded from prompts/detection-system.md (editable by users).
+ * The dynamic [CONTENT] block becomes the user message.
  */
-function buildDetectionPrompt(context: DetectionContext): string {
-  const systemPrompt = loadPrompt("detection-system", DEFAULT_DETECTION_SYSTEM_PROMPT);
+function buildDetectionMessages(context: DetectionContext): { system: string; user: string } {
+  const system = loadPrompt("detection-system", DEFAULT_DETECTION_SYSTEM_PROMPT);
 
-  const parts: string[] = [systemPrompt, "", "[CONTENT]"];
+  const parts: string[] = ["[CONTENT]"];
 
   if (context.message) {
     parts.push(`Message: ${context.message.slice(0, 1500)}`);
@@ -191,87 +246,42 @@ function buildDetectionPrompt(context: DetectionContext): string {
 
   parts.push("[/CONTENT]");
 
-  return parts.join("\n");
+  return { system, user: parts.join("\n") };
 }
 
 /**
- * Call local model (Ollama or other providers)
+ * Call local model via OpenAI-compatible chat completions API.
+ * Provider-agnostic: works with any backend exposing /v1/chat/completions.
  */
-async function callLocalModel(prompt: string, config: PrivacyConfig): Promise<string> {
-  const provider = config.localModel?.provider ?? "ollama";
+async function callLocalModel(
+  systemPrompt: string,
+  userContent: string,
+  config: PrivacyConfig,
+): Promise<string> {
   const model = config.localModel?.model ?? "openbmb/minicpm4.1";
   const endpoint = config.localModel?.endpoint ?? "http://localhost:11434";
 
-  if (provider === "ollama") {
-    return await callOllama(endpoint, model, prompt);
-  }
-
-  throw new Error(`Unsupported local model provider: ${provider}`);
-}
-
-/**
- * Call Ollama API
- */
-async function callOllama(endpoint: string, model: string, prompt: string): Promise<string> {
-  const url = `${endpoint}/api/generate`;
-
+  // Qwen3: prefix user content with /no_think to suppress chain-of-thought output
   const modelLower = model.toLowerCase();
+  const finalUser = modelLower.includes("qwen") ? `/no_think\n${userContent}` : userContent;
 
-  // Model-specific prompt adjustments:
-  // - Qwen3: prefix with /no_think to suppress chain-of-thought output
-  // - MiniCPM / others: use prompt as-is
-  const finalPrompt = modelLower.includes("qwen") ? `/no_think\n${prompt}` : prompt;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      prompt: finalPrompt,
-      stream: false,
-      options: {
-        temperature: 0.1, // Low temperature for consistent classification
-        num_predict: 800, // Allow space for thinking models
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = (await response.json()) as { response?: string };
-  let result = data.response ?? "";
-
-  // Strip thinking output from models that use <think>...</think> (MiniCPM, Qwen3, etc.)
-  // Case 1: Full <think>...</think> blocks
-  result = result.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-  // Case 2: Only </think> appears (partial thinking) — take text after the LAST </think>
-  const lastThinkClose = result.lastIndexOf("</think>");
-  if (lastThinkClose !== -1) {
-    result = result.slice(lastThinkClose + "</think>".length).trim();
-  }
-
-  return result;
+  return await callChatCompletion(
+    endpoint,
+    model,
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: finalUser },
+    ],
+    { temperature: 0.1, maxTokens: 800 },
+  );
 }
 
-/**
- * Desensitize content using local model.
- * For S2 content: ask the local model to redact sensitive parts, then return
- * the cleaned text that is safe to send to cloud models.
- *
- * Falls back to rule-based redaction if the local model is unavailable.
- */
 /**
  * Two-step desensitization using a local model:
- *   Step 1: Model identifies PII items as a JSON array (completion-style prompt)
+ *   Step 1: Model identifies PII items as a JSON array
  *   Step 2: Programmatic string replacement using the model's output
  *
- * This approach is much more reliable than asking the model to rewrite text,
- * because small models like MiniCPM4.1 hallucinate when asked to edit text
- * but are good at structured extraction with completion-style prompts.
+ * Falls back to rule-based redaction if the local model is unavailable.
  */
 export async function desensitizeWithLocalModel(
   content: string,
@@ -358,22 +368,8 @@ function replaceAll(str: string, search: string, replacement: string): string {
   return str.replace(new RegExp(escaped, "g"), replacement);
 }
 
-/**
- * Call Ollama with a completion-style prompt to extract PII as JSON.
- *
- * Uses the generate API with a prefix that shows the model examples and
- * starts the JSON array for it to complete. This is far more reliable
- * than asking the model to rewrite text.
- */
-async function extractPiiWithModel(
-  endpoint: string,
-  model: string,
-  content: string,
-): Promise<Array<{ type: string; value: string }>> {
-  const textSnippet = content.slice(0, 3000);
-
-  /** Default PII extraction prompt (fallback if prompts/pii-extraction.md is missing) */
-  const DEFAULT_PII_PROMPT = `Task: Extract ALL PII (personally identifiable information) from text as a JSON array.
+/** Default PII extraction system prompt (fallback if prompts/pii-extraction.md is missing) */
+const DEFAULT_PII_EXTRACTION_PROMPT = `You are a PII extraction engine. Extract ALL PII (personally identifiable information) from the given text as a JSON array.
 
 Types: NAME (every person), PHONE, ADDRESS (all variants including shortened), ACCESS_CODE (gate/door/门禁码), DELIVERY (tracking numbers, pickup codes/取件码), ID (SSN/身份证), CARD (bank/medical/insurance), LICENSE_PLATE (plate numbers/车牌), EMAIL, PASSWORD, PAYMENT (Venmo/PayPal/支付宝), BIRTHDAY, TIME (appointment/delivery times), NOTE (private instructions)
 
@@ -383,55 +379,67 @@ Example:
 Input: Alex lives at 123 Main St. Li Na phone 13912345678, gate code 1234#, card YB330-123, plate 京A12345, tracking SF123, Venmo @alex99
 Output: [{"type":"NAME","value":"Alex"},{"type":"NAME","value":"Li Na"},{"type":"ADDRESS","value":"123 Main St"},{"type":"PHONE","value":"13912345678"},{"type":"ACCESS_CODE","value":"1234#"},{"type":"CARD","value":"YB330-123"},{"type":"LICENSE_PLATE","value":"京A12345"},{"type":"DELIVERY","value":"SF123"},{"type":"PAYMENT","value":"@alex99"}]
 
-Input: {{CONTENT}}
-Output: [`;
+Output ONLY the JSON array — no explanation, no markdown fences.`;
 
-  const prompt = loadPromptWithVars("pii-extraction", DEFAULT_PII_PROMPT, {
+/**
+ * Extract PII from content using local model via chat completions.
+ *
+ * Two-step approach: model identifies PII items as JSON, then we do
+ * programmatic string replacement. More reliable than asking models to rewrite.
+ */
+async function extractPiiWithModel(
+  endpoint: string,
+  model: string,
+  content: string,
+): Promise<Array<{ type: string; value: string }>> {
+  const textSnippet = content.slice(0, 3000);
+
+  // Allow user customization via prompts/pii-extraction.md
+  const systemPrompt = loadPromptWithVars("pii-extraction", DEFAULT_PII_EXTRACTION_PROMPT, {
     CONTENT: textSnippet,
   });
 
-  const url = `${endpoint}/api/generate`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      prompt,
-      stream: false,
-      options: {
-        temperature: 0.0,
-        num_predict: 2500,
-        stop: ["Input:", "Task:", "\n\n"],
-      },
-    }),
-  });
+  // If the loaded prompt has {{CONTENT}} substituted in, use a short user trigger;
+  // otherwise send the content as the user message.
+  const promptHasContent = systemPrompt.includes(textSnippet) && textSnippet.length > 10;
+  const userMessage = promptHasContent
+    ? "Extract all PII from the text above. Output ONLY the JSON array."
+    : textSnippet;
 
-  if (!response.ok) {
-    throw new Error(`Ollama API error: ${response.status}`);
-  }
+  const raw = await callChatCompletion(
+    endpoint,
+    model,
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    { temperature: 0.0, maxTokens: 2500, stop: ["Input:", "Task:"] },
+  );
 
-  const data = (await response.json()) as { response?: string };
-  let raw = data.response ?? "";
+  return parsePiiJson(raw);
+}
 
-  // Strip thinking tags
-  raw = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-  const lastThink = raw.lastIndexOf("</think>");
-  if (lastThink !== -1) {
-    raw = raw.slice(lastThink + "</think>".length).trim();
-  }
-
+/** Parse the model's PII extraction output into structured items */
+function parsePiiJson(raw: string): Array<{ type: string; value: string }> {
   // Normalize whitespace (model may use newlines between items)
-  raw = raw.replace(/\s+/g, " ");
+  let cleaned = raw.replace(/\s+/g, " ").trim();
 
-  // Complete the JSON array (prompt already started with "[")
-  let jsonStr = "[" + raw;
+  // Strip markdown code fences if present
+  cleaned = cleaned
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
 
-  // Find the last ] to cut off any trailing garbage (explanations, etc.)
+  // Find the JSON array in the output
+  const arrayStart = cleaned.indexOf("[");
+  if (arrayStart < 0) return [];
+  let jsonStr = cleaned.slice(arrayStart);
+
+  // Find the last ] to cut off any trailing garbage
   const lastBracket = jsonStr.lastIndexOf("]");
   if (lastBracket >= 0) {
     jsonStr = jsonStr.slice(0, lastBracket + 1);
   } else {
-    // No closing ] — model was cut off. Close after the last complete object.
     const lastCloseBrace = jsonStr.lastIndexOf("}");
     if (lastCloseBrace >= 0) {
       jsonStr = jsonStr.slice(0, lastCloseBrace + 1) + "]";
@@ -444,17 +452,10 @@ Output: [`;
   jsonStr = jsonStr.replace(/,\s*\]/g, "]");
 
   // Normalize Python-style single-quoted JSON to double-quoted JSON.
-  // Some local models (e.g. minicpm4.1) output {'key': 'value'} instead of {"key": "value"}.
-  // Strategy: replace single-quoted keys/values while preserving apostrophes in natural text.
+  // Some local models output {'key': 'value'} instead of {"key": "value"}.
   jsonStr = jsonStr
-    .replace(
-      /(?<=[\[,{]\s*)'([^']+?)'(?=\s*:)/g,
-      '"$1"', // keys: 'type' → "type"
-    )
-    .replace(
-      /(?<=:\s*)'([^']*?)'(?=\s*[,}\]])/g,
-      '"$1"', // values: 'PHONE' → "PHONE"
-    );
+    .replace(/(?<=[\[,{]\s*)'([^']+?)'(?=\s*:)/g, '"$1"')
+    .replace(/(?<=:\s*)'([^']*?)'(?=\s*[,}\]])/g, '"$1"');
 
   console.log(
     `[GuardClaw] PII extraction raw JSON (${jsonStr.length} chars): ${jsonStr.slice(0, 300)}...`,
@@ -543,51 +544,8 @@ function parseModelResponse(response: string): {
 }
 
 /**
- * Call Ollama chat API with proper system/user message separation.
- * Less prone to prompt-echoing than the generate API.
- */
-async function callOllamaChat(
-  endpoint: string,
-  model: string,
-  systemPrompt: string,
-  userMessage: string,
-  options?: { stop?: string[] },
-): Promise<string> {
-  const url = `${endpoint}/api/chat`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-      stream: false,
-      options: {
-        temperature: 0.1,
-        num_predict: 1500,
-        ...(options?.stop ? { stop: options.stop } : {}),
-      },
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`Ollama chat API error: ${response.status} ${response.statusText}`);
-  }
-  const data = (await response.json()) as { message?: { content?: string } };
-  let result = data.message?.content ?? "";
-  // Strip thinking output
-  result = result.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-  const lastThink = result.lastIndexOf("</think>");
-  if (lastThink !== -1) {
-    result = result.slice(lastThink + "</think>".length).trim();
-  }
-  return result;
-}
-
-/**
- * Call Ollama directly for an S3 analysis task, bypassing the full agent pipeline.
- * Uses /api/generate with repeat_penalty to prevent degenerate repetitive output.
+ * Call local model directly for an S3 analysis task, bypassing the full agent pipeline.
+ * Uses OpenAI-compatible chat completions API with frequency_penalty to reduce repetition.
  */
 export async function callLocalModelDirect(
   systemPrompt: string,
@@ -596,40 +554,21 @@ export async function callLocalModelDirect(
 ): Promise<string> {
   const endpoint = config.endpoint ?? "http://localhost:11434";
   const model = config.model ?? "openbmb/minicpm4.1";
-  const url = `${endpoint}/api/generate`;
 
-  // Combine system + user into a single prompt for /api/generate
-  const prompt = `${systemPrompt}\n\n${userMessage}\n\nAnalysis:`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      prompt,
-      stream: false,
-      options: {
-        temperature: 0.3,
-        num_predict: 1500,
-        repeat_penalty: 1.3,
-        stop: ["[message_id:", "[Message_id:", "[system:", "Instructions:", "Data:"],
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Ollama generate API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = (await response.json()) as { response?: string };
-  let result = data.response ?? "";
-
-  // Strip thinking output
-  result = result.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-  const lastThink = result.lastIndexOf("</think>");
-  if (lastThink !== -1) {
-    result = result.slice(lastThink + "</think>".length).trim();
-  }
+  let result = await callChatCompletion(
+    endpoint,
+    model,
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    {
+      temperature: 0.3,
+      maxTokens: 1500,
+      frequencyPenalty: 0.5,
+      stop: ["[message_id:", "[Message_id:", "[system:", "Instructions:", "Data:"],
+    },
+  );
 
   // Truncate at any remaining [message_id: artifacts
   for (const marker of ["[message_id:", "[Message_id:"]) {

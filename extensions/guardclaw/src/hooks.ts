@@ -503,9 +503,8 @@ export function registerHooks(api: OpenClawPluginApi): void {
       // ── S3: call local model directly with pre-read file content ──
       if (result.level === "S3") {
         const guardCfg = getGuardAgentConfig(privacyConfig);
-        const guardProvider = guardCfg?.provider ?? "ollama";
         const guardModelName = guardCfg?.modelName ?? "openbmb/minicpm4.1";
-        const ollamaEndpoint = privacyConfig.localModel?.endpoint ?? "http://localhost:11434";
+        const localEndpoint = privacyConfig.localModel?.endpoint ?? "http://localhost:11434";
 
         markSessionAsPrivate(sessionKey, result.level);
 
@@ -515,8 +514,8 @@ export function registerHooks(api: OpenClawPluginApi): void {
         api.emitEvent("privacy_activated", {
           active: true,
           level: result.level,
-          model: `${guardProvider}/${guardModelName}`,
-          provider: guardProvider,
+          model: guardModelName,
+          provider: "local",
           reason: result.reason ?? "S3 content detected",
           sessionKey,
         });
@@ -550,7 +549,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
         try {
           const directReply = await callLocalModelDirect(getGuardAgentSystemPrompt(), userPrompt, {
-            endpoint: ollamaEndpoint,
+            endpoint: localEndpoint,
             model: guardModelName,
           });
 
@@ -568,7 +567,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
           return {
             reason: `GuardClaw: S3 — processed locally by ${guardModelName}`,
-            provider: guardProvider,
+            provider: guardCfg?.provider ?? "local",
             model: guardModelName,
             directResponse: isChinese
               ? `🔒 [已由本地隐私模型处理]\n\n${directReply}`
@@ -650,12 +649,11 @@ export function registerHooks(api: OpenClawPluginApi): void {
 
         // Emit UI event
         const localModelId = privacyConfig.localModel?.model ?? "openbmb/minicpm4.1";
-        const localProvider = privacyConfig.localModel?.provider ?? "ollama";
         api.emitEvent("privacy_activated", {
           active: true,
           level: result.level,
-          model: `${localProvider}/${localModelId}`,
-          provider: localProvider,
+          model: localModelId,
+          provider: "local",
           desensitized: true,
           wasModelUsed,
           reason: result.reason ?? "S2 content detected — desensitized",

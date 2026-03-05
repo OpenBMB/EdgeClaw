@@ -1,6 +1,6 @@
 /**
  * GuardClaw Config Schema
- * 
+ *
  * Configuration schema for the GuardClaw plugin using TypeBox.
  */
 
@@ -14,20 +14,20 @@ export const guardClawConfigSchema = Type.Object({
         Type.Object({
           onUserMessage: Type.Optional(
             Type.Array(
-              Type.Union([Type.Literal("ruleDetector"), Type.Literal("localModelDetector")])
-            )
+              Type.Union([Type.Literal("ruleDetector"), Type.Literal("localModelDetector")]),
+            ),
           ),
           onToolCallProposed: Type.Optional(
             Type.Array(
-              Type.Union([Type.Literal("ruleDetector"), Type.Literal("localModelDetector")])
-            )
+              Type.Union([Type.Literal("ruleDetector"), Type.Literal("localModelDetector")]),
+            ),
           ),
           onToolCallExecuted: Type.Optional(
             Type.Array(
-              Type.Union([Type.Literal("ruleDetector"), Type.Literal("localModelDetector")])
-            )
+              Type.Union([Type.Literal("ruleDetector"), Type.Literal("localModelDetector")]),
+            ),
           ),
-        })
+        }),
       ),
       rules: Type.Optional(
         Type.Object({
@@ -35,13 +35,13 @@ export const guardClawConfigSchema = Type.Object({
             Type.Object({
               S2: Type.Optional(Type.Array(Type.String())),
               S3: Type.Optional(Type.Array(Type.String())),
-            })
+            }),
           ),
           patterns: Type.Optional(
             Type.Object({
               S2: Type.Optional(Type.Array(Type.String())),
               S3: Type.Optional(Type.Array(Type.String())),
-            })
+            }),
           ),
           tools: Type.Optional(
             Type.Object({
@@ -49,17 +49,17 @@ export const guardClawConfigSchema = Type.Object({
                 Type.Object({
                   tools: Type.Optional(Type.Array(Type.String())),
                   paths: Type.Optional(Type.Array(Type.String())),
-                })
+                }),
               ),
               S3: Type.Optional(
                 Type.Object({
                   tools: Type.Optional(Type.Array(Type.String())),
                   paths: Type.Optional(Type.Array(Type.String())),
-                })
+                }),
               ),
-            })
+            }),
           ),
-        })
+        }),
       ),
       localModel: Type.Optional(
         Type.Object({
@@ -67,22 +67,22 @@ export const guardClawConfigSchema = Type.Object({
           provider: Type.Optional(Type.String()),
           model: Type.Optional(Type.String()),
           endpoint: Type.Optional(Type.String()),
-        })
+        }),
       ),
       guardAgent: Type.Optional(
         Type.Object({
           id: Type.Optional(Type.String()),
           workspace: Type.Optional(Type.String()),
           model: Type.Optional(Type.String()),
-        })
+        }),
       ),
       session: Type.Optional(
         Type.Object({
           isolateGuardHistory: Type.Optional(Type.Boolean()),
           baseDir: Type.Optional(Type.String()),
-        })
+        }),
       ),
-    })
+    }),
   ),
 });
 
@@ -115,7 +115,6 @@ export const defaultPrivacyConfig = {
   },
   localModel: {
     enabled: true,
-    provider: "ollama",
     model: "openbmb/minicpm4.1",
     endpoint: "http://localhost:11434",
   },
