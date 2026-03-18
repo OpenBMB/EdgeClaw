@@ -46,64 +46,17 @@ export type ApplyPresetResult = {
 
 export const BUILTIN_PRESETS: ProviderPreset[] = [
   {
-    id: "ollama-minicpm",
-    name: "Ollama / MiniCPM 4.1",
-    builtin: true,
-    localModel: {
-      type: "openai-compatible",
-      provider: "ollama",
-      model: "openbmb/minicpm4.1",
-      endpoint: "http://localhost:11434",
-    },
-    guardAgent: { model: "ollama/openbmb/minicpm4.1" },
-  },
-  {
-    id: "ollama-qwen",
-    name: "Ollama / Qwen 2.5:7B",
-    builtin: true,
-    localModel: {
-      type: "openai-compatible",
-      provider: "ollama",
-      model: "qwen2.5:7b",
-      endpoint: "http://localhost:11434",
-    },
-    guardAgent: { model: "ollama/qwen2.5:7b" },
-  },
-  {
-    id: "ollama-qwen-native",
-    name: "Ollama / Qwen 2.5:7B (native API)",
-    builtin: true,
-    localModel: {
-      type: "ollama-native",
-      provider: "ollama",
-      model: "qwen2.5:7b",
-      endpoint: "http://localhost:11434",
-    },
-    guardAgent: { model: "ollama/qwen2.5:7b" },
-  },
-  {
-    id: "vllm-qwen",
-    name: "vLLM / Qwen 2.5-7B-Instruct",
+    id: "vllm-qwen35",
+    name: "vLLM / Qwen 3.5-35B",
     builtin: true,
     localModel: {
       type: "openai-compatible",
       provider: "vllm",
-      model: "Qwen/Qwen2.5-7B-Instruct",
-      endpoint: "http://localhost:8000",
+      model: "qwen3.5-35b",
+      endpoint: "http://localhost:7999",
     },
-    guardAgent: { model: "vllm/Qwen/Qwen2.5-7B-Instruct" },
-  },
-  {
-    id: "lmstudio-llama",
-    name: "LM Studio / Llama 3 8B",
-    builtin: true,
-    localModel: {
-      type: "openai-compatible",
-      provider: "lmstudio",
-      model: "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF",
-      endpoint: "http://localhost:1234",
-    },
-    guardAgent: { model: "lmstudio/lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF" },
+    guardAgent: { model: "vllm/qwen3.5-35b" },
+    defaultModel: "vllm/qwen3.5-35b",
   },
   {
     id: "deepseek-cloud",
@@ -117,19 +70,6 @@ export const BUILTIN_PRESETS: ProviderPreset[] = [
     },
     guardAgent: { model: "deepseek/deepseek-chat" },
     defaultModel: "deepseek/deepseek-chat",
-  },
-  {
-    id: "full-local-ollama",
-    name: "Full Local (Ollama)",
-    builtin: true,
-    localModel: {
-      type: "openai-compatible",
-      provider: "ollama",
-      model: "qwen2.5:7b",
-      endpoint: "http://localhost:11434",
-    },
-    guardAgent: { model: "ollama/qwen2.5:7b" },
-    defaultModel: "ollama/qwen2.5:7b",
   },
 ];
 
