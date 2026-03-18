@@ -1,0 +1,12 @@
+{
+  "name": "@edgeclaw/provider-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pre-built LLM provider catalog with simplified API key management for EdgeClaw",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
