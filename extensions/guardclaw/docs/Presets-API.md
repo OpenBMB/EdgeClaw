@@ -75,17 +75,17 @@ GET /api/presets
       "defaultModel": "vllm/qwen3.5-35b"
     },
     {
-      "id": "deepseek-cloud",
-      "name": "DeepSeek Chat (Cloud)",
+      "id": "minimax-cloud",
+      "name": "MiniMax M2.5 (Cloud)",
       "builtin": true,
       "localModel": {
         "type": "openai-compatible",
-        "provider": "deepseek",
-        "model": "deepseek-chat",
-        "endpoint": "https://api.deepseek.com"
+        "provider": "vllm",
+        "model": "qwen3.5-35b",
+        "endpoint": "http://localhost:7999"
       },
-      "guardAgent": { "model": "deepseek/deepseek-chat" },
-      "defaultModel": "deepseek/deepseek-chat"
+      "guardAgent": { "model": "vllm/qwen3.5-35b" },
+      "defaultModel": "minimax/MiniMax-M2.5-highspeed"
     },
     {
       "id": "my-setup-1710734400000",
@@ -97,11 +97,11 @@ GET /api/presets
         "endpoint": "http://localhost:7999"
       },
       "guardAgent": { "model": "vllm/qwen3.5-35b" },
-      "defaultModel": "vllm/qwen3.5-35b"
+      "defaultModel": "minimax/MiniMax-M2.5-highspeed"
     }
   ],
   "activePreset": "vllm-qwen35",
-  "currentDefaultModel": "vllm/qwen3.5-35b"
+  "currentDefaultModel": "minimax/MiniMax-M2.5-highspeed"
 }
 ```
 
@@ -299,6 +299,17 @@ URL 中的 `{id}` 需要做 `encodeURIComponent` 编码。
             "maxTokens": 65536
           }
         ]
+      },
+      "minimax": {
+        "baseUrl": "https://api.minimaxi.com/anthropic/v1",
+        "apiKey": "<MINIMAX_API_KEY>",
+        "api": "anthropic-messages",
+        "models": [
+          {
+            "id": "MiniMax-M2.5-highspeed",
+            "name": "MiniMax-M2.5-highspeed"
+          }
+        ]
       }
     }
   },
@@ -310,12 +321,14 @@ URL 中的 `{id}` 需要做 `encodeURIComponent` 编码。
 }
 ```
 
+> **说明：** MiniMax 使用 Anthropic 协议（`api: "anthropic-messages"`），通过 `@ai-sdk/anthropic` SDK 适配器访问 `https://api.minimaxi.com/anthropic/v1`。API Key 为 JWT 格式，从 MiniMax 控制台获取。
+
 ## 内置预设一览
 
-| ID               | 名称                  | localModel               | endpoint                   | defaultModel             | 适用场景                      |
-| ---------------- | --------------------- | ------------------------ | -------------------------- | ------------------------ | ----------------------------- |
-| `vllm-qwen35`    | vLLM / Qwen 3.5-35B   | vllm / qwen3.5-35b       | `http://localhost:7999`    | `vllm/qwen3.5-35b`       | 全本地，隐私 + 主模型均在本地 |
-| `deepseek-cloud` | DeepSeek Chat (Cloud) | deepseek / deepseek-chat | `https://api.deepseek.com` | `deepseek/deepseek-chat` | 全 DeepSeek 云端              |
+| ID              | 名称                 | localModel         | endpoint                | defaultModel                     | 适用场景                           |
+| --------------- | -------------------- | ------------------ | ----------------------- | -------------------------------- | ---------------------------------- |
+| `vllm-qwen35`   | vLLM / Qwen 3.5-35B  | vllm / qwen3.5-35b | `http://localhost:7999` | `vllm/qwen3.5-35b`               | 全本地，隐私 + 主模型均在本地      |
+| `minimax-cloud` | MiniMax M2.5 (Cloud) | vllm / qwen3.5-35b | `http://localhost:7999` | `minimax/MiniMax-M2.5-highspeed` | 本地隐私检测 + 云端 MiniMax 主模型 |
 
 ---
 

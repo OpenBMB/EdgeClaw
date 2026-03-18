@@ -59,17 +59,17 @@ export const BUILTIN_PRESETS: ProviderPreset[] = [
     defaultModel: "vllm/qwen3.5-35b",
   },
   {
-    id: "deepseek-cloud",
-    name: "DeepSeek Chat (Cloud)",
+    id: "minimax-cloud",
+    name: "MiniMax M2.5 (Cloud)",
     builtin: true,
     localModel: {
       type: "openai-compatible",
-      provider: "deepseek",
-      model: "deepseek-chat",
-      endpoint: "https://api.deepseek.com",
+      provider: "vllm",
+      model: "qwen3.5-35b",
+      endpoint: "http://localhost:7999",
     },
-    guardAgent: { model: "deepseek/deepseek-chat" },
-    defaultModel: "deepseek/deepseek-chat",
+    guardAgent: { model: "vllm/qwen3.5-35b" },
+    defaultModel: "minimax/MiniMax-M2.5-highspeed",
   },
 ];
 
