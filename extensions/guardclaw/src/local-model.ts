@@ -9,6 +9,7 @@
 
 import { loadPrompt, loadPromptWithVars } from "./prompt-loader.js";
 import { getGlobalCollector } from "./token-stats.js";
+import { recordRouterOperation } from "./usage-intel.js";
 import type {
   DetectionContext,
   DetectionResult,
@@ -253,6 +254,13 @@ export async function detectByLocalModel(
         source: "router",
         usage: result.usage,
       });
+      recordRouterOperation(
+        context.sessionKey,
+        "detection",
+        result.usage,
+        config.localModel?.model ?? "unknown",
+        config.localModel?.provider,
+      );
     }
 
     return {
@@ -416,6 +424,7 @@ export async function desensitizeWithLocalModel(
       providerType,
       customModule,
       sessionKey,
+      provider: config.localModel?.provider,
     });
 
     if (piiItems.length === 0) {
@@ -516,6 +525,7 @@ async function extractPiiWithModel(
     providerType?: EdgeProviderType;
     customModule?: string;
     sessionKey?: string;
+    provider?: string;
   },
 ): Promise<Array<{ type: string; value: string }>> {
   const textSnippet = content.slice(0, 3000);
@@ -555,6 +565,7 @@ async function extractPiiWithModel(
       source: "router",
       usage: result.usage,
     });
+    recordRouterOperation(opts?.sessionKey, "desensitization", result.usage, model, opts?.provider);
   }
 
   return parsePiiJson(result.text);

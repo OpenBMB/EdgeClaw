@@ -26,6 +26,12 @@ import { createConfigurableRouter } from "./routers/configurable.js";
 import { DEFAULT_JUDGE_PROMPT } from "./routers/token-saver.js";
 import { getAllSessionStates } from "./session-state.js";
 import { getGlobalCollector } from "./token-stats.js";
+import {
+  getLastReplyLoopSummary,
+  getLastReplyModelOrigin,
+  getLastTurnTokens,
+} from "./usage-intel.js";
+import { getCurrentLoopHighestLevel } from "./loop-detection-level.js";
 
 const GUARDCLAW_CONFIG_PATH = join(process.env.HOME ?? "/tmp", ".openclaw", "guardclaw.json");
 
@@ -85,7 +91,8 @@ export async function statsHttpHandler(
   res: ServerResponse,
 ): Promise<boolean> {
   const url = req.url ?? "";
-  const reqPath = url.split("?")[0];
+  const parsedUrl = new URL(url, "http://localhost");
+  const reqPath = parsedUrl.pathname;
   const base = "/plugins/guardclaw/stats";
 
   if (!reqPath.startsWith(base)) return false;
@@ -124,6 +131,47 @@ export async function statsHttpHandler(
       return true;
     }
     json(res, collector.getSessionStats());
+    return true;
+  }
+
+  if (req.method === "GET" && sub === "/api/current-loop-highest-level") {
+    const sessionKey = parsedUrl.searchParams.get("sessionKey") ?? undefined;
+    const data = getCurrentLoopHighestLevel(sessionKey);
+    json(res, data);
+    return true;
+  }
+
+  if (req.method === "GET" && sub === "/api/last-turn-tokens") {
+    const sessionKey = parsedUrl.searchParams.get("sessionKey") ?? undefined;
+    const data = getLastTurnTokens(sessionKey);
+    if (!data) {
+      json(res, { error: "no last-turn router tokens yet" }, 404);
+      return true;
+    }
+    json(res, data);
+    return true;
+  }
+
+  if (req.method === "GET" && sub === "/api/reply-model-origin") {
+    const sessionKey = parsedUrl.searchParams.get("sessionKey") ?? undefined;
+    const origin = getLastReplyModelOrigin(sessionKey);
+    const loopSummary = getLastReplyLoopSummary(sessionKey);
+    if (!origin || !loopSummary) {
+      json(res, { error: "no reply-model-origin data yet" }, 404);
+      return true;
+    }
+    json(res, {
+      sessionKey: origin.sessionKey,
+      timestamp: origin.timestamp,
+      provider: origin.provider,
+      model: origin.model,
+      origin: origin.origin,
+      reason: origin.reason,
+      loopTotalTokens: loopSummary.loopTotalTokens,
+      loopLocalTokens: loopSummary.loopLocalTokens,
+      loopCloudTokens: loopSummary.loopCloudTokens,
+      routerTokens: loopSummary.routerTokens,
+    });
     return true;
   }
 

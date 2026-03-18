@@ -20,7 +20,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { getGuardAgentConfig, isGuardSessionKey } from "./guard-agent.js";
+import { getGuardAgentConfig, isGuardSessionKey, isLocalProvider } from "./guard-agent.js";
 import { getLiveConfig } from "./live-config.js";
 import { desensitizeWithLocalModel } from "./local-model.js";
 import { getDefaultMemoryManager } from "./memory-isolation.js";
@@ -43,6 +43,8 @@ import {
 } from "./session-state.js";
 import { getGlobalCollector } from "./token-stats.js";
 import type { PrivacyConfig } from "./types.js";
+import { finalizeLoop } from "./loop-detection-level.js";
+import { recordFinalReply } from "./usage-intel.js";
 import { isProtectedMemoryPath, redactSensitiveInfo } from "./utils.js";
 
 function getPipelineConfig(): Record<string, unknown> {
@@ -716,15 +718,45 @@ export function registerHooks(api: OpenClawPluginApi): void {
   // =========================================================================
   api.on("llm_output", async (event, ctx) => {
     try {
+      const sessionKey = ctx.sessionKey ?? event.sessionId ?? "";
+      const provider = event.provider ?? "unknown";
+      const model = event.model ?? "unknown";
+
       const collector = getGlobalCollector();
-      if (!collector) return;
-      collector.record({
-        sessionKey: ctx.sessionKey ?? event.sessionId ?? "",
-        provider: event.provider ?? "unknown",
-        model: event.model ?? "unknown",
+      collector?.record({
+        sessionKey,
+        provider,
+        model,
         source: "task",
         usage: event.usage,
       });
+
+      const liveConfig = getLiveConfig();
+      const origin =
+        provider === "guardclaw-privacy"
+          ? "cloud"
+          : isLocalProvider(provider, liveConfig.localProviders)
+            ? "local"
+            : "cloud";
+      const reason =
+        provider === "guardclaw-privacy"
+          ? "guardclaw_proxy_to_cloud"
+          : origin === "local"
+            ? "local_provider"
+            : "provider_not_local";
+
+      recordFinalReply({
+        sessionKey,
+        provider,
+        model,
+        usage: event.usage,
+        extraLocalProviders: liveConfig.localProviders,
+        originHint: origin,
+        reasonHint: reason,
+      });
+
+      // End-of-loop signal: freeze current loop detection max for API reads.
+      finalizeLoop(sessionKey);
     } catch (err) {
       api.logger.error(`[GuardClaw] Error in llm_output hook: ${String(err)}`);
     }

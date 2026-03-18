@@ -5,6 +5,7 @@
  */
 
 import type { Checkpoint, SensitivityLevel, SessionPrivacyState } from "./types.js";
+import { recordLoopDetection } from "./loop-detection-level.js";
 
 // In-memory session state storage
 const sessionStates = new Map<string, SessionPrivacyState>();
@@ -89,6 +90,9 @@ export function recordDetection(
   if (state.detectionHistory.length > 50) {
     state.detectionHistory = state.detectionHistory.slice(-50);
   }
+
+  // Track loop-local highest level for frontend polling API.
+  recordLoopDetection(sessionKey, level);
 }
 
 /**
