@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoiceClaw — Edge Voice Console</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #14141f;
+    --border: #2a2a3a;
+    --text: #e0e0f0;
+    --dim: #6a6a8a;
+    --accent: #9b59b6;
+    --accent2: #8e44ad;
+    --green: #2ecc71;
+    --yellow: #f1c40f;
+    --red: #e74c3c;
+    --blue: #3498db;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  header .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .badge-idle { background: var(--border); color: var(--dim); }
+  .badge-listening { background: #27ae60; color: #fff; animation: pulse 1s infinite; }
+  .badge-processing { background: var(--blue); color: #fff; }
+  .badge-speaking { background: var(--accent); color: #fff; }
+  .badge-S1 { background: var(--green); color: #000; }
+  .badge-S2 { background: var(--yellow); color: #000; }
+  .badge-S3 { background: var(--red); color: #fff; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+  main { flex: 1; display: flex; padding: 24px; gap: 24px; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .voice-panel { flex: 2; display: flex; flex-direction: column; gap: 16px; }
+  .info-panel { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+
+  .mic-btn {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: 3px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    font-size: 28px;
+    cursor: pointer;
+    transition: all 0.2s;
+    align-self: center;
+  }
+  .mic-btn:hover { background: rgba(155, 89, 182, 0.1); }
+  .mic-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--green);
+    box-shadow: 0 0 20px rgba(46, 204, 113, 0.3);
+  }
+
+  .vu-meter {
+    width: 100%;
+    height: 8px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .vu-meter .level {
+    height: 100%;
+    background: var(--green);
+    transition: width 50ms;
+    border-radius: 4px;
+  }
+
+  .log {
+    flex: 1;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 12px;
+    background: #0d0d12;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .log-entry { padding: 2px 0; }
+  .log-entry .ts { color: var(--dim); margin-right: 8px; }
+  .log-entry.vad { color: var(--green); }
+  .log-entry.kws { color: var(--yellow); }
+  .log-entry.asr { color: var(--blue); }
+  .log-entry.error { color: var(--red); }
+  .log-entry.privacy { color: var(--accent); }
+
+  h3 { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .stat-row .label { color: var(--dim); }
+  .stat-row .value { font-weight: 600; }
+
+  .config-input {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .config-input label { color: var(--dim); }
+  .config-input input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎙️ VoiceClaw</h1>
+  <span id="stateBadge" class="badge badge-idle">idle</span>
+  <span id="privacyBadge" class="badge badge-S1">S1</span>
+  <span style="flex:1"></span>
+  <span style="color:var(--dim);font-size:12px">Edge Voice Processing</span>
+</header>
+
+<main>
+  <div class="voice-panel panel">
+    <button id="micBtn" class="mic-btn" onclick="toggleMic()">🎤</button>
+    <div class="vu-meter"><div id="vuLevel" class="level" style="width:0%"></div></div>
+
+    <h3>Event Log</h3>
+    <div id="log" class="log"></div>
+  </div>
+
+  <div class="info-panel">
+    <div class="panel">
+      <h3>Session</h3>
+      <div class="stat-row"><span class="label">State</span><span id="stateVal" class="value">idle</span></div>
+      <div class="stat-row"><span class="label">Privacy</span><span id="privacyVal" class="value">S1</span></div>
+      <div class="stat-row"><span class="label">ASR Provider</span><span id="asrVal" class="value">—</span></div>
+      <div class="stat-row"><span class="label">Last ASR</span><span id="lastAsr" class="value">—</span></div>
+      <div class="stat-row"><span class="label">Latency</span><span id="latencyVal" class="value">—</span></div>
+    </div>
+
+    <div class="panel config-input">
+      <h3>Connection</h3>
+      <label>WebSocket URL</label>
+      <input id="wsUrl" value="ws://127.0.0.1:8501/voice">
+      <button onclick="connect()" style="padding:6px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer">Connect</button>
+    </div>
+
+    <div class="panel">
+      <h3>Privacy Routing</h3>
+      <div class="stat-row"><span class="label">Audio Route</span><span id="audioRoute" class="value">local</span></div>
+      <div class="stat-row"><span class="label">Transcript Detection</span><span class="value">✓</span></div>
+      <div class="stat-row"><span class="label">S2 → Local ASR</span><span class="value">✓</span></div>
+      <div class="stat-row"><span class="label">S3 → Full Local</span><span class="value">✓</span></div>
+    </div>
+  </div>
+</main>
+
+<script>
+let ws = null;
+let audioCtx = null;
+let micStream = null;
+let workletNode = null;
+let isRecording = false;
+
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString('en', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  el.innerHTML += `<div class="log-entry ${cls}"><span class="ts">${ts}</span>${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateState(state, privacy) {
+  document.getElementById('stateVal').textContent = state;
+  document.getElementById('stateBadge').textContent = state;
+  document.getElementById('stateBadge').className = `badge badge-${state}`;
+  if (privacy) {
+    document.getElementById('privacyVal').textContent = privacy;
+    document.getElementById('privacyBadge').textContent = privacy;
+    document.getElementById('privacyBadge').className = `badge badge-${privacy}`;
+  }
+}
+
+async function connect() {
+  const url = document.getElementById('wsUrl').value;
+  if (ws) ws.close();
+
+  ws = new WebSocket(url);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    log('Connected to VoiceClaw', 'vad');
+  };
+
+  ws.onmessage = (evt) => {
+    if (evt.data instanceof ArrayBuffer) {
+      // TTS audio — would play here
+      return;
+    }
+    const msg = JSON.parse(evt.data);
+    switch (msg.type) {
+      case 'state':
+        updateState(msg.state ?? msg.data?.state, msg.privacyLevel ?? msg.data?.privacyLevel);
+        break;
+      case 'vad':
+        const vad = msg.data ?? msg.event;
+        log(`VAD: ${vad.type}`, 'vad');
+        break;
+      case 'kws':
+        const kws = msg.data ?? msg.event;
+        log(`🔑 KWS: "${kws.keyword}" (${(kws.confidence*100).toFixed(0)}%)`, 'kws');
+        break;
+      case 'asr':
+        const asr = msg.data ?? msg.result;
+        log(`📝 ASR: "${asr.text}" (${asr.latencyMs}ms, ${asr.provider}${asr.privacyForced?' 🔒':''})`, 'asr');
+        document.getElementById('lastAsr').textContent = asr.text || '—';
+        document.getElementById('latencyVal').textContent = asr.latencyMs + 'ms';
+        document.getElementById('asrVal').textContent = asr.provider;
+        if (asr.privacyForced) {
+          log('🔒 Privacy: ASR forced to local provider', 'privacy');
+        }
+        break;
+      case 'error':
+        log(`❌ ${msg.message}`, 'error');
+        break;
+      case 'pong':
+        break;
+      default:
+        log(`${msg.type}: ${JSON.stringify(msg)}`, '');
+    }
+  };
+
+  ws.onclose = () => {
+    log('Disconnected', 'error');
+    updateState('idle', 'S1');
+  };
+}
+
+async function toggleMic() {
+  if (isRecording) {
+    stopMic();
+    return;
+  }
+
+  if (!ws || ws.readyState !== 1) {
+    await connect();
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  audioCtx = new AudioContext({ sampleRate: 16000 });
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true } });
+
+  // AudioWorklet for low-latency capture
+  await audioCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([`
+    class Capturer extends AudioWorkletProcessor {
+      process(inputs) {
+        const ch = inputs[0]?.[0];
+        if (ch) this.port.postMessage(ch);
+        return true;
+      }
+    }
+    registerProcessor('capturer', Capturer);
+  `], { type: 'application/javascript' })));
+
+  const source = audioCtx.createMediaStreamSource(micStream);
+  workletNode = new AudioWorkletNode(audioCtx, 'capturer');
+
+  workletNode.port.onmessage = (e) => {
+    if (!ws || ws.readyState !== 1) return;
+    const f32 = e.data;
+
+    // VU meter
+    let rms = 0;
+    for (let i = 0; i < f32.length; i++) rms += f32[i] * f32[i];
+    rms = Math.sqrt(rms / f32.length);
+    document.getElementById('vuLevel').style.width = Math.min(rms * 500, 100) + '%';
+
+    // Convert Float32 → Int16 PCM
+    const pcm = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) {
+      pcm[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
+    }
+    ws.send(pcm.buffer);
+  };
+
+  source.connect(workletNode);
+  workletNode.connect(audioCtx.destination);
+
+  isRecording = true;
+  document.getElementById('micBtn').classList.add('active');
+  log('🎤 Microphone started (16kHz PCM)', 'vad');
+}
+
+function stopMic() {
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
+  workletNode = null;
+  isRecording = false;
+  document.getElementById('micBtn').classList.remove('active');
+  document.getElementById('vuLevel').style.width = '0%';
+  log('🔇 Microphone stopped', '');
+}
+
+// Keepalive
+setInterval(() => {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'ping' }));
+  }
+}, 15000);
+</script>
+</body>
+</html>

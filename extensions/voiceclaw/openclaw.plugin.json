@@ -1,0 +1,93 @@
+{
+  "id": "voiceclaw",
+  "name": "VoiceClaw",
+  "description": "Edge voice processing plugin: local VAD, KWS, ASR, and TTS with privacy-aware routing. Keeps voice data on-device for S2/S3 scenarios.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "voice": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "port": {
+            "type": "number",
+            "description": "WebSocket port for browser audio streaming (default: 8501)"
+          },
+          "vad": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "threshold": { "type": "number", "description": "VAD speech probability threshold (default: 0.5)" },
+              "silenceDurationMs": { "type": "number", "description": "Silence duration to mark end of speech (default: 500)" },
+              "modelPath": { "type": "string", "description": "Path to Silero VAD ONNX model" }
+            }
+          },
+          "kws": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "keywords": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Wake words to detect (default: ['hey claw'])"
+              },
+              "threshold": { "type": "number", "description": "Detection confidence threshold (default: 0.5)" },
+              "modelPath": { "type": "string", "description": "Path to KWS model directory" }
+            }
+          },
+          "asr": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "provider": {
+                "type": "string",
+                "enum": ["sherpa-sensevoice", "sherpa-whisper", "sherpa-paraformer", "cloud-whisper"],
+                "description": "ASR backend (default: sherpa-sensevoice for local)"
+              },
+              "modelPath": { "type": "string", "description": "Path to ASR model directory" },
+              "language": { "type": "string", "description": "Language code (default: auto)" },
+              "cloudFallback": { "type": "boolean", "description": "Fall back to cloud ASR for S1 data (default: true)" }
+            }
+          },
+          "tts": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "provider": {
+                "type": "string",
+                "enum": ["sherpa-vits", "sherpa-matcha", "edge-tts", "cloud"],
+                "description": "TTS backend (default: edge-tts for quick start)"
+              },
+              "modelPath": { "type": "string", "description": "Path to TTS model directory" },
+              "voice": { "type": "string", "description": "Voice name or ID" },
+              "sampleRate": { "type": "number", "description": "Output sample rate (default: 16000)" }
+            }
+          },
+          "privacy": {
+            "type": "object",
+            "description": "Voice-specific privacy routing",
+            "properties": {
+              "transcriptDetection": {
+                "type": "boolean",
+                "description": "Run GuardClaw detection on ASR transcript before sending to LLM (default: true)"
+              },
+              "localAsrForS2": {
+                "type": "boolean",
+                "description": "Force local ASR for S2-level audio (default: true)"
+              },
+              "localAsrForS3": {
+                "type": "boolean",
+                "description": "Force local ASR for S3-level audio (default: true)"
+              },
+              "localTtsForS3": {
+                "type": "boolean",
+                "description": "Force local TTS for S3-level responses (default: true)"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
