@@ -1,0 +1,36 @@
+{
+  "voice": {
+    "enabled": true,
+    "port": 8501,
+    "vad": {
+      "enabled": true,
+      "threshold": 0.5,
+      "silenceDurationMs": 500
+    },
+    "kws": {
+      "enabled": false,
+      "keywords": ["hey claw"],
+      "threshold": 0.5,
+      "modelPath": "~/.openclaw/models/kws"
+    },
+    "asr": {
+      "enabled": true,
+      "provider": "sherpa-sensevoice",
+      "modelPath": "~/.openclaw/models/sensevoice",
+      "language": "auto",
+      "cloudFallback": true
+    },
+    "tts": {
+      "enabled": true,
+      "provider": "edge-tts",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "sampleRate": 16000
+    },
+    "privacy": {
+      "transcriptDetection": true,
+      "localAsrForS2": true,
+      "localAsrForS3": true,
+      "localTtsForS3": true
+    }
+  }
+}
