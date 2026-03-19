@@ -192,7 +192,7 @@ Prompt hash caching (SHA-256, TTL 5 minutes) — identical requests are not re-j
 
 ### How Much Do You Save?
 
-In a typical coding assistant workflow, Token-Saver can route **60–80% of requests** to cheaper models.
+In a typical coding assistant workflow, Cost-Aware Collaboration can route **60–80% of requests** to cheaper models.
 
 ---
 
@@ -355,7 +355,7 @@ pnpm openclaw gateway run
 
 EdgeClaw automatically intercepts and routes — no modifications to any business logic required.
 
-### 4. (Optional) Enable Token-Saver
+### 4. (Optional) Enable Cost-Aware Collaboration
 
 Enable it in `privacy.routers`:
 
@@ -512,7 +512,7 @@ extensions/guardclaw/
 │   ├── memory-isolation.ts     # Dual-track memory management
 │   └── routers/
 │       ├── privacy.ts          # Privacy router (security)
-│       └── token-saver.ts      # Token-Saver router (cost savings)
+│       └── token-saver.ts      # Cost-Aware router (cost savings)
 │
 ├── prompts/                    # Customizable prompt templates
 │   ├── detection-system.md
