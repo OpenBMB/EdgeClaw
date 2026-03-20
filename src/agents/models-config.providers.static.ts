@@ -534,6 +534,47 @@ export function buildNvidiaProvider(): ProviderConfig {
   };
 }
 
+const NOVITA_BASE_URL = "https://api.novita.ai/openai";
+export const NOVITA_DEFAULT_MODEL_ID = "moonshotai/kimi-k2.5";
+
+const NOVITA_MODEL_CATALOG: ReadonlyArray<ProviderModelConfig> = [
+  {
+    id: "moonshotai/kimi-k2.5",
+    name: "Kimi K2.5",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0.6, output: 3, cacheRead: 0.1, cacheWrite: 0 },
+    contextWindow: 262_144,
+    maxTokens: 262_144,
+  },
+  {
+    id: "zai-org/glm-5",
+    name: "GLM-5",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 1, output: 3.2, cacheRead: 0.2, cacheWrite: 0 },
+    contextWindow: 202_800,
+    maxTokens: 131_072,
+  },
+  {
+    id: "minimax/minimax-m2.5",
+    name: "MiniMax M2.5",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0.3, output: 1.2, cacheRead: 0.03, cacheWrite: 0 },
+    contextWindow: 204_800,
+    maxTokens: 131_100,
+  },
+];
+
+export function buildNovitaProvider(): ProviderConfig {
+  return {
+    baseUrl: NOVITA_BASE_URL,
+    api: "openai-completions",
+    models: NOVITA_MODEL_CATALOG.map((model) => ({ ...model })),
+  };
+}
+
 export function buildKilocodeProvider(): ProviderConfig {
   return {
     baseUrl: KILOCODE_BASE_URL,
