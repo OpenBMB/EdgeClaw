@@ -1,0 +1,19 @@
+{
+  "name": "@openclaw/voiceclaw",
+  "version": "2026.3.19",
+  "private": true,
+  "description": "Edge voice processing plugin: local VAD, KWS, ASR, and TTS with privacy-aware routing",
+  "type": "module",
+  "dependencies": {
+    "sherpa-onnx-node": "^1.12.29",
+    "@sinclair/typebox": "0.34.48"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "vitest": "^4.1.0"
+  }
+}
