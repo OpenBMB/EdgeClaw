@@ -1,13 +1,17 @@
+<div align="center">
 
+<img src="./assets/EdgeClaw-logo.png" alt="EdgeClaw Logo" width="200">
 
 ### Secure · Cost-Effective · Efficient
 
 Edge-Cloud Collaborative AI Agent  
 **EdgeClaw**: Keep sensitive data off the cloud, let cheap models handle 80% of requests
 
-
-
 【**[中文](./readme_zh.md)** | English】
+
+<a href="./assets/feishu-group.png"><img src="./assets/feishu-logo.png" width="16" height="16"> Feishu</a> &nbsp;|&nbsp; <a href="https://discord.com/invite/pC3N7ezpw"><img src="./assets/discord-logo.png" width="16" height="16"> Discord</a>
+
+</div>
 
 ---
 
@@ -29,12 +33,6 @@ In current AI Agent architectures, the edge side has long been overlooked — al
 ---
 
 ## ✨ Key Highlights
-
-
-|     |
-| --- |
-|     |
-
 
 **🤝 Edge-Cloud Division of Labor**
 
