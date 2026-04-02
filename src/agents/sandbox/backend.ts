@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import { resolveGlobalMap } from "../../shared/global-singleton.js";
 import type { SandboxFsBridge } from "./fs-bridge.js";
 import type { SandboxRegistryEntry } from "./registry.js";
 import type { SandboxConfig, SandboxContext } from "./types.js";
@@ -96,7 +97,9 @@ type RegisteredSandboxBackend = {
   manager?: SandboxBackendManager;
 };
 
-const SANDBOX_BACKEND_FACTORIES = new Map<SandboxBackendId, RegisteredSandboxBackend>();
+const SANDBOX_BACKEND_FACTORIES = resolveGlobalMap<SandboxBackendId, RegisteredSandboxBackend>(
+  Symbol.for("openclaw:sandbox-backend-factories"),
+);
 
 function normalizeSandboxBackendId(id: string): SandboxBackendId {
   const normalized = id.trim().toLowerCase();

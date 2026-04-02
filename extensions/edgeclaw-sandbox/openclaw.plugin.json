@@ -1,0 +1,78 @@
+{
+  "id": "edgeclaw-sandbox",
+  "name": "EdgeClaw OS Sandbox",
+  "description": "OS-level sandbox backend (bwrap/sandbox-exec) for EdgeClaw agents, powered by @anthropic-ai/sandbox-runtime.",
+  "version": "0.1.0",
+  "kind": "sandbox",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "network": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "allowedDomains": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Domain allowlist for outbound network access."
+          },
+          "deniedDomains": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Domain denylist for outbound network access."
+          },
+          "allowUnixSockets": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Unix socket paths to allow."
+          },
+          "allowAllUnixSockets": {
+            "type": "boolean",
+            "description": "Allow all Unix socket connections."
+          },
+          "allowLocalBinding": {
+            "type": "boolean",
+            "description": "Allow binding to localhost ports."
+          }
+        }
+      },
+      "filesystem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "allowWrite": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Additional paths to allow writing (workspace is always included)."
+          },
+          "denyWrite": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Paths to deny writing."
+          },
+          "allowRead": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Additional paths to allow reading."
+          },
+          "denyRead": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Paths to deny reading."
+          }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "network.allowedDomains": {
+      "label": "Allowed Domains",
+      "placeholder": "registry.npmjs.org, pypi.org"
+    },
+    "filesystem.denyWrite": {
+      "label": "Deny Write Paths",
+      "placeholder": "~/.ssh, ~/.gnupg"
+    }
+  }
+}
