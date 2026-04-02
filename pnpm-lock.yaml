@@ -419,22 +419,6 @@ importers:
 
   extensions/groq: {}
 
-  extensions/guardclaw:
-    dependencies:
-      '@sinclair/typebox':
-        specifier: 0.34.49
-        version: 0.34.49
-      synckit:
-        specifier: ^0.11.12
-        version: 0.11.12
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
-    devDependencies:
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(@vitest/browser-playwright@4.1.2)(jsdom@29.0.1(@noble/hashes@2.0.1))(vite@8.0.3(@emnapi/core@1.8.1)(@emnapi/runtime@1.9.1)(@types/node@25.5.0)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
-
   extensions/huggingface: {}
 
   extensions/image-generation-core: {}
@@ -591,7 +575,7 @@ importers:
         version: 0.34.49
     devDependencies:
       openclaw:
-        specifier: ^2026.3.31
+        specifier: ^2026.3.28
         version: 2026.3.31(@napi-rs/canvas@0.1.97)(node-llama-cpp@3.18.1(typescript@6.0.2))
       vitest:
         specifier: ^4.0.5
@@ -2200,27 +2184,6 @@ packages:
     resolution: {integrity: sha512-BrJL2cGo0pN5xd5nw+CzTn2rFMpz9MJyZZPUY81ptGkF2uIuXT2hdCVh56i9ImQrTwBfq1YcZL/l/Qe/1+HR/Q==}
     engines: {node: '>=20.0.0'}
     cpu: [arm, x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@node-llama-cpp/linux-x64-cuda-ext@3.18.1':
-    resolution: {integrity: sha512-VqyKhAVHPCpFzh0f1koCBgpThL+04QOXwv0oDQ8s8YcpfMMOXQlBhTB0plgTh0HrPExoObfTS4ohkrbyGgmztQ==}
-    engines: {node: '>=20.0.0'}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@node-llama-cpp/linux-x64-cuda@3.18.1':
-    resolution: {integrity: sha512-qOaYP4uwsUoBHQ/7xSOvyJIuXapS57Al+Sudgi00f96ldNZLKe1vuSGptAi5LTM2lIj66PKm6h8PlRWctwsZ2g==}
-    engines: {node: '>=20.0.0'}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@node-llama-cpp/linux-x64-vulkan@3.18.1':
-    resolution: {integrity: sha512-SIaNTK5pUPhwJD0gmiQfHa8OrRctVMmnqu+slJrz2Mzgg/XrwFndJlS9hvc+jSjTXCouwf7sYeQaaJWvQgBh/A==}
-    engines: {node: '>=20.0.0'}
-    cpu: [x64]
     os: [linux]
     libc: [glibc]
 
@@ -4568,7 +4531,7 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
-    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+    deprecated: Glob versions prior to v9 are no longer supported
 
   google-auth-library@10.6.2:
     resolution: {integrity: sha512-e27Z6EThmVNNvtYASwQxose/G57rkRuaRbQyxM2bvYLLX/GqWZ5chWq2EBoUchJbCc57eC9ArzO5wMsEmWftCw==}
@@ -8578,15 +8541,6 @@ snapshots:
   '@node-llama-cpp/linux-armv7l@3.18.1':
     optional: true
 
-  '@node-llama-cpp/linux-x64-cuda-ext@3.18.1':
-    optional: true
-
-  '@node-llama-cpp/linux-x64-cuda@3.18.1':
-    optional: true
-
-  '@node-llama-cpp/linux-x64-vulkan@3.18.1':
-    optional: true
-
   '@node-llama-cpp/linux-x64@3.18.1':
     optional: true
 
@@ -11882,9 +11836,6 @@ snapshots:
       '@node-llama-cpp/linux-arm64': 3.18.1
       '@node-llama-cpp/linux-armv7l': 3.18.1
       '@node-llama-cpp/linux-x64': 3.18.1
-      '@node-llama-cpp/linux-x64-cuda': 3.18.1
-      '@node-llama-cpp/linux-x64-cuda-ext': 3.18.1
-      '@node-llama-cpp/linux-x64-vulkan': 3.18.1
       '@node-llama-cpp/mac-arm64-metal': 3.18.1
       '@node-llama-cpp/mac-x64': 3.18.1
       '@node-llama-cpp/win-arm64': 3.18.1

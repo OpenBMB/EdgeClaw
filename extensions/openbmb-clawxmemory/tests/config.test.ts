@@ -7,6 +7,13 @@ describe("buildPluginConfig", () => {
     expect(config.uiHost).toBe("127.0.0.1");
     expect(config.uiPort).toBe(39393);
     expect(config.uiPathPrefix).toBe("/clawxmemory");
+    expect(config.defaultIndexingSettings).toEqual({
+      reasoningMode: "answer_first",
+      recallTopK: 10,
+      autoIndexIntervalMinutes: 60,
+      autoDreamIntervalMinutes: 360,
+      autoDreamMinNewL1: 10,
+    });
   });
 
   it("parses uiPort from string input", () => {

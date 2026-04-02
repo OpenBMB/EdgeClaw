@@ -3,7 +3,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  type CaseTraceRecord,
   type DashboardOverview,
+  type DreamRunResult,
   type HeartbeatStats,
   type IndexingSettings,
   MemoryRepository,
@@ -30,6 +32,7 @@ export interface UiServerControls {
   getSettings: () => IndexingSettings;
   saveSettings: (partial: Partial<IndexingSettings>) => IndexingSettings;
   runIndexNow: () => Promise<HeartbeatStats>;
+  runDreamNow: () => Promise<DreamRunResult>;
   exportMemoryBundle: () => MemoryExportBundle;
   importMemoryBundle: (bundle: MemoryExportBundle) => Promise<MemoryImportResult>;
   getRuntimeOverview: () => Pick<
@@ -54,6 +57,8 @@ export interface UiServerControls {
     | "startupRepairMessage"
   >;
   getStartupRepairSnapshot: (limit: number) => MemoryUiSnapshot | undefined;
+  listCaseTraces: (limit: number) => CaseTraceRecord[];
+  getCaseTrace: (caseId: string) => CaseTraceRecord | undefined;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -313,6 +318,10 @@ export class LocalUiServer {
       if (upperMethod !== "POST") return sendMethodNotAllowed(res, "POST");
       return sendJson(res, await this.controls.runIndexNow());
     }
+    if (relativePath === "/api/dream/run") {
+      if (upperMethod !== "POST") return sendMethodNotAllowed(res, "POST");
+      return sendJson(res, await this.controls.runDreamNow());
+    }
     if (relativePath === "/api/snapshot") {
       const cached = cachedSnapshot();
       if (cached) {
@@ -355,16 +364,20 @@ export class LocalUiServer {
     if (relativePath === "/api/profile" || relativePath === "/api/facts") {
       return sendJson(res, this.repository.searchGlobalProfile(query, limit));
     }
-    if (relativePath === "/api/retrieve") {
+    if (relativePath === "/api/cases") {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
       return sendJson(
         res,
-        await this.retriever.retrieve(query, {
-          retrievalMode: "explicit",
-          l2Limit: limit,
-          l1Limit: limit,
-          l0Limit: Math.max(3, Math.floor(limit / 2)),
-        }),
+        this.controls.listCaseTraces(parseLimit(url.searchParams.get("limit"), 5)),
       );
+    }
+    if (relativePath.startsWith("/api/cases/")) {
+      if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
+      const caseId = decodeURIComponent(relativePath.slice("/api/cases/".length));
+      if (!caseId.trim()) return sendNotFound(res);
+      const record = this.controls.getCaseTrace(caseId);
+      if (!record) return sendNotFound(res);
+      return sendJson(res, record);
     }
     return sendNotFound(res);
   }
