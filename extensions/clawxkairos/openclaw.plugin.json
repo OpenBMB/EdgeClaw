@@ -1,6 +1,6 @@
 {
-  "id": "edgeclaw-kairos",
-  "name": "EdgeClaw Kairos",
+  "id": "clawxkairos",
+  "name": "ClawXKairos",
   "description": "Self-driving agent loop: tick scheduling, Sleep tool, kairos system prompt, background commands, and async sub-agents. Rides on existing heartbeat-wake infrastructure with zero source code changes.",
   "configSchema": {
     "type": "object",

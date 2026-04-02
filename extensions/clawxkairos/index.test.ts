@@ -15,8 +15,8 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
         list: [{ id: "test-agent", default: true }],
       },
     },
-    id: "edgeclaw-kairos",
-    name: "EdgeClaw Kairos",
+    id: "clawxkairos",
+    name: "ClawXKairos",
     logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     on: vi.fn((hookName: string, handler: HookHandler) => {
       // For hooks registered multiple times (before_tool_call),
@@ -45,7 +45,7 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
   return { api, hooks, commands, tools };
 }
 
-describe("edgeclaw-kairos plugin", () => {
+describe("clawxkairos plugin", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });

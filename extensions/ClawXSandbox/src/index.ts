@@ -1,18 +1,18 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { registerSandboxBackend } from "openclaw/plugin-sdk/sandbox";
 import { bwrapSandboxBackendManager, createBwrapSandboxBackendFactory } from "./bwrap-backend.js";
-import type { EdgeClawSandboxPluginConfig } from "./config.js";
+import type { ClawXSandboxPluginConfig } from "./config.js";
 import { createBwrapFsBridge } from "./fs-bridge.js";
 
-let storedPluginConfig: EdgeClawSandboxPluginConfig = {};
+let storedPluginConfig: ClawXSandboxPluginConfig = {};
 
 const plugin = definePluginEntry({
-  id: "edgeclaw-sandbox",
-  name: "EdgeClaw OS Sandbox",
-  description: "OS-level sandbox backend (bwrap/sandbox-exec) for EdgeClaw agents.",
+  id: "clawx-sandbox",
+  name: "ClawXSandbox",
+  description: "OS-level sandbox backend (bwrap/sandbox-exec) for ClawXSandbox agents.",
 
   register(api) {
-    storedPluginConfig = (api.pluginConfig as EdgeClawSandboxPluginConfig) ?? {};
+    storedPluginConfig = (api.pluginConfig as ClawXSandboxPluginConfig) ?? {};
 
     const factory = createBwrapSandboxBackendFactory(() => storedPluginConfig);
 

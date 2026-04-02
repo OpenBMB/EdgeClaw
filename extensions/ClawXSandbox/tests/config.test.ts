@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapToSandboxRuntimeConfig, type EdgeClawSandboxPluginConfig } from "../src/config.js";
+import { mapToSandboxRuntimeConfig, type ClawXSandboxPluginConfig } from "../src/config.js";
 
 describe("mapToSandboxRuntimeConfig", () => {
   const workspaceDir = "/home/agent/workspace";
@@ -32,7 +32,7 @@ describe("mapToSandboxRuntimeConfig", () => {
   });
 
   it("maps network allowedDomains", () => {
-    const pluginConfig: EdgeClawSandboxPluginConfig = {
+    const pluginConfig: ClawXSandboxPluginConfig = {
       network: { allowedDomains: ["npmjs.org", "pypi.org"] },
     };
     const config = mapToSandboxRuntimeConfig(pluginConfig, workspaceDir);
@@ -40,7 +40,7 @@ describe("mapToSandboxRuntimeConfig", () => {
   });
 
   it("maps network deniedDomains", () => {
-    const pluginConfig: EdgeClawSandboxPluginConfig = {
+    const pluginConfig: ClawXSandboxPluginConfig = {
       network: { deniedDomains: ["evil.com"] },
     };
     const config = mapToSandboxRuntimeConfig(pluginConfig, workspaceDir);
@@ -48,7 +48,7 @@ describe("mapToSandboxRuntimeConfig", () => {
   });
 
   it("maps filesystem denyWrite", () => {
-    const pluginConfig: EdgeClawSandboxPluginConfig = {
+    const pluginConfig: ClawXSandboxPluginConfig = {
       filesystem: { denyWrite: ["~/.ssh", "~/.gnupg"] },
     };
     const config = mapToSandboxRuntimeConfig(pluginConfig, workspaceDir);
@@ -56,7 +56,7 @@ describe("mapToSandboxRuntimeConfig", () => {
   });
 
   it("maps filesystem denyRead", () => {
-    const pluginConfig: EdgeClawSandboxPluginConfig = {
+    const pluginConfig: ClawXSandboxPluginConfig = {
       filesystem: { denyRead: ["/etc/shadow"] },
     };
     const config = mapToSandboxRuntimeConfig(pluginConfig, workspaceDir);
@@ -64,7 +64,7 @@ describe("mapToSandboxRuntimeConfig", () => {
   });
 
   it("merges extra allowWrite paths with workspace", () => {
-    const pluginConfig: EdgeClawSandboxPluginConfig = {
+    const pluginConfig: ClawXSandboxPluginConfig = {
       filesystem: { allowWrite: ["/tmp/build"] },
     };
     const config = mapToSandboxRuntimeConfig(pluginConfig, workspaceDir);
@@ -72,7 +72,7 @@ describe("mapToSandboxRuntimeConfig", () => {
   });
 
   it("passes through unix socket and local binding settings", () => {
-    const pluginConfig: EdgeClawSandboxPluginConfig = {
+    const pluginConfig: ClawXSandboxPluginConfig = {
       network: {
         allowUnixSockets: ["/var/run/docker.sock"],
         allowAllUnixSockets: false,

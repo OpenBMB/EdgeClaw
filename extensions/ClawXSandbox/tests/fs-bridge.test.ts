@@ -8,7 +8,7 @@ describe("createBwrapFsBridge", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "edgeclaw-sandbox-test-"));
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawx-sandbox-test-"));
   });
 
   afterEach(async () => {

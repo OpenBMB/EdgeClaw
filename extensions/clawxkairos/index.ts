@@ -8,8 +8,8 @@ import { createSleepTool } from "./src/sleep-tool.js";
 import { registerTickScheduler } from "./src/tick-scheduler.js";
 
 export default definePluginEntry({
-  id: "edgeclaw-kairos",
-  name: "EdgeClaw Kairos",
+  id: "clawxkairos",
+  name: "ClawXKairos",
   description: "Self-driving agent loop with tick scheduling, Sleep tool, and background execution",
 
   register(api: OpenClawPluginApi) {
@@ -100,7 +100,7 @@ export default definePluginEntry({
     }
 
     api.logger.info?.(
-      `edgeclaw-kairos: registered (startMode=${cfg.startMode}, maxTurns=${cfg.maxTurnsPerSession})`,
+      `clawxkairos: registered (startMode=${cfg.startMode}, maxTurns=${cfg.maxTurnsPerSession})`,
     );
   },
 });

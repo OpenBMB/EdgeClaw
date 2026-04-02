@@ -1,7 +1,7 @@
 {
-  "id": "edgeclaw-sandbox",
-  "name": "EdgeClaw OS Sandbox",
-  "description": "OS-level sandbox backend (bwrap/sandbox-exec) for EdgeClaw agents, powered by @anthropic-ai/sandbox-runtime.",
+  "id": "clawx-sandbox",
+  "name": "ClawXSandbox",
+  "description": "OS-level sandbox backend (bwrap/sandbox-exec) for ClawXSandbox agents, powered by @anthropic-ai/sandbox-runtime.",
   "version": "0.1.0",
   "kind": "sandbox",
   "configSchema": {

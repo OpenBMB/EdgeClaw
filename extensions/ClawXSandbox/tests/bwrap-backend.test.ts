@@ -16,7 +16,7 @@ import {
   createBwrapSandboxBackendFactory,
   resetBwrapState,
 } from "../src/bwrap-backend.js";
-import type { EdgeClawSandboxPluginConfig } from "../src/config.js";
+import type { ClawXSandboxPluginConfig } from "../src/config.js";
 
 function makeParams(overrides?: Record<string, unknown>) {
   return {
@@ -68,7 +68,7 @@ function makeParams(overrides?: Record<string, unknown>) {
 }
 
 describe("createBwrapSandboxBackendFactory", () => {
-  let pluginConfig: EdgeClawSandboxPluginConfig;
+  let pluginConfig: ClawXSandboxPluginConfig;
 
   beforeEach(() => {
     pluginConfig = {};
@@ -110,7 +110,7 @@ describe("createBwrapSandboxBackendFactory", () => {
 });
 
 describe("buildExecSpec", () => {
-  let pluginConfig: EdgeClawSandboxPluginConfig;
+  let pluginConfig: ClawXSandboxPluginConfig;
 
   beforeEach(() => {
     pluginConfig = {};

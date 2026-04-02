@@ -16,7 +16,7 @@ export function registerTickScheduler(
 ): void {
   api.on("agent_end", (_event, ctx) => {
     api.logger.info?.(
-      `edgeclaw-kairos: [tick] agent_end trigger=${ctx.trigger} active=${state.active} turnCount=${state.turnCount} ack=${state.lastReplyWasAck}`,
+      `clawxkairos: [tick] agent_end trigger=${ctx.trigger} active=${state.active} turnCount=${state.turnCount} ack=${state.lastReplyWasAck}`,
     );
 
     if (!state.active) return;
@@ -29,7 +29,7 @@ export function registerTickScheduler(
       ctx.trigger === "heartbeat" || (ctx.trigger === "user" && state.turnCount === 0);
 
     if (!shouldTick) {
-      api.logger.info?.(`edgeclaw-kairos: [tick] skipped (shouldTick=false)`);
+      api.logger.info?.(`clawxkairos: [tick] skipped (shouldTick=false)`);
       return;
     }
 
@@ -37,7 +37,7 @@ export function registerTickScheduler(
 
     if (state.turnCount >= cfg.maxTurnsPerSession) {
       api.logger.info?.(
-        `edgeclaw-kairos: [tick] reached maxTurnsPerSession (${cfg.maxTurnsPerSession}), pausing`,
+        `clawxkairos: [tick] reached maxTurnsPerSession (${cfg.maxTurnsPerSession}), pausing`,
       );
       return;
     }
@@ -46,13 +46,13 @@ export function registerTickScheduler(
     state.lastReplyWasAck = false;
 
     api.logger.info?.(
-      `edgeclaw-kairos: [tick] scheduling in ${delay}ms (turnCount=${state.turnCount})`,
+      `clawxkairos: [tick] scheduling in ${delay}ms (turnCount=${state.turnCount})`,
     );
 
     setTimeout(() => {
       if (!state.active) return;
 
-      api.logger.info?.(`edgeclaw-kairos: [tick] firing runHeartbeatOnce`);
+      api.logger.info?.(`clawxkairos: [tick] firing runHeartbeatOnce`);
 
       const p = api.runtime.system.runHeartbeatOnce({
         reason: "hook:kairos-tick",
@@ -60,8 +60,8 @@ export function registerTickScheduler(
       });
       if (p && typeof p.then === "function") {
         p.then((r: any) =>
-          api.logger.info?.(`edgeclaw-kairos: [tick] result=${JSON.stringify(r)}`),
-        ).catch((e: any) => api.logger.info?.(`edgeclaw-kairos: [tick] error=${e}`));
+          api.logger.info?.(`clawxkairos: [tick] result=${JSON.stringify(r)}`),
+        ).catch((e: any) => api.logger.info?.(`clawxkairos: [tick] error=${e}`));
       }
     }, delay);
   });

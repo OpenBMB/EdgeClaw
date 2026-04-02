@@ -7,7 +7,7 @@ import type {
   SandboxBackendHandle,
   SandboxBackendManager,
 } from "openclaw/plugin-sdk/sandbox";
-import { mapToSandboxRuntimeConfig, type EdgeClawSandboxPluginConfig } from "./config.js";
+import { mapToSandboxRuntimeConfig, type ClawXSandboxPluginConfig } from "./config.js";
 
 let initialized = false;
 
@@ -67,7 +67,7 @@ function runWrappedCommand(
 }
 
 export function createBwrapSandboxBackendFactory(
-  getPluginConfig: () => EdgeClawSandboxPluginConfig,
+  getPluginConfig: () => ClawXSandboxPluginConfig,
 ) {
   const factory = async (params: CreateSandboxBackendParams): Promise<SandboxBackendHandle> => {
     const pluginConfig = getPluginConfig();

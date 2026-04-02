@@ -1,8 +1,8 @@
 {
-  "name": "@openclaw/edgeclaw-sandbox",
+  "name": "@openclaw/clawx-sandbox",
   "version": "2026.4.1",
   "private": true,
-  "description": "OS-level sandbox backend (bwrap/sandbox-exec) for EdgeClaw agents.",
+  "description": "OS-level sandbox backend (bwrap/sandbox-exec) for ClawXSandbox agents.",
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.46"

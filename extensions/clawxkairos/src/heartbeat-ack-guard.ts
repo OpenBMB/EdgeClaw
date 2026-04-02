@@ -16,7 +16,7 @@ export function registerHeartbeatAckGuard(api: OpenClawPluginApi, state: KairosS
     state.lastReplyWasAck = texts.some((t) => HEARTBEAT_OK_PATTERN.test(t));
 
     if (state.lastReplyWasAck) {
-      api.logger.info?.("edgeclaw-kairos: model replied HEARTBEAT_OK, will apply fallback sleep");
+      api.logger.info?.("clawxkairos: model replied HEARTBEAT_OK, will apply fallback sleep");
     }
   });
 }

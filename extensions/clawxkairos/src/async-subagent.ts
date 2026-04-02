@@ -41,7 +41,7 @@ export function registerAsyncSubagent(
         if (!targetSession) return;
 
         api.runtime.system.enqueueSystemEvent(
-          `[edgeclaw-kairos] Sub-agent spawned asynchronously.\n` +
+          `[clawxkairos] Sub-agent spawned asynchronously.\n` +
             `  task: ${task.slice(0, 200)}\n` +
             `  runId: ${result.runId}\n` +
             `  sessionKey: ${sessionKey}\n` +
@@ -50,13 +50,13 @@ export function registerAsyncSubagent(
         );
       })
       .catch((err) => {
-        api.logger.warn?.(`edgeclaw-kairos: async subagent spawn failed: ${String(err)}`);
+        api.logger.warn?.(`clawxkairos: async subagent spawn failed: ${String(err)}`);
       });
 
     return {
       block: true,
       blockReason:
-        `[edgeclaw-kairos] Sub-agent spawned asynchronously (session: ${sessionKey}). ` +
+        `[clawxkairos] Sub-agent spawned asynchronously (session: ${sessionKey}). ` +
         `The main loop continues. Check status via the subagents tool.`,
     };
   });
