@@ -44,6 +44,9 @@
           <button class="nav-item" data-board="profile" type="button">
             <span class="nav-label" data-i18n="board.profile">个人画像</span>
           </button>
+          <button class="nav-item" data-board="memory_trace" type="button">
+            <span class="nav-label" data-i18n="board.memoryTrace">记忆追踪</span>
+          </button>
         </nav>
 
         <nav id="levelTabs" class="nav-list" style="display:none">
@@ -66,6 +69,10 @@
           <button class="nav-item" data-level="l0" type="button">
             <span class="nav-label" data-i18n="nav.l0">原始对话（L0）</span>
             <span class="nav-count" data-count-for="l0">0</span>
+          </button>
+          <button class="nav-item" data-level="memory_trace" type="button">
+            <span class="nav-label" data-i18n="nav.memory_trace">记忆追踪</span>
+            <span class="nav-count" data-count-for="memory_trace">0</span>
           </button>
         </nav>
 
@@ -95,8 +102,25 @@
             </div>
 
             <div class="popover-group popover-group-stack" id="latencyFieldWrap">
-              <span class="popover-label" data-i18n="settings.maxLatency">最大可接受时延（毫秒）</span>
-              <input id="maxAutoReplyLatencyInput" class="popover-input" type="number" min="300" step="100" placeholder="1800" />
+              <span class="popover-label" data-i18n="settings.maxLatency">召回数量</span>
+              <input id="maxAutoReplyLatencyInput" class="popover-input" type="number" min="1" max="50" step="1" placeholder="10" />
+            </div>
+
+            <div class="popover-group popover-group-stack" id="autoIndexIntervalWrap">
+              <span class="popover-label" data-i18n="settings.autoIndexInterval">自动索引间隔（小时）</span>
+              <input id="autoIndexIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="1" />
+              <span class="popover-note" data-i18n="settings.scheduleHint">0 表示关闭自动任务</span>
+            </div>
+
+            <div class="popover-group popover-group-stack" id="autoDreamIntervalWrap">
+              <span class="popover-label" data-i18n="settings.autoDreamInterval">自动 Dream 间隔（小时）</span>
+              <input id="autoDreamIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="6" />
+              <span class="popover-note" data-i18n="settings.autoDreamHint">只有新增 L1 达到门槛时，自动 Dream 才会真正执行。</span>
+            </div>
+
+            <div class="popover-group popover-group-stack" id="autoDreamThresholdWrap">
+              <span class="popover-label" data-i18n="settings.autoDreamMinL1">自动 Dream 最小新增 L1</span>
+              <input id="autoDreamMinL1Input" class="popover-input" type="number" min="0" step="1" placeholder="10" />
             </div>
 
             <button class="popover-item popover-save" id="saveSettingsBtn" type="button">
@@ -179,6 +203,10 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
               <span data-i18n="topbar.build">索引同步</span>
             </button>
+            <button class="topbar-action-btn" id="dreamRunBtn" type="button" title="Dream">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.8 6.7 19.1l1-5.8-4.2-4.1 5.9-.9L12 3z"/></svg>
+              <span data-i18n="topbar.dream">Dream</span>
+            </button>
             <span class="topbar-divider-v"></span>
             <span class="topbar-index-info">
               <span class="topbar-index-label" data-i18n="nav.lastIndexed">最近索引</span>
@@ -192,6 +220,7 @@
             <div class="board-content board-active" id="projectBoard"></div>
             <div class="board-content" id="timelineBoard"></div>
             <div class="board-content" id="profileBoard"></div>
+            <div class="board-content" id="memoryTraceBoard"></div>
           </div>
           <div class="connection-panel" id="connectionPanel">
             <div class="connection-header">
@@ -212,7 +241,7 @@
               <span id="browserMeta" class="panel-meta">0</span>
             </div>
 
-            <div class="search-row">
+            <div class="search-row" id="listSearchRow">
               <input
                 id="listQueryInput"
                 type="text"
@@ -253,35 +282,6 @@
     </aside>
 
     <!-- settings drawer removed — all settings now in popover menu -->
-
-    <aside class="side-drawer retrieve-drawer" id="retrievePanel">
-      <div class="drawer-header">
-        <h3 data-i18n="retrieve.title">检索调试</h3>
-        <button id="retrieveCloseBtn" class="drawer-close" type="button" aria-label="Close">&#x2715;</button>
-      </div>
-
-      <div class="drawer-section">
-        <div class="retrieve-input">
-          <textarea
-            id="queryInput"
-            rows="4"
-            data-i18n="retrieve.placeholder"
-            data-i18n-attr="placeholder"
-            placeholder="输入问题，例如：这个项目最近进展到哪一步了？"
-          ></textarea>
-          <button id="retrieveBtn" class="tool-btn primary wide" type="button" data-i18n="retrieve.run">开始检索</button>
-        </div>
-      </div>
-
-      <div class="drawer-section">
-        <div id="retrieveSummary" class="summary-chip" data-i18n="retrieve.notYet">尚未检索</div>
-        <div id="retrieveTimeline" class="retrieval-timeline"></div>
-        <details class="context-block">
-          <summary data-i18n="retrieve.context">上下文</summary>
-          <pre id="retrieveResult"></pre>
-        </details>
-      </div>
-    </aside>
 
     <!-- Modal dialog -->
     <div class="modal-overlay" id="modalOverlay">

@@ -7,12 +7,14 @@ const LOCALES = {
     "nav.l2_time": "时间记忆（L2）",
     "nav.l0": "原始对话（L0）",
     "nav.profile": "个人画像",
+    "nav.memory_trace": "记忆追踪",
     "nav.lastIndexed": "最近索引",
     "nav.waiting": "等待索引",
     "topbar.title": "ClawXMemory",
     "topbar.idle": "等待操作",
     "topbar.refresh": "刷新",
     "topbar.build": "索引同步",
+    "topbar.dream": "记忆 Dream",
     "topbar.overview": "仪表盘",
     "topbar.settings": "设置",
     "topbar.retrieve": "检索",
@@ -29,10 +31,16 @@ const LOCALES = {
     "detail.empty": "选择左侧记录查看详情",
     "settings.title": "设置",
     "settings.mode": "推理模式",
-    "settings.mode.help": "效率优先遵守最大可接受时延；准确优先不受时延限制。",
+    "settings.mode.help": "效率优先停在 L2 知识笔记；准确优先允许继续下钻到 L1/L0。",
     "settings.mode.answer_first": "效率优先",
     "settings.mode.accuracy_first": "准确优先",
-    "settings.maxLatency": "最大可接受时延（毫秒）",
+    "settings.maxLatency": "召回数量",
+    "settings.autoIndexInterval": "自动索引间隔（小时）",
+    "settings.autoDreamInterval": "自动 Dream 间隔（小时）",
+    "settings.autoDreamMinL1": "自动 Dream 最小新增 L1",
+    "settings.scheduleHint": "0 表示关闭自动任务",
+    "settings.autoDreamHint": "只有新增 L1 达到门槛时，自动 Dream 才会真正执行。",
+    "settings.off": "已关闭",
     "settings.save": "保存设置",
     "settings.theme": "主题",
     "settings.theme.light": "浅色",
@@ -54,6 +62,10 @@ const LOCALES = {
     "confirm.sync.title": "索引同步",
     "confirm.sync.body": "将扫描最近对话并更新记忆索引，这可能需要一些时间。",
     "confirm.sync.ok": "开始同步",
+    "confirm.dream.title": "记忆 Dream",
+    "confirm.dream.body":
+      "记忆准备开始睡觉了。它会安静整理你留下的记忆线索，重构更清晰的项目记忆与全局画像。",
+    "confirm.dream.ok": "开始 Dream",
     "confirm.clear.title": "清除记忆",
     "confirm.clear.body": "此操作将删除所有已索引的记忆数据，且不可撤销。确定继续吗？",
     "confirm.clear.ok": "确认清除",
@@ -64,6 +76,10 @@ const LOCALES = {
     "confirm.cancel": "取消",
     "status.building": "同步中…",
     "status.built": "已构建 · L0 {0} / L1 {1} / L2T {2} / L2P {3} / 画像 {4}",
+    "status.dreaming": "Dream 重构中…",
+    "status.dreamed":
+      "Dream 完成 · 审查 L1 {0} / 重构项目 {1} / 删除项目 {2} / 画像 {3} / 重复 {4} / 冲突 {5}",
+    "status.dreamFailed": "Dream 失败：{0}",
     "status.clearing": "清空中…",
     "status.cleared": "已清空本地记忆",
     "status.exporting": "导出中…",
@@ -93,11 +109,13 @@ const LOCALES = {
     "level.l2_time.label": "时间记忆（L2）",
     "level.l0.label": "原始对话（L0）",
     "level.profile.label": "个人画像",
+    "level.memory_trace.label": "记忆追踪",
     "level.l1.empty": "暂无 L1 记录",
     "level.l2_project.empty": "暂无 L2 项目索引",
     "level.l2_time.empty": "暂无 L2 时间索引",
     "level.l0.empty": "暂无 L0 会话",
     "level.profile.empty": "暂无个人画像",
+    "level.memory_trace.empty": "暂无记忆追踪案例",
     "detail.summary": "摘要",
     "detail.situation": "时间情景",
     "detail.projects": "项目",
@@ -143,6 +161,10 @@ const LOCALES = {
     "overview.recallMs": "最近召回",
     "overview.recallMode": "召回模式",
     "overview.reasoningMode": "推理模式",
+    "overview.autoIndexSchedule": "自动索引",
+    "overview.autoDreamSchedule": "自动 Dream",
+    "overview.lastDreamAt": "最近 Dream",
+    "overview.lastDreamStatus": "Dream 状态",
     "overview.recallPath": "回答路径",
     "overview.budgetStop": "预算截停",
     "overview.shadowDeep": "后台备案",
@@ -158,6 +180,11 @@ const LOCALES = {
     "overview.group.reasoning": "推理与预算",
     "overview.group.health": "系统健康",
     "overview.pending": "待索引",
+    "dream.status.never": "尚未运行",
+    "dream.status.running": "运行中",
+    "dream.status.success": "成功",
+    "dream.status.skipped": "已跳过",
+    "dream.status.failed": "失败",
     "recall.llm": "LLM 快选",
     "recall.local_fallback": "本地降级",
     "recall.none": "无注入",
@@ -202,6 +229,41 @@ const LOCALES = {
     "topbar.listView": "列表视图",
     "board.project": "项目记忆",
     "board.timeline": "记忆时间线",
+    "board.memoryTrace": "记忆追踪",
+    "board.memoryTrace.empty": "暂无真实对话案例",
+    "board.memoryTrace.noDetail": "选择案例查看记忆推理链路",
+    "board.memoryTrace.timeline": "推理时间轴",
+    "board.memoryTrace.context": "注入上下文",
+    "board.memoryTrace.finalNote": "最终记忆笔记",
+    "board.memoryTrace.path": "推理路径",
+    "board.memoryTrace.tools": "工具活动",
+    "board.memoryTrace.answer": "最终回答",
+    "board.memoryTrace.stepDetail": "步骤 Inspector",
+    "board.memoryTrace.noStep": "展开步骤查看结构化细节与完整 prompt",
+    "board.memoryTrace.promptDebug": "完整 Prompt 调试",
+    "board.memoryTrace.systemPrompt": "System Prompt",
+    "board.memoryTrace.userPrompt": "User Prompt",
+    "board.memoryTrace.rawOutput": "模型原始输出",
+    "board.memoryTrace.parsedResult": "解析结果",
+    "board.memoryTrace.detail.empty": "暂无结构化详情",
+    "board.memoryTrace.selectCase": "选择案例",
+    "board.memoryTrace.flow": "推理过程",
+    "board.memoryTrace.query": "问题",
+    "board.memoryTrace.session": "Session",
+    "board.memoryTrace.mode": "模式",
+    "board.memoryTrace.injected": "注入",
+    "board.memoryTrace.status": "状态",
+    "board.memoryTrace.started": "开始",
+    "board.memoryTrace.finished": "结束",
+    "board.memoryTrace.enoughAt": "足够层级",
+    "board.memoryTrace.rail": "案例轨道",
+    "board.memoryTrace.artifacts": "补充信息",
+    "board.memoryTrace.artifacts.context": "Context",
+    "board.memoryTrace.artifacts.tools": "Tools",
+    "board.memoryTrace.artifacts.answer": "Answer",
+    "board.memoryTrace.observed":
+      "开发者调试视图：展示 ClawXMemory 的可观测记忆推理链路与 hop prompt，不展示模型隐藏思维链。",
+    "board.memoryTrace.none": "无",
     "board.profile": "个人画像",
     "board.profile.empty": "暂无画像数据",
     "board.profile.topics": "关联话题",
@@ -216,6 +278,10 @@ const LOCALES = {
     "connection.l0": "L0 会话",
     "connection.noData": "暂无关联数据",
     "connection.notLoaded": "未加载",
+    "case.status.running": "运行中",
+    "case.status.completed": "已完成",
+    "case.status.interrupted": "已中断",
+    "case.status.error": "错误",
   },
   en: {
     "nav.l1": "Memory Snippets (L1)",
@@ -223,12 +289,14 @@ const LOCALES = {
     "nav.l2_time": "Time Memory (L2)",
     "nav.l0": "Raw Dialogues (L0)",
     "nav.profile": "Personal Profile",
+    "nav.memory_trace": "Memory Trace",
     "nav.lastIndexed": "Last indexed",
     "nav.waiting": "Waiting",
     "topbar.title": "ClawXMemory",
     "topbar.idle": "Idle",
     "topbar.refresh": "Refresh",
     "topbar.build": "Sync Index",
+    "topbar.dream": "Dream",
     "topbar.overview": "Dashboard",
     "topbar.settings": "Settings",
     "topbar.retrieve": "Retrieve",
@@ -246,10 +314,17 @@ const LOCALES = {
     "settings.title": "Settings",
     "settings.mode": "Reasoning mode",
     "settings.mode.help":
-      "Speed first obeys the max acceptable latency; accuracy first ignores that latency cap.",
+      "Speed first stops at the L2 evidence note; accuracy first can continue into L1/L0.",
     "settings.mode.answer_first": "Speed first",
     "settings.mode.accuracy_first": "Accuracy first",
-    "settings.maxLatency": "Max acceptable latency (ms)",
+    "settings.maxLatency": "Recall Top K",
+    "settings.autoIndexInterval": "Auto index interval (hours)",
+    "settings.autoDreamInterval": "Auto Dream interval (hours)",
+    "settings.autoDreamMinL1": "Auto Dream min new L1",
+    "settings.scheduleHint": "0 disables the automatic job",
+    "settings.autoDreamHint":
+      "Automatic Dream only runs when new L1 windows reach the configured threshold.",
+    "settings.off": "Off",
     "settings.save": "Save",
     "settings.theme": "Theme",
     "settings.theme.light": "Light",
@@ -272,6 +347,10 @@ const LOCALES = {
     "confirm.sync.body":
       "This will scan recent conversations and update the memory index. It may take a moment.",
     "confirm.sync.ok": "Start Sync",
+    "confirm.dream.title": "Memory Dream",
+    "confirm.dream.body":
+      "Memory is about to drift off. It will quietly reorganize the memory traces you've left behind, rebuilding clearer project memory and a sharper global profile without touching raw L1 or time-layer memory.",
+    "confirm.dream.ok": "Run Dream",
     "confirm.clear.title": "Clear Memory",
     "confirm.clear.body":
       "This will permanently delete all indexed memory data. This action cannot be undone. Continue?",
@@ -283,6 +362,10 @@ const LOCALES = {
     "confirm.cancel": "Cancel",
     "status.building": "Syncing…",
     "status.built": "Built · L0 {0} / L1 {1} / L2T {2} / L2P {3} / Profile {4}",
+    "status.dreaming": "Dream rebuilding…",
+    "status.dreamed":
+      "Dream complete · Reviewed L1 {0} / Rebuilt projects {1} / Deleted projects {2} / Profile {3} / Duplicates {4} / Conflicts {5}",
+    "status.dreamFailed": "Dream failed: {0}",
     "status.clearing": "Clearing…",
     "status.cleared": "Local memory cleared",
     "status.exporting": "Exporting…",
@@ -312,11 +395,13 @@ const LOCALES = {
     "level.l2_time.label": "Time Memory (L2)",
     "level.l0.label": "Raw Dialogues (L0)",
     "level.profile.label": "Personal Profile",
+    "level.memory_trace.label": "Memory Trace",
     "level.l1.empty": "No L1 records",
     "level.l2_project.empty": "No L2 project indexes",
     "level.l2_time.empty": "No L2 time indexes",
     "level.l0.empty": "No L0 sessions",
     "level.profile.empty": "No profile data",
+    "level.memory_trace.empty": "No traced conversations yet",
     "detail.summary": "Summary",
     "detail.situation": "Situation",
     "detail.projects": "Projects",
@@ -362,6 +447,10 @@ const LOCALES = {
     "overview.recallMs": "Last Recall",
     "overview.recallMode": "Recall Mode",
     "overview.reasoningMode": "Reasoning Mode",
+    "overview.autoIndexSchedule": "Auto Index",
+    "overview.autoDreamSchedule": "Auto Dream",
+    "overview.lastDreamAt": "Last Dream",
+    "overview.lastDreamStatus": "Dream Status",
     "overview.recallPath": "Reply Path",
     "overview.budgetStop": "Budget Stop",
     "overview.shadowDeep": "Shadow Deep",
@@ -377,6 +466,11 @@ const LOCALES = {
     "overview.group.reasoning": "Reasoning & Budget",
     "overview.group.health": "System Health",
     "overview.pending": "Pending",
+    "dream.status.never": "Never run",
+    "dream.status.running": "Running",
+    "dream.status.success": "Success",
+    "dream.status.skipped": "Skipped",
+    "dream.status.failed": "Failed",
     "recall.llm": "LLM Fast Path",
     "recall.local_fallback": "Local Fallback",
     "recall.none": "No Memory",
@@ -421,6 +515,41 @@ const LOCALES = {
     "topbar.listView": "List View",
     "board.project": "Project Memory",
     "board.timeline": "Memory Timeline",
+    "board.memoryTrace": "Memory Trace",
+    "board.memoryTrace.empty": "No real chat cases yet",
+    "board.memoryTrace.noDetail": "Select a case to inspect the memory reasoning flow",
+    "board.memoryTrace.timeline": "Reasoning Timeline",
+    "board.memoryTrace.context": "Injected Context",
+    "board.memoryTrace.finalNote": "Final Evidence Note",
+    "board.memoryTrace.path": "Trace Path",
+    "board.memoryTrace.tools": "Tool Activity",
+    "board.memoryTrace.answer": "Final Answer",
+    "board.memoryTrace.stepDetail": "Step Inspector",
+    "board.memoryTrace.noStep": "Expand a step to inspect structured details and full prompt data",
+    "board.memoryTrace.promptDebug": "Full Prompt Debug",
+    "board.memoryTrace.systemPrompt": "System Prompt",
+    "board.memoryTrace.userPrompt": "User Prompt",
+    "board.memoryTrace.rawOutput": "Raw Model Output",
+    "board.memoryTrace.parsedResult": "Parsed Result",
+    "board.memoryTrace.detail.empty": "No structured details",
+    "board.memoryTrace.selectCase": "Choose Case",
+    "board.memoryTrace.flow": "Reasoning Flow",
+    "board.memoryTrace.query": "Query",
+    "board.memoryTrace.session": "Session",
+    "board.memoryTrace.mode": "Mode",
+    "board.memoryTrace.injected": "Injected",
+    "board.memoryTrace.status": "Status",
+    "board.memoryTrace.started": "Started",
+    "board.memoryTrace.finished": "Finished",
+    "board.memoryTrace.enoughAt": "Enough At",
+    "board.memoryTrace.rail": "Trace Rail",
+    "board.memoryTrace.artifacts": "Supplemental",
+    "board.memoryTrace.artifacts.context": "Context",
+    "board.memoryTrace.artifacts.tools": "Tools",
+    "board.memoryTrace.artifacts.answer": "Answer",
+    "board.memoryTrace.observed":
+      "Developer debug view: shows observable ClawXMemory memory-reasoning steps and hop prompts, not the model's hidden chain-of-thought.",
+    "board.memoryTrace.none": "None",
     "board.profile": "Personal Profile",
     "board.profile.empty": "No profile data yet",
     "board.profile.topics": "Related Topics",
@@ -435,6 +564,10 @@ const LOCALES = {
     "connection.l0": "L0 Sessions",
     "connection.noData": "No linked data",
     "connection.notLoaded": "Not loaded",
+    "case.status.running": "Running",
+    "case.status.completed": "Completed",
+    "case.status.interrupted": "Interrupted",
+    "case.status.error": "Error",
   },
 };
 
@@ -538,14 +671,15 @@ const overviewCards = $("#overviewCards");
 const overviewScroll = $("#overviewScroll");
 const browserTitle = $("#browserTitle");
 const browserMeta = $("#browserMeta");
+const listSearchRow = $("#listSearchRow");
 const listQueryInput = $("#listQueryInput");
 const listSearchBtn = $("#listSearchBtn");
 const entryList = $("#entryList");
 
 const refreshBtn = $("#refreshBtn");
 const buildNowBtn = $("#buildNowBtn");
+const dreamRunBtn = $("#dreamRunBtn");
 const settingsToggleBtn = document.getElementById("settingsToggleBtn");
-const retrieveToggleBtn = document.getElementById("retrieveToggleBtn");
 const detailToggleBtn = document.getElementById("detailToggleBtn");
 
 const detailPanel = $("#detailPanel");
@@ -563,16 +697,11 @@ const clearMemoryBtn = $("#clearMemoryBtn");
 const importMemoryInput = $("#importMemoryInput");
 const reasoningModeToggle = document.getElementById("reasoningModeToggle");
 const maxAutoReplyLatencyInput = $("#maxAutoReplyLatencyInput");
+const autoIndexIntervalHoursInput = $("#autoIndexIntervalHoursInput");
+const autoDreamIntervalHoursInput = $("#autoDreamIntervalHoursInput");
+const autoDreamMinL1Input = $("#autoDreamMinL1Input");
 const latencyFieldWrap = $("#latencyFieldWrap");
 const langToggle = document.getElementById("langToggle");
-
-const retrievePanel = $("#retrievePanel");
-const retrieveCloseBtn = $("#retrieveCloseBtn");
-const queryInput = $("#queryInput");
-const retrieveBtn = $("#retrieveBtn");
-const retrieveSummary = $("#retrieveSummary");
-const retrieveTimeline = $("#retrieveTimeline");
-const retrieveResult = $("#retrieveResult");
 
 const themeToggle = $("#themeToggle");
 const langDropdown = $("#langDropdown");
@@ -586,6 +715,7 @@ const boardTabs = document.getElementById("boardTabs");
 const boardScroll = $("#boardScroll");
 const projectBoard = $("#projectBoard");
 const timelineBoard = $("#timelineBoard");
+const memoryTraceBoard = $("#memoryTraceBoard");
 const connectionPanel = $("#connectionPanel");
 const connectionGraph = $("#connectionGraph");
 const connectionSvg = $("#connectionSvg");
@@ -595,7 +725,7 @@ const viewToggleBtn = $("#viewToggleBtn");
 
 /* ── Level config ────────────────────────────────────────── */
 
-const LEVEL_KEYS = ["profile", "l2_project", "l2_time", "l1", "l0"];
+const LEVEL_KEYS = ["profile", "l2_project", "l2_time", "l1", "l0", "memory_trace"];
 
 function getLevelConfig(level) {
   const endpoints = {
@@ -604,6 +734,7 @@ function getLevelConfig(level) {
     l2_time: "./api/l2/time",
     l0: "./api/l0",
     profile: "./api/profile",
+    memory_trace: "",
   };
   return {
     label: t(`level.${level}.label`),
@@ -618,6 +749,7 @@ const OVERVIEW_KEYS = {
   l2_time: "totalL2Time",
   l0: "totalL0",
   profile: "totalProfiles",
+  memory_trace: "",
 };
 
 function formatStatus(value) {
@@ -641,7 +773,10 @@ const state = {
   overview: {},
   settings: {
     reasoningMode: "answer_first",
-    maxAutoReplyLatencyMs: 1800,
+    recallTopK: 10,
+    autoIndexIntervalMinutes: 60,
+    autoDreamIntervalMinutes: 360,
+    autoDreamMinNewL1: 10,
   },
   globalProfile: {
     recordId: "global_profile_record",
@@ -656,6 +791,14 @@ const state = {
   selectedIndex: -1,
   viewMode: "command_center",
   activeBoard: "project",
+  cases: [],
+  selectedCaseId: "",
+  selectedCase: null,
+  selectedCaseStepId: "",
+  selectedCaseArtifactTab: "context",
+  selectedCaseSelectorOpen: false,
+  promptDebugOpenByKey: {},
+  caseLoading: false,
   connectionTarget: null,
   connectionType: null,
   l1ById: {},
@@ -690,6 +833,14 @@ function formatTime(value) {
 
 function getOverviewCount(level) {
   return Number(state.overview?.[OVERVIEW_KEYS[level]] ?? 0);
+}
+
+function formatCaseStatus(status) {
+  return t(`case.status.${status || "running"}`);
+}
+
+function formatInjectedFlag(value) {
+  return value ? t("boundary.injected") : t("boundary.notInjected");
 }
 
 /* ── Panel / nav state ───────────────────────────────────── */
@@ -897,6 +1048,11 @@ function renderOverview(overview = {}) {
   const lastRecallPath = overview.lastRecallPath || "explicit";
   const currentReasoningMode =
     overview.currentReasoningMode || state.settings.reasoningMode || "answer_first";
+  const autoIndexSchedule = formatScheduleHours(state.settings.autoIndexIntervalMinutes);
+  const autoDreamSchedule = formatScheduleHours(state.settings.autoDreamIntervalMinutes);
+  const lastDreamAt = overview.lastDreamAt ? formatTime(overview.lastDreamAt) : t("nav.waiting");
+  const lastDreamStatus = t(`dream.status.${overview.lastDreamStatus || "never"}`);
+  const lastDreamSummary = String(overview.lastDreamSummary || "").trim();
   const lastRecallBudgetLimited = Boolean(overview.lastRecallBudgetLimited);
   const lastShadowDeepQueued = Boolean(overview.lastShadowDeepQueued);
   const primaryConflict = formatConflictSummary(runtimeIssues[0]);
@@ -968,6 +1124,15 @@ function renderOverview(overview = {}) {
       "default",
     ),
     createMetricCell(t("overview.queued"), overview.queuedSessions ?? 0, "default"),
+    createMetricCell(t("overview.autoIndexSchedule"), autoIndexSchedule, "default"),
+    createMetricCell(
+      t("overview.autoDreamSchedule"),
+      autoDreamSchedule,
+      "default",
+      `L1 >= ${state.settings.autoDreamMinNewL1 ?? 10}`,
+    ),
+    createMetricCell(t("overview.lastDreamAt"), lastDreamAt, "default"),
+    createMetricCell(t("overview.lastDreamStatus"), lastDreamStatus, "default", lastDreamSummary),
     createMetricCell(
       t("overview.budgetStop"),
       lastRecallBudgetLimited ? t("boundary.budgetStopped") : t("boundary.budgetNotStopped"),
@@ -1022,10 +1187,33 @@ function renderOverview(overview = {}) {
 
 /* ── Settings ────────────────────────────────────────────── */
 
+function minutesToHoursValue(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(fallback);
+  return String(Math.max(0, Math.round(numeric / 60)));
+}
+
+function parseHoursToMinutes(value, fallbackMinutes) {
+  const parsed = Number.parseFloat(String(value || "").trim());
+  if (!Number.isFinite(parsed)) return fallbackMinutes;
+  return Math.max(0, Math.round(parsed * 60));
+}
+
+function formatScheduleHours(minutes) {
+  const numeric = Number(minutes);
+  if (!Number.isFinite(numeric) || numeric <= 0) return t("settings.off");
+  const hours = numeric / 60;
+  const rendered = Number.isInteger(hours) ? String(hours) : hours.toFixed(1).replace(/\.0$/, "");
+  return `${rendered}h`;
+}
+
 function applySettings(settings = {}) {
   state.settings = {
     reasoningMode: "answer_first",
-    maxAutoReplyLatencyMs: 1800,
+    recallTopK: 10,
+    autoIndexIntervalMinutes: 60,
+    autoDreamIntervalMinutes: 360,
+    autoDreamMinNewL1: 10,
     ...(settings || {}),
   };
   const activeMode = state.settings.reasoningMode || "answer_first";
@@ -1034,34 +1222,58 @@ function applySettings(settings = {}) {
       btn.classList.toggle("active", btn.dataset.mode === activeMode);
     });
   }
-  maxAutoReplyLatencyInput.value = String(state.settings.maxAutoReplyLatencyMs ?? 1800);
+  maxAutoReplyLatencyInput.value = String(state.settings.recallTopK ?? 10);
+  if (autoIndexIntervalHoursInput) {
+    autoIndexIntervalHoursInput.value = minutesToHoursValue(
+      state.settings.autoIndexIntervalMinutes,
+      1,
+    );
+  }
+  if (autoDreamIntervalHoursInput) {
+    autoDreamIntervalHoursInput.value = minutesToHoursValue(
+      state.settings.autoDreamIntervalMinutes,
+      6,
+    );
+  }
+  if (autoDreamMinL1Input) {
+    autoDreamMinL1Input.value = String(Math.max(0, Number(state.settings.autoDreamMinNewL1 ?? 10)));
+  }
   updateSettingsVisibility();
 }
 
 function readSettingsForm() {
-  const parsedLatency = Number.parseInt(String(maxAutoReplyLatencyInput.value || "").trim(), 10);
+  const parsedRecallTopK = Number.parseInt(String(maxAutoReplyLatencyInput.value || "").trim(), 10);
+  const parsedDreamMinL1 = Number.parseInt(String(autoDreamMinL1Input?.value || "").trim(), 10);
   const activeBtn = reasoningModeToggle?.querySelector(".popover-seg-btn.active");
   const reasoningMode =
     activeBtn?.dataset.mode === "accuracy_first" ? "accuracy_first" : "answer_first";
-  const next = { reasoningMode };
-  if (reasoningMode === "answer_first") {
-    next.maxAutoReplyLatencyMs = Number.isFinite(parsedLatency)
-      ? Math.max(300, parsedLatency)
-      : state.settings.maxAutoReplyLatencyMs;
-  }
-  return next;
+  return {
+    reasoningMode,
+    recallTopK: Number.isFinite(parsedRecallTopK)
+      ? Math.max(1, Math.min(50, parsedRecallTopK))
+      : state.settings.recallTopK,
+    autoIndexIntervalMinutes: parseHoursToMinutes(
+      autoIndexIntervalHoursInput?.value,
+      state.settings.autoIndexIntervalMinutes ?? 60,
+    ),
+    autoDreamIntervalMinutes: parseHoursToMinutes(
+      autoDreamIntervalHoursInput?.value,
+      state.settings.autoDreamIntervalMinutes ?? 360,
+    ),
+    autoDreamMinNewL1: Number.isFinite(parsedDreamMinL1)
+      ? Math.max(0, parsedDreamMinL1)
+      : state.settings.autoDreamMinNewL1,
+  };
 }
 
 function updateSettingsVisibility() {
-  const activeBtn = reasoningModeToggle?.querySelector(".popover-seg-btn.active");
-  const answerFirst = (activeBtn?.dataset.mode || state.settings.reasoningMode) === "answer_first";
   if (latencyFieldWrap) {
-    latencyFieldWrap.hidden = !answerFirst;
-    latencyFieldWrap.style.display = answerFirst ? "" : "none";
-    latencyFieldWrap.setAttribute("aria-hidden", answerFirst ? "false" : "true");
+    latencyFieldWrap.hidden = false;
+    latencyFieldWrap.style.display = "";
+    latencyFieldWrap.setAttribute("aria-hidden", "false");
   }
   if (maxAutoReplyLatencyInput) {
-    maxAutoReplyLatencyInput.disabled = !answerFirst;
+    maxAutoReplyLatencyInput.disabled = false;
   }
 }
 
@@ -1070,7 +1282,12 @@ function updateSettingsVisibility() {
 function renderNavCounts() {
   levelTabs.querySelectorAll("[data-count-for]").forEach((node) => {
     const level = node.getAttribute("data-count-for");
-    if (level) node.textContent = String(getOverviewCount(level));
+    if (!level) return;
+    if (level === "memory_trace") {
+      node.textContent = String(state.cases.length || 0);
+      return;
+    }
+    node.textContent = String(getOverviewCount(level));
   });
 }
 
@@ -1178,6 +1395,7 @@ function createEmptyState(text) {
 /* ── Entry list render ───────────────────────────────────── */
 
 function renderEntryList() {
+  entryList.classList.remove("entry-stream--memory-trace");
   entryList.innerHTML = "";
   const config = getLevelConfig(state.activeLevel);
   if (state.visibleItems.length === 0) {
@@ -1537,6 +1755,11 @@ function buildDataIndexes() {
 }
 
 function switchView(mode) {
+  if (mode === "list" && state.activeBoard === "memory_trace") {
+    state.activeLevel = "memory_trace";
+  } else if (mode === "command_center" && state.activeLevel === "memory_trace") {
+    state.activeBoard = "memory_trace";
+  }
   state.viewMode = mode;
   const workspace = $(".workspace");
   const shell = $(".app-shell");
@@ -1555,7 +1778,7 @@ function switchView(mode) {
   if (isCmd) {
     h2.dataset.i18n = "topbar.commandCenter";
     h2.textContent = t("topbar.commandCenter");
-    renderCommandCenter();
+    switchBoard(state.activeBoard);
   } else {
     h2.dataset.i18n = "topbar.listView";
     h2.textContent = t("topbar.listView");
@@ -1571,10 +1794,12 @@ function switchBoard(board) {
   });
   projectBoard.classList.toggle("board-active", board === "project");
   timelineBoard.classList.toggle("board-active", board === "timeline");
+  if (memoryTraceBoard) memoryTraceBoard.classList.toggle("board-active", board === "memory_trace");
   const pb = document.getElementById("profileBoard");
   if (pb) pb.classList.toggle("board-active", board === "profile");
   if (board === "project") renderProjectBoard();
   else if (board === "timeline") renderTimelineBoard();
+  else if (board === "memory_trace") void loadCases({ silent: false, preserveScroll: false });
   else if (board === "profile") renderProfileBoard();
   closeConnection();
 }
@@ -1582,6 +1807,7 @@ function switchBoard(board) {
 function renderCommandCenter() {
   if (state.activeBoard === "project") renderProjectBoard();
   else if (state.activeBoard === "timeline") renderTimelineBoard();
+  else if (state.activeBoard === "memory_trace") renderMemoryTraceBoard();
   else if (state.activeBoard === "profile") renderProfileBoard();
 }
 
@@ -2301,8 +2527,8 @@ function syncBaseItems() {
 
 async function loadSnapshot() {
   const snap = await fetchJson("./api/snapshot?limit=24");
-  renderOverview(snap.overview || {});
   applySettings(snap.settings || {});
+  renderOverview(snap.overview || {});
   state.globalProfile = snap.globalProfile || state.globalProfile;
   state.baseRaw.l2_time = snap.recentTimeIndexes || [];
   state.baseRaw.l2_project = snap.recentProjectIndexes || [];
@@ -2313,10 +2539,34 @@ async function loadSnapshot() {
   buildDataIndexes();
 }
 
+function updateListLevelChrome(level) {
+  const isMemoryTrace = level === "memory_trace";
+  if (listSearchRow) listSearchRow.hidden = isMemoryTrace;
+  if (!isMemoryTrace) return;
+  if (state.activePanel === "detail") setPanel(null);
+  listQueryInput.value = "";
+  state.isSearching = false;
+  const listClearBtn = document.getElementById("listClearBtn");
+  if (listClearBtn) listClearBtn.style.display = "none";
+  const pager = document.getElementById("listPagination");
+  if (pager) pager.style.display = "none";
+}
+
 async function loadLevel(level, query = "") {
   const config = getLevelConfig(level);
   browserTitle.textContent = config.label;
   renderActiveNav();
+  updateListLevelChrome(level);
+
+  if (level === "memory_trace") {
+    browserMeta.textContent = t("stream.items", state.cases.length);
+    if (!state.cases.length || !state.selectedCaseId) {
+      await loadCases({ silent: false, preserveScroll: false });
+    } else {
+      renderMemoryTraceListView({ preserveScroll: false });
+    }
+    return;
+  }
 
   state.isSearching = !!query.trim();
   if (state.isSearching) {
@@ -2335,6 +2585,12 @@ async function loadLevel(level, query = "") {
 async function refreshDashboard(msgKey = "status.refreshed", tone = "success", ...args) {
   setActivity("status.refreshing");
   await loadSnapshot();
+  const memoryTraceVisible =
+    (state.viewMode === "command_center" && state.activeBoard === "memory_trace") ||
+    (state.viewMode === "list" && state.activeLevel === "memory_trace");
+  if (memoryTraceVisible) {
+    await loadCases({ silent: false, preserveScroll: true });
+  }
   await loadLevel(state.activeLevel, listQueryInput.value || "");
   if (
     state.overview.startupRepairStatus === "running" ||
@@ -2353,107 +2609,600 @@ function refreshRenderedContent() {
   if (state.viewMode === "command_center") {
     renderCommandCenter();
   } else {
-    loadLevel(state.activeLevel, listQueryInput.value || "");
+    void loadLevel(state.activeLevel, listQueryInput.value || "");
   }
 }
 
-/* ── Retrieve ────────────────────────────────────────────── */
+/* ── Memory Trace ────────────────────────────────────────── */
 
-function renderRetrieveBlock(title, count, items) {
-  const block = document.createElement("section");
-  block.className = "retrieval-block";
-  const head = document.createElement("div");
-  head.className = "retrieval-head";
-  const strong = document.createElement("strong");
-  strong.textContent = title;
-  const countEl = document.createElement("span");
-  countEl.className = "retrieval-count";
-  countEl.textContent = count;
-  head.append(strong, countEl);
-  block.append(head);
-  if (!items.length) {
-    block.append(createEmptyState(t("retrieve.noResult")));
-    return block;
-  }
-  const list = document.createElement("ul");
-  list.className = "mini-list";
-  items.forEach((text) => {
-    const li = document.createElement("li");
-    li.textContent = text;
-    list.append(li);
-  });
-  block.append(list);
-  return block;
+function createTraceMetaChip(label, value) {
+  const chip = document.createElement("div");
+  chip.className = "memory-trace-meta-chip";
+  const head = document.createElement("span");
+  head.className = "memory-trace-meta-label";
+  head.textContent = label;
+  const body = document.createElement("strong");
+  body.className = "memory-trace-meta-value";
+  body.textContent = value || "-";
+  chip.append(head, body);
+  return chip;
 }
 
-function renderRetrieveResult(data) {
-  retrieveTimeline.innerHTML = "";
-  const debugBits = data.debug
-    ? ` · mode=${data.debug.mode} · path=${data.debug.path || "explicit"} · ${data.debug.elapsedMs}ms${data.debug.cacheHit ? " · cache" : ""}${data.debug.budgetLimited ? " · budget" : ""}`
-    : "";
-  retrieveSummary.textContent = `intent=${data.intent || "general"} · enoughAt=${data.enoughAt || "none"}${debugBits}`;
-  retrieveResult.textContent = data.context || "";
+function getSelectedCaseStep() {
+  const steps = state.selectedCase?.retrieval?.trace?.steps || [];
+  return steps.find((step) => step.stepId === state.selectedCaseStepId) || steps[0] || null;
+}
 
-  if (data.profile?.profileText) {
-    retrieveTimeline.append(
-      renderRetrieveBlock(t("nav.profile"), 1, [shortText(data.profile.profileText, 180)]),
-    );
+function renderDebugValue(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
   }
+}
 
-  retrieveTimeline.append(
-    renderRetrieveBlock(
-      "L2",
-      data.l2Results?.length ?? 0,
-      (data.l2Results || []).map((r) =>
-        r.level === "l2_time"
-          ? `${r.item.dateKey} · ${shortText(r.item.summary, 120)}`
-          : `${r.item.projectName} · ${shortText(r.item.latestProgress || r.item.summary, 120)}`,
-      ),
-    ),
-    renderRetrieveBlock(
-      "L1",
-      data.l1Results?.length ?? 0,
-      (data.l1Results || []).map((r) => `${r.item.timePeriod} · ${shortText(r.item.summary, 120)}`),
-    ),
-    renderRetrieveBlock(
-      "L0",
-      data.l0Results?.length ?? 0,
-      (data.l0Results || []).map((r) => {
-        const users = (r.item.messages || [])
-          .filter((m) => m.role === "user")
-          .map((m) => m.content);
-        return `${formatTime(r.item.timestamp)} · ${shortText(users[users.length - 1] || "", 120)}`;
-      }),
-    ),
+function getCurrentMemoryTraceRoot() {
+  if (state.viewMode === "list" && state.activeLevel === "memory_trace") return entryList;
+  if (state.viewMode === "command_center" && state.activeBoard === "memory_trace")
+    return memoryTraceBoard;
+  return null;
+}
+
+function captureMemoryTraceScrollState(root) {
+  if (!root) return null;
+  return {
+    pageScrollTop: root.scrollTop ?? 0,
+    selectorScrollTop: root.querySelector(".memory-trace-selector-list")?.scrollTop ?? 0,
+    artifactScrollTop: root.querySelector(".memory-trace-artifact-body")?.scrollTop ?? 0,
+  };
+}
+
+function restoreMemoryTraceScrollState(root, scrollState) {
+  if (!root || !scrollState) return;
+  const selectorList = root.querySelector(".memory-trace-selector-list");
+  const artifact = root.querySelector(".memory-trace-artifact-body");
+  root.scrollTop = scrollState.pageScrollTop ?? 0;
+  if (selectorList) selectorList.scrollTop = scrollState.selectorScrollTop ?? 0;
+  if (artifact) artifact.scrollTop = scrollState.artifactScrollTop ?? 0;
+}
+
+function getPromptDebugStateKey(step, promptDebug) {
+  return [state.selectedCaseId || "", step?.stepId || "", promptDebug?.requestLabel || ""].join(
+    "::",
   );
 }
 
-/* ── Actions ─────────────────────────────────────────────── */
+function createPromptDebugBlock(promptDebug, step) {
+  const stateKey = getPromptDebugStateKey(step, promptDebug);
+  const block = document.createElement("details");
+  block.className = "memory-trace-debug-block";
+  block.open = Boolean(state.promptDebugOpenByKey[stateKey]);
 
-async function runRetrieve() {
-  const query = String(queryInput.value || "").trim();
-  if (!query) {
-    setActivity("status.queryRequired", "warning");
+  block.addEventListener("toggle", () => {
+    if (block.open) state.promptDebugOpenByKey[stateKey] = true;
+    else delete state.promptDebugOpenByKey[stateKey];
+  });
+
+  const summary = document.createElement("summary");
+  summary.textContent = `${t("board.memoryTrace.promptDebug")} · ${promptDebug.requestLabel || "-"}`;
+  block.append(summary);
+
+  const sections = [
+    { title: t("board.memoryTrace.systemPrompt"), value: promptDebug.systemPrompt || "" },
+    { title: t("board.memoryTrace.userPrompt"), value: promptDebug.userPrompt || "" },
+    {
+      title: t("board.memoryTrace.rawOutput"),
+      value: promptDebug.rawResponse || promptDebug.errorMessage || "",
+    },
+  ];
+  if (promptDebug.parsedResult !== undefined) {
+    sections.push({
+      title: t("board.memoryTrace.parsedResult"),
+      value: renderDebugValue(promptDebug.parsedResult),
+    });
+  }
+
+  sections.forEach((section) => {
+    const title = document.createElement("h5");
+    title.className = "memory-trace-debug-title";
+    title.textContent = section.title;
+    const code = document.createElement("pre");
+    code.className = "memory-trace-code";
+    code.textContent = section.value || t("board.memoryTrace.none");
+    block.append(title, code);
+  });
+
+  return block;
+}
+
+function createDetailBlock(detail) {
+  const wrap = document.createElement("div");
+  wrap.className = `memory-trace-detail-block${detail.kind === "note" ? " is-note" : ""}`;
+
+  const title = document.createElement("h5");
+  title.className = "memory-trace-debug-title";
+  title.textContent = detail.label || detail.key;
+  wrap.append(title);
+
+  if (detail.kind === "text" || detail.kind === "note") {
+    const body = document.createElement("pre");
+    body.className = detail.kind === "note" ? "memory-trace-note" : "memory-trace-code";
+    body.textContent = detail.text || t("board.memoryTrace.none");
+    wrap.append(body);
+    return wrap;
+  }
+
+  if (detail.kind === "list") {
+    if (!detail.items?.length) {
+      wrap.append(createEmptyState(t("board.memoryTrace.none")));
+      return wrap;
+    }
+    const list = document.createElement("ul");
+    list.className = "memory-trace-detail-list";
+    detail.items.forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      list.append(li);
+    });
+    wrap.append(list);
+    return wrap;
+  }
+
+  if (detail.kind === "kv") {
+    const grid = document.createElement("div");
+    grid.className = "memory-trace-kv-grid";
+    (detail.entries || []).forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = "memory-trace-kv-row";
+      const key = document.createElement("span");
+      key.className = "memory-trace-kv-key";
+      key.textContent = entry.label;
+      const value = document.createElement("span");
+      value.className = "memory-trace-kv-value";
+      value.textContent = entry.value || "-";
+      row.append(key, value);
+      grid.append(row);
+    });
+    wrap.append(grid);
+    return wrap;
+  }
+
+  const body = document.createElement("pre");
+  body.className = "memory-trace-code";
+  body.textContent = renderDebugValue(detail.json) || t("board.memoryTrace.none");
+  wrap.append(body);
+  return wrap;
+}
+
+function createMemoryTraceStep(step, stepIndex = 0) {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "memory-trace-step-toggle";
+  card.dataset.status = step.status || "info";
+  card.dataset.stepId = step.stepId || "";
+
+  const marker = document.createElement("span");
+  marker.className = "memory-trace-step-marker";
+  marker.textContent = String(stepIndex + 1);
+
+  const body = document.createElement("div");
+  body.className = "memory-trace-step-summary";
+
+  const head = document.createElement("div");
+  head.className = "memory-trace-step-head";
+  const title = document.createElement("strong");
+  title.textContent = step.title || step.kind;
+  const kind = document.createElement("span");
+  kind.className = "memory-trace-kind-badge";
+  kind.textContent = step.kind;
+  head.append(title, kind);
+
+  const input = document.createElement("div");
+  input.className = "memory-trace-step-line";
+  input.textContent = step.inputSummary || "";
+
+  const output = document.createElement("div");
+  output.className = "memory-trace-step-line is-output";
+  output.textContent = step.outputSummary || "";
+
+  body.append(head, input, output);
+  card.append(marker, body);
+  return card;
+}
+
+function createToolEventItem(event) {
+  const item = document.createElement("li");
+  item.className = "memory-trace-tool-item";
+
+  const head = document.createElement("div");
+  head.className = "memory-trace-tool-head";
+  const title = document.createElement("strong");
+  title.textContent = `${event.toolName} · ${event.phase}`;
+  const meta = document.createElement("span");
+  meta.className = "memory-trace-kind-badge";
+  meta.textContent = formatCaseStatus(
+    event.status === "running" ? "running" : event.status === "error" ? "error" : "completed",
+  );
+  head.append(title, meta);
+
+  const summary = document.createElement("div");
+  summary.className = "memory-trace-tool-summary";
+  summary.textContent = event.summary || "";
+
+  item.append(head, summary);
+  if (event.paramsPreview) {
+    const params = document.createElement("pre");
+    params.className = "memory-trace-code";
+    params.textContent = event.paramsPreview;
+    item.append(params);
+  }
+  if (event.resultPreview) {
+    const result = document.createElement("pre");
+    result.className = "memory-trace-code";
+    result.textContent = event.resultPreview;
+    item.append(result);
+  }
+  return item;
+}
+
+function createTraceArtifactTabs() {
+  const tabs = document.createElement("div");
+  tabs.className = "memory-trace-artifact-tabs";
+  [
+    ["context", t("board.memoryTrace.artifacts.context")],
+    ["tools", t("board.memoryTrace.artifacts.tools")],
+    ["answer", t("board.memoryTrace.artifacts.answer")],
+  ].forEach(([id, label]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "memory-trace-artifact-tab";
+    if (state.selectedCaseArtifactTab === id) button.classList.add("active");
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      state.selectedCaseArtifactTab = id;
+      renderVisibleMemoryTrace({ preserveScroll: true });
+    });
+    tabs.append(button);
+  });
+  return tabs;
+}
+
+function createArtifactBody(record) {
+  const body = document.createElement("div");
+  body.className = "memory-trace-artifact-body";
+
+  if (state.selectedCaseArtifactTab === "tools") {
+    if (!record.toolEvents?.length) {
+      body.append(createEmptyState(t("board.memoryTrace.none")));
+      return body;
+    }
+    const list = document.createElement("ul");
+    list.className = "memory-trace-tool-list";
+    record.toolEvents.forEach((event) => list.append(createToolEventItem(event)));
+    body.append(list);
+    return body;
+  }
+
+  const pre = document.createElement("pre");
+  pre.className = "memory-trace-code";
+  if (state.selectedCaseArtifactTab === "answer") {
+    pre.textContent = record.assistantReply || t("board.memoryTrace.none");
+  } else {
+    pre.textContent = record.retrieval?.contextPreview || t("board.memoryTrace.none");
+  }
+  body.append(pre);
+  return body;
+}
+
+function createMemoryTraceSelector() {
+  const wrap = document.createElement("div");
+  wrap.className = "memory-trace-selector";
+
+  if (!state.cases.length) {
+    wrap.append(createEmptyState(t("board.memoryTrace.empty")));
+    return wrap;
+  }
+
+  const active =
+    state.cases.find((record) => record.caseId === state.selectedCaseId) || state.cases[0];
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "memory-trace-selector-trigger";
+  trigger.setAttribute("aria-expanded", String(state.selectedCaseSelectorOpen));
+  trigger.addEventListener("click", () => {
+    state.selectedCaseSelectorOpen = !state.selectedCaseSelectorOpen;
+    renderVisibleMemoryTrace({ preserveScroll: true });
+  });
+
+  const triggerTitle = document.createElement("span");
+  triggerTitle.className = "memory-trace-selector-title";
+  triggerTitle.textContent = shortText(active?.query || t("board.memoryTrace.none"), 96);
+
+  const chevron = document.createElement("span");
+  chevron.className = "memory-trace-selector-chevron";
+  chevron.textContent = state.selectedCaseSelectorOpen ? "▴" : "▾";
+
+  trigger.append(triggerTitle, chevron);
+  wrap.append(trigger);
+
+  if (!state.selectedCaseSelectorOpen) return wrap;
+
+  const list = document.createElement("div");
+  list.className = "memory-trace-selector-list";
+  state.cases.forEach((record) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "memory-trace-selector-option";
+    if (record.caseId === state.selectedCaseId) option.classList.add("active");
+
+    const optionTitle = document.createElement("div");
+    optionTitle.className = "memory-trace-selector-option-title";
+    optionTitle.textContent = shortText(record.query || t("board.memoryTrace.none"), 120);
+
+    const optionMeta = document.createElement("div");
+    optionMeta.className = "memory-trace-selector-option-meta";
+    const pathSummary = record.retrieval?.pathSummary ? ` · ${record.retrieval.pathSummary}` : "";
+    optionMeta.textContent = `${formatCaseStatus(record.status)}${pathSummary} · ${formatTime(record.startedAt)}`;
+
+    option.append(optionTitle, optionMeta);
+    option.addEventListener("click", () => {
+      state.selectedCaseSelectorOpen = false;
+      void selectCase(record.caseId, { preserveScroll: true });
+    });
+    list.append(option);
+  });
+  wrap.append(list);
+  return wrap;
+}
+
+function createMemoryTraceTimeline(record) {
+  const wrap = document.createElement("section");
+  wrap.className = "memory-trace-flow";
+
+  const head = document.createElement("div");
+  head.className = "memory-trace-section-head";
+  const title = document.createElement("h4");
+  title.textContent = t("board.memoryTrace.flow");
+  head.append(title);
+  wrap.append(head);
+
+  const list = document.createElement("div");
+  list.className = "memory-trace-flow-list";
+  const traceSteps = record.retrieval?.trace?.steps || [];
+  if (!traceSteps.length) {
+    list.append(createEmptyState(t("board.memoryTrace.none")));
+  } else {
+    traceSteps.forEach((step, index) => {
+      const item = document.createElement("div");
+      item.className = "memory-trace-step-item";
+      const isActive = step.stepId === state.selectedCaseStepId;
+      if (isActive) item.classList.add("active");
+
+      const stepCard = createMemoryTraceStep(step, index);
+      stepCard.addEventListener("click", () => {
+        state.selectedCaseStepId = state.selectedCaseStepId === step.stepId ? "" : step.stepId;
+        renderVisibleMemoryTrace({ preserveScroll: true });
+      });
+      item.append(stepCard);
+
+      if (isActive) {
+        const expanded = document.createElement("div");
+        expanded.className = "memory-trace-step-expanded";
+
+        const metaGrid = document.createElement("div");
+        metaGrid.className = "memory-trace-expanded-meta";
+        metaGrid.append(
+          createTraceMetaChip(t("board.memoryTrace.status"), step.status || "-"),
+          createTraceMetaChip("kind", step.kind || "-"),
+        );
+        expanded.append(metaGrid);
+
+        if (!step.details?.length) {
+          expanded.append(createEmptyState(t("board.memoryTrace.detail.empty")));
+        } else {
+          step.details.forEach((detailItem) => expanded.append(createDetailBlock(detailItem)));
+        }
+        if (step.promptDebug) {
+          expanded.append(createPromptDebugBlock(step.promptDebug, step));
+        }
+        item.append(expanded);
+      }
+
+      list.append(item);
+    });
+  }
+  wrap.append(list);
+  return wrap;
+}
+
+function createMemoryTraceArtifacts(record) {
+  const wrap = document.createElement("section");
+  wrap.className = "memory-trace-summary-card memory-trace-summary-card--artifact";
+
+  const title = document.createElement("h4");
+  title.textContent = t("board.memoryTrace.artifacts");
+  wrap.append(title, createTraceArtifactTabs(), createArtifactBody(record));
+  return wrap;
+}
+
+function createMemoryTraceHero(record) {
+  const hero = document.createElement("section");
+  hero.className = "memory-trace-hero";
+
+  const header = document.createElement("div");
+  header.className = "memory-trace-header";
+  header.append(createMemoryTraceSelector());
+
+  const chips = document.createElement("div");
+  chips.className = "memory-trace-meta-grid";
+  chips.append(
+    createTraceMetaChip(t("board.memoryTrace.status"), formatCaseStatus(record.status)),
+    createTraceMetaChip(
+      t("board.memoryTrace.mode"),
+      record.retrieval?.trace?.mode || t("board.memoryTrace.none"),
+    ),
+    createTraceMetaChip(
+      t("board.memoryTrace.enoughAt"),
+      t(`enough.${record.retrieval?.enoughAt || "none"}`),
+    ),
+    createTraceMetaChip(
+      t("board.memoryTrace.injected"),
+      formatInjectedFlag(Boolean(record.retrieval?.injected)),
+    ),
+    createTraceMetaChip(t("board.memoryTrace.session"), record.sessionKey || "-"),
+    createTraceMetaChip(t("board.memoryTrace.started"), formatTime(record.startedAt)),
+    createTraceMetaChip(t("board.memoryTrace.finished"), formatTime(record.finishedAt || "")),
+  );
+
+  const summary = document.createElement("div");
+  summary.className = "memory-trace-summary-grid";
+
+  const path = document.createElement("section");
+  path.className = "memory-trace-summary-card memory-trace-summary-card--path";
+  const pathHead = document.createElement("h4");
+  pathHead.textContent = t("board.memoryTrace.path");
+  const pathBody = document.createElement("pre");
+  pathBody.className = "memory-trace-code";
+  pathBody.textContent = record.retrieval?.pathSummary || t("board.memoryTrace.none");
+  path.append(pathHead, pathBody);
+
+  const finalNote = document.createElement("section");
+  finalNote.className = "memory-trace-summary-card";
+  const noteHead = document.createElement("h4");
+  noteHead.textContent = t("board.memoryTrace.finalNote");
+  const noteBody = document.createElement("pre");
+  noteBody.className = "memory-trace-note";
+  noteBody.textContent = record.retrieval?.evidenceNotePreview || t("board.memoryTrace.none");
+  finalNote.append(noteHead, noteBody);
+
+  summary.append(path, finalNote, createMemoryTraceArtifacts(record));
+
+  hero.append(header, chips, summary);
+  return hero;
+}
+
+function renderMemoryTraceWorkspace(target, options = {}) {
+  if (!target) return;
+  const { preserveScroll = false, forceLoading = false, listMode = false } = options;
+  const scrollState = preserveScroll ? captureMemoryTraceScrollState(target) : null;
+
+  target.innerHTML = "";
+  if (listMode) {
+    entryList.classList.add("entry-stream--memory-trace");
+    const host = document.createElement("li");
+    host.className = "memory-trace-list-host";
+    target.append(host);
+    target = host;
+  } else {
+    entryList.classList.remove("entry-stream--memory-trace");
+  }
+
+  const page = document.createElement("div");
+  page.className = "memory-trace-page";
+
+  if (forceLoading) {
+    page.append(createEmptyState(t("status.loading")));
+    target.append(page);
+    restoreMemoryTraceScrollState(listMode ? entryList : target, scrollState);
     return;
   }
-  setActivity("status.retrieving");
-  retrieveSummary.textContent = "…";
-  retrieveTimeline.innerHTML = "";
-  retrieveResult.textContent = "";
-  const data = await fetchJson(`./api/retrieve?q=${encodeURIComponent(query)}&limit=6`);
-  renderRetrieveResult(data);
-  setActivity("status.retrieved", "success");
+
+  if (!state.selectedCase) {
+    page.append(createEmptyState(t("board.memoryTrace.noDetail")));
+    target.append(page);
+    restoreMemoryTraceScrollState(listMode ? entryList : target, scrollState);
+    return;
+  }
+
+  const record = state.selectedCase;
+  page.append(createMemoryTraceHero(record), createMemoryTraceTimeline(record));
+
+  target.append(page);
+  restoreMemoryTraceScrollState(listMode ? entryList : target, scrollState);
 }
+
+function renderMemoryTraceBoard(options = {}) {
+  renderMemoryTraceWorkspace(memoryTraceBoard, { ...options, listMode: false });
+}
+
+function renderMemoryTraceListView(options = {}) {
+  renderMemoryTraceWorkspace(entryList, { ...options, listMode: true });
+}
+
+function renderVisibleMemoryTrace(options = {}) {
+  if (state.viewMode === "list" && state.activeLevel === "memory_trace") {
+    renderMemoryTraceListView(options);
+    return;
+  }
+  if (state.viewMode === "command_center" && state.activeBoard === "memory_trace") {
+    renderMemoryTraceBoard(options);
+  }
+}
+
+async function selectCase(caseId, options = {}) {
+  if (!caseId) return;
+  const { preserveScroll = false } = options;
+  state.selectedCaseId = caseId;
+  state.selectedCaseSelectorOpen = false;
+  state.caseLoading = true;
+  if (preserveScroll) {
+    renderVisibleMemoryTrace({ preserveScroll, forceLoading: false });
+  }
+  state.selectedCase = await fetchJson(`./api/cases/${encodeURIComponent(caseId)}`);
+  const steps = state.selectedCase?.retrieval?.trace?.steps || [];
+  if (state.selectedCaseStepId && !steps.some((step) => step.stepId === state.selectedCaseStepId)) {
+    state.selectedCaseStepId = steps[0]?.stepId || "";
+  }
+  state.caseLoading = false;
+  renderVisibleMemoryTrace({ preserveScroll });
+}
+
+async function loadCases(options = {}) {
+  const { silent = false, preserveScroll = silent } = options;
+  state.caseLoading = true;
+  if (!silent) {
+    renderVisibleMemoryTrace({
+      preserveScroll,
+      forceLoading: !state.cases.length && !state.selectedCase,
+    });
+  }
+  state.cases = await fetchJson("./api/cases?limit=5");
+  if (!Array.isArray(state.cases)) state.cases = [];
+  if (
+    !state.selectedCaseId ||
+    !state.cases.some((record) => record.caseId === state.selectedCaseId)
+  ) {
+    state.selectedCaseId = state.cases[0]?.caseId || "";
+  }
+  if (state.selectedCaseId) {
+    state.selectedCase = await fetchJson(`./api/cases/${encodeURIComponent(state.selectedCaseId)}`);
+    const steps = state.selectedCase?.retrieval?.trace?.steps || [];
+    if (
+      state.selectedCaseStepId &&
+      !steps.some((step) => step.stepId === state.selectedCaseStepId)
+    ) {
+      state.selectedCaseStepId = steps[0]?.stepId || "";
+    }
+  } else {
+    state.selectedCase = null;
+    state.selectedCaseStepId = "";
+  }
+  browserMeta.textContent = t("stream.items", state.cases.length);
+  renderNavCounts();
+  state.caseLoading = false;
+  renderVisibleMemoryTrace({ preserveScroll });
+}
+
+/* ── Actions ─────────────────────────────────────────────── */
 
 async function saveSettings() {
   const payload = readSettingsForm();
   const settings = await postJson("./api/settings", payload);
   applySettings(settings);
   const modeLabel = t(`reasoning.${settings.reasoningMode || "answer_first"}`);
-  const summary =
-    settings.reasoningMode === "answer_first"
-      ? `${modeLabel} · ${settings.maxAutoReplyLatencyMs}ms`
-      : modeLabel;
+  const summary = `${modeLabel} · topK=${settings.recallTopK ?? 10} · index=${formatScheduleHours(settings.autoIndexIntervalMinutes)} · dream=${formatScheduleHours(settings.autoDreamIntervalMinutes)} / L1>=${settings.autoDreamMinNewL1 ?? 10}`;
   setActivity("status.settingsSaved", "success", summary);
 }
 
@@ -2519,6 +3268,40 @@ async function buildNow() {
     s.l2ProjectUpdated ?? 0,
     s.profileUpdated ?? 0,
   );
+}
+
+async function dreamRun() {
+  const ok = await showModal({
+    icon: "✦",
+    iconClass: "icon-sync",
+    title: t("confirm.dream.title"),
+    body: t("confirm.dream.body"),
+    confirmText: t("confirm.dream.ok"),
+  });
+  if (!ok) return;
+  setActivity("status.dreaming");
+  try {
+    const result = await postJson("./api/dream/run");
+    await refreshDashboard(
+      "status.dreamed",
+      "success",
+      result.reviewedL1 ?? 0,
+      result.rewrittenProjects ?? 0,
+      result.deletedProjects ?? 0,
+      result.profileUpdated ? 1 : 0,
+      result.duplicateTopicCount ?? 0,
+      result.conflictTopicCount ?? 0,
+    );
+  } catch (error) {
+    try {
+      await refreshDashboard();
+    } catch {}
+    setActivity(
+      "status.dreamFailed",
+      "danger",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 async function clearMemory() {
@@ -2638,6 +3421,7 @@ levelTabs.addEventListener("click", async (e) => {
 
 refreshBtn.addEventListener("click", () => void refreshDashboard());
 buildNowBtn.addEventListener("click", () => void buildNow());
+dreamRunBtn?.addEventListener("click", () => void dreamRun());
 overviewToggleBtn.addEventListener("click", () => togglePanel("overview"));
 saveSettingsBtn.addEventListener("click", () => void saveSettings());
 if (exportMemoryBtn) exportMemoryBtn.addEventListener("click", () => void exportMemory());
@@ -2666,13 +3450,6 @@ if (listClearBtn)
     if (listClearBtn) listClearBtn.style.display = "none";
     void loadLevel(state.activeLevel, "");
   });
-retrieveBtn.addEventListener("click", () => void runRetrieve());
-queryInput.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-    e.preventDefault();
-    void runRetrieve();
-  }
-});
 
 const settingsPopover = document.getElementById("settingsPopover");
 const navMenuTrigger = document.getElementById("navMenuTrigger");
@@ -2718,7 +3495,6 @@ document.addEventListener("click", (e) => {
   }
 });
 
-if (retrieveToggleBtn) retrieveToggleBtn.addEventListener("click", () => togglePanel("retrieve"));
 if (detailToggleBtn) detailToggleBtn.addEventListener("click", () => togglePanel("detail"));
 if (reasoningModeToggle)
   reasoningModeToggle.addEventListener("click", (e) => {
@@ -2732,7 +3508,6 @@ if (reasoningModeToggle)
   });
 overviewCloseBtn.addEventListener("click", () => setPanel(null));
 if (settingsCloseBtn) settingsCloseBtn.addEventListener("click", () => setPanel(null));
-retrieveCloseBtn.addEventListener("click", () => setPanel(null));
 detailCloseBtn.addEventListener("click", () => setPanel(null));
 navToggleBtn.addEventListener("click", () => setNavOpen(true));
 navCloseBtn.addEventListener("click", () => setNavOpen(false));
@@ -2774,7 +3549,10 @@ boardNavTabs.addEventListener("click", (e) => {
   const btn = e.target instanceof Element ? e.target.closest("[data-board]") : null;
   if (!btn) return;
   const board = btn.dataset.board;
-  if (board && (board === "project" || board === "timeline" || board === "profile"))
+  if (
+    board &&
+    (board === "project" || board === "timeline" || board === "memory_trace" || board === "profile")
+  )
     switchBoard(board);
 });
 
@@ -2814,6 +3592,15 @@ async function bootstrap() {
   renderDetail();
   updateActivityFromOverview();
 }
+
+window.setInterval(() => {
+  if (document.visibilityState !== "visible") return;
+  const traceVisible =
+    (state.viewMode === "command_center" && state.activeBoard === "memory_trace") ||
+    (state.viewMode === "list" && state.activeLevel === "memory_trace");
+  if (!traceVisible || state.caseLoading) return;
+  void loadCases({ silent: true, preserveScroll: true });
+}, 4000);
 
 bootstrap().catch((err) => {
   console.error(err);

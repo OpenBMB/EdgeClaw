@@ -57,7 +57,7 @@
     "@sinclair/typebox": "^0.34.41"
   },
   "devDependencies": {
-    "openclaw": "^2026.3.31",
+    "openclaw": "^2026.3.28",
     "vitest": "^4.0.5"
   },
   "peerDependencies": {

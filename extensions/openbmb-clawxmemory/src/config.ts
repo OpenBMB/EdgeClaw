@@ -11,6 +11,8 @@ export interface PluginRuntimeConfig {
   maxMessageChars: number;
   heartbeatBatchSize: number;
   autoIndexIntervalMinutes: number;
+  autoDreamIntervalMinutes: number;
+  autoDreamMinNewL1: number;
   indexIdleDebounceMs: number;
   defaultIndexingSettings: IndexingSettings;
   recallEnabled: boolean;
@@ -58,10 +60,22 @@ export const pluginConfigJsonSchema = {
       type: "integer",
       default: 60,
     },
+    autoDreamIntervalMinutes: {
+      type: "integer",
+      default: 360,
+    },
+    autoDreamMinNewL1: {
+      type: "integer",
+      default: 10,
+    },
     reasoningMode: {
       type: "string",
       enum: ["answer_first", "accuracy_first"],
       default: "answer_first",
+    },
+    recallTopK: {
+      type: "integer",
+      default: 10,
     },
     maxAutoReplyLatencyMs: {
       type: "integer",
@@ -127,12 +141,24 @@ export const pluginConfigUiHints = {
     label: "Auto Index Interval",
     placeholder: "60",
   },
+  autoDreamIntervalMinutes: {
+    label: "Auto Dream Interval",
+    placeholder: "360",
+  },
+  autoDreamMinNewL1: {
+    label: "Auto Dream L1 Threshold",
+    placeholder: "10",
+  },
   reasoningMode: {
     label: "Reasoning Mode",
-    help: "answer_first stops when reply latency budget is about to run out; accuracy_first prefers full recursive memory retrieval.",
+    help: "answer_first stops at L2 evidence notes; accuracy_first can continue down to L1 and L0.",
+  },
+  recallTopK: {
+    label: "Recall Top K",
+    placeholder: "10",
   },
   maxAutoReplyLatencyMs: {
-    label: "Max Auto Reply Latency (ms)",
+    label: "Legacy Max Auto Reply Latency (ms)",
     placeholder: "1800",
   },
   uiEnabled: {
@@ -186,16 +212,12 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
   const skillsDir =
     typeof cfg.skillsDir === "string" && cfg.skillsDir.trim() ? cfg.skillsDir : undefined;
 
-  const configuredLatency =
-    typeof cfg.maxAutoReplyLatencyMs === "number" && Number.isFinite(cfg.maxAutoReplyLatencyMs)
-      ? Math.floor(cfg.maxAutoReplyLatencyMs)
-      : typeof cfg.maxAutoReplyLatencyMs === "string" && cfg.maxAutoReplyLatencyMs.trim()
-        ? Number.parseInt(cfg.maxAutoReplyLatencyMs, 10)
-        : typeof cfg.recallBudgetMs === "number" && Number.isFinite(cfg.recallBudgetMs)
-          ? Math.floor(cfg.recallBudgetMs)
-          : typeof cfg.recallBudgetMs === "string" && cfg.recallBudgetMs.trim()
-            ? Number.parseInt(cfg.recallBudgetMs, 10)
-            : 1800;
+  const configuredRecallTopK =
+    typeof cfg.recallTopK === "number" && Number.isFinite(cfg.recallTopK)
+      ? Math.floor(cfg.recallTopK)
+      : typeof cfg.recallTopK === "string" && cfg.recallTopK.trim()
+        ? Number.parseInt(cfg.recallTopK, 10)
+        : 10;
   const captureStrategy = cfg.captureStrategy === "last_turn" ? "last_turn" : "full_session";
   const runtime: PluginRuntimeConfig = {
     dataDir,
@@ -205,13 +227,18 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
     maxMessageChars: toInteger(cfg.maxMessageChars, 6000),
     heartbeatBatchSize: Math.max(1, toInteger(cfg.heartbeatBatchSize, 30)),
     autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
+    autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
+    autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
     indexIdleDebounceMs: Math.max(200, toInteger(cfg.indexIdleDebounceMs, 2500)),
     defaultIndexingSettings: {
       reasoningMode: cfg.reasoningMode === "accuracy_first" ? "accuracy_first" : "answer_first",
-      maxAutoReplyLatencyMs: Math.max(
-        300,
-        Number.isFinite(configuredLatency) ? configuredLatency : 1800,
+      recallTopK: Math.max(
+        1,
+        Math.min(50, Number.isFinite(configuredRecallTopK) ? configuredRecallTopK : 10),
       ),
+      autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
+      autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
+      autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
     },
     recallEnabled: toBoolean(cfg.recallEnabled, true),
     addEnabled: toBoolean(cfg.addEnabled, true),

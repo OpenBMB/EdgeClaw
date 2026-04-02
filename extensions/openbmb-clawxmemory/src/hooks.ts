@@ -50,6 +50,8 @@ export function registerMemoryHooks(api: OpenClawPluginApi, runtime: MemoryPlugi
   if (!api.on) return;
 
   api.on("before_prompt_build", runtime.handleBeforePromptBuild, { priority: 60 });
+  api.on("before_tool_call", runtime.handleBeforeToolCall, { priority: 60 });
+  api.on("after_tool_call", runtime.handleAfterToolCall);
   api.on("before_message_write", runtime.handleBeforeMessageWrite, { priority: 80 });
   api.on("agent_end", runtime.handleAgentEnd);
   api.on("before_reset", runtime.handleBeforeReset);

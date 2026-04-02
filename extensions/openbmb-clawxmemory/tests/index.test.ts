@@ -68,7 +68,17 @@ describe("plugin entry", () => {
     expect(registerMemoryPromptSection).toHaveBeenCalledTimes(1);
     expect(registerTool).toHaveBeenCalledTimes(1);
     expect(registerHook).toHaveBeenCalledTimes(2);
-    expect(on).toHaveBeenCalledTimes(4);
+    expect(on).toHaveBeenCalledTimes(6);
+    expect(on.mock.calls.map((call) => call[0])).toEqual(
+      expect.arrayContaining([
+        "before_prompt_build",
+        "before_tool_call",
+        "after_tool_call",
+        "before_message_write",
+        "agent_end",
+        "before_reset",
+      ]),
+    );
     expect(registerService).toHaveBeenCalledTimes(1);
 
     const toolFactory = registerTool.mock.calls[0]![0] as () => Array<{ name: string }>;

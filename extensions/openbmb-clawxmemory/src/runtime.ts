@@ -10,24 +10,34 @@ import type {
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
   PluginHookBeforeResetEvent,
+  PluginHookBeforeToolCallEvent,
+  PluginHookAfterToolCallEvent,
   PluginLogger,
   PluginRuntime,
+  PluginHookToolContext,
 } from "openclaw/plugin-sdk/plugin-runtime";
 import { buildPluginConfig, type PluginRuntimeConfig } from "./config.js";
 import {
+  type CaseToolEvent,
+  type CaseTraceRecord,
   type DashboardOverview,
+  DreamRewriteRunner,
   HeartbeatIndexer,
   LlmMemoryExtractor,
   MemoryRepository,
   ReasoningRetriever,
   loadSkillsRuntime,
+  type DreamRunResult,
   type HeartbeatStats,
   type IndexingSettings,
   type MemoryMessage,
   type MemoryExportBundle,
   type MemoryImportResult,
   type MemoryUiSnapshot,
+  type RetrievalResult,
+  type RetrievalTrace,
   type StartupRepairStatus,
+  hashText,
   nowIso,
 } from "./core/index.js";
 import {
@@ -42,15 +52,20 @@ import { buildPluginTools } from "./tools.js";
 import { LocalUiServer } from "./ui-server.js";
 
 const MEMORY_REPAIR_VERSION = "2026-03-24-recall-injection-cleanup-v15";
-const INDEXING_SETTINGS_MIGRATION_VERSION = "2026-03-16-reasoning-mode-settings-v1";
+const INDEXING_SETTINGS_MIGRATION_VERSION = "2026-04-02-auto-dream-settings-v3";
 const PLUGIN_ID = "openbmb-clawxmemory";
 const NATIVE_MEMORY_PLUGIN_ID = "memory-core";
+const LAST_DREAM_AT_STATE_KEY = "lastDreamAt";
+const LAST_DREAM_STATUS_STATE_KEY = "lastDreamStatus";
+const LAST_DREAM_SUMMARY_STATE_KEY = "lastDreamSummary";
+const LAST_DREAM_L1_ENDED_AT_STATE_KEY = "lastDreamL1EndedAt";
 const CHAT_FACING_MEMORY_TOOLS = ["memory_overview", "memory_list", "memory_flush"] as const;
 const MANAGED_BOUNDARY_RESTART_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 8_000;
 const RECENT_INBOUND_TTL_MS = 30_000;
 const COMMAND_REPLY_TTL_MS = 10_000;
 const NON_MEMORY_TURN_TTL_MS = 15_000;
 const STARTUP_REPAIR_SNAPSHOT_LIMIT = 200;
+const RECENT_CASE_LIMIT = 30;
 const STARTUP_FALLBACK_GREETING = "I'm ready. What would you like to do?";
 const STARTUP_BOUNDARY_RUNNING_MESSAGE =
   "Applying managed OpenClaw memory config and requesting a gateway restart.";
@@ -283,6 +298,109 @@ function truncateMessageText(text: string, maxMessageChars: number): string {
   return `${text.slice(0, maxMessageChars)}...`;
 }
 
+function previewText(text: string, maxChars = 280): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars)}...`;
+}
+
+function previewJson(value: unknown, maxChars = 280): string {
+  try {
+    const rendered = typeof value === "string" ? value : JSON.stringify(value);
+    return previewText(rendered || "", maxChars);
+  } catch {
+    return previewText(String(value), maxChars);
+  }
+}
+
+function canonicalizeUserQuery(text: string): string {
+  const info = inspectTranscriptMessage({
+    role: "user",
+    content: text,
+  });
+  const normalized = info.role === "user" ? info.content.trim() : "";
+  return normalized || text.trim();
+}
+
+function buildCaseId(sessionKey: string, query: string): string {
+  return `case_${hashText(`${sessionKey}:${query}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`)}`;
+}
+
+function buildToolEventId(sessionKey: string, toolName: string, occurredAt: string): string {
+  return `tool_${hashText(`${sessionKey}:${toolName}:${occurredAt}:${Math.random().toString(36).slice(2, 10)}`)}`;
+}
+
+function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace {
+  const startedAt = nowIso();
+  const traceId = `trace_${hashText(`${reason}:${query}:${startedAt}`)}`;
+  return {
+    traceId,
+    query,
+    mode: "auto",
+    startedAt,
+    finishedAt: startedAt,
+    steps: [
+      {
+        stepId: `${traceId}:step:1`,
+        kind: "recall_start",
+        title: "Recall Started",
+        status: "info",
+        inputSummary: previewText(query, 220),
+        outputSummary: "Runtime inspected this turn before attempting retrieval.",
+        details: [
+          {
+            key: "recall-query",
+            label: "Recall Query",
+            kind: "kv",
+            entries: [{ label: "query", value: query }],
+          },
+        ],
+      },
+      {
+        stepId: `${traceId}:step:2`,
+        kind: "recall_skipped",
+        title: "Recall Skipped",
+        status: "skipped",
+        inputSummary: `reason=${reason}`,
+        outputSummary: `Automatic recall did not run because ${reason}.`,
+        refs: { reason },
+        details: [
+          {
+            key: "skip-reason",
+            label: "Skip Reason",
+            kind: "kv",
+            entries: [{ label: "reason", value: reason }],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function deriveCasePathSummary(
+  trace: RetrievalTrace | null | undefined,
+  enoughAt: RetrievalResult["enoughAt"] | undefined,
+): string {
+  if (enoughAt === "profile") return "profile";
+  if (!trace?.steps?.length) return enoughAt ?? "none";
+  const stepKinds = new Set(trace.steps.map((step) => step.kind));
+  if (stepKinds.has("hop4_decision") || stepKinds.has("l0_candidates")) return "l2->l1->l0";
+  if (stepKinds.has("hop3_decision") || stepKinds.has("l1_candidates")) return "l2->l1";
+  if (stepKinds.has("hop2_decision") || stepKinds.has("l2_candidates")) return "l2";
+  if (stepKinds.has("recall_skipped")) return "none";
+  return enoughAt ?? "none";
+}
+
+function extractAssistantReply(messages: MemoryMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "assistant" && message.content.trim()) {
+      return message.content.trim();
+    }
+  }
+  return "";
+}
+
 function sanitizeStoredMessages(messages: MemoryMessage[]): MemoryMessage[] {
   const cleaned: MemoryMessage[] = [];
   for (let index = 0; index < messages.length; index += 1) {
@@ -323,6 +441,32 @@ function sanitizeL0Record(
     }
     return true;
   });
+}
+
+function buildRecentMessagesForRecall(
+  rawMessages: unknown[],
+  currentPrompt: string,
+  config: { includeAssistant: boolean; maxMessageChars: number },
+): MemoryMessage[] {
+  const normalizedPrompt = canonicalizeUserQuery(currentPrompt);
+  const normalized = sanitizeStoredMessages(
+    normalizeMessages(rawMessages, {
+      captureStrategy: "full_session",
+      includeAssistant: config.includeAssistant,
+      maxMessageChars: config.maxMessageChars,
+    }),
+  );
+
+  if (normalizedPrompt) {
+    while (normalized.length > 0) {
+      const last = normalized[normalized.length - 1];
+      if (last?.role !== "user") break;
+      if (canonicalizeUserQuery(last.content) !== normalizedPrompt) break;
+      normalized.pop();
+    }
+  }
+
+  return normalized.slice(-4);
 }
 
 function shouldLogStats(stats: HeartbeatStats): boolean {
@@ -424,6 +568,7 @@ export class MemoryPluginRuntime {
   readonly repository: MemoryRepository;
   readonly indexer: HeartbeatIndexer;
   readonly retriever: ReasoningRetriever;
+  readonly dreamRewriter: DreamRewriteRunner;
 
   private readonly pluginRuntime: PluginRuntime | undefined;
   private currentApiConfig: Record<string, unknown> | undefined;
@@ -437,8 +582,12 @@ export class MemoryPluginRuntime {
   private readonly startupGraceByRawSession = new Set<string>();
   private readonly nonMemoryTurnByRawSession = new Map<string, number>();
   private readonly pendingCommandReplyByRawSession = new Map<string, number>();
+  private readonly caseById = new Map<string, CaseTraceRecord>();
+  private readonly recentCaseIds: string[] = [];
+  private readonly activeCaseIdByRawSession = new Map<string, string>();
 
-  private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  private autoIndexTimer: ReturnType<typeof setInterval> | undefined;
+  private autoDreamTimer: ReturnType<typeof setInterval> | undefined;
   private uiServer: LocalUiServer | undefined;
   private queuePromise: Promise<HeartbeatStats> | undefined;
   private activeSessionKey: string | undefined;
@@ -450,6 +599,8 @@ export class MemoryPluginRuntime {
   private startupRepairStatus: StartupRepairStatus = "idle";
   private startupRepairMessage = "";
   private startupRepairSnapshot: MemoryUiSnapshot | undefined;
+  private dreamRunPromise: Promise<DreamRunResult> | undefined;
+  private dreamRunLocked = false;
 
   constructor(options: MemoryPluginRuntimeOptions) {
     this.logger = safeLog(options.logger);
@@ -480,6 +631,9 @@ export class MemoryPluginRuntime {
       getSettings: () => this.indexer.getSettings(),
       isBackgroundBusy: () => this.indexingInProgress,
     });
+    this.dreamRewriter = new DreamRewriteRunner(this.repository, extractor, {
+      logger: this.logger,
+    });
 
     if (this.config.uiEnabled) {
       this.uiServer = new LocalUiServer(
@@ -494,10 +648,13 @@ export class MemoryPluginRuntime {
           getSettings: () => this.indexer.getSettings(),
           saveSettings: (partial) => this.applyIndexingSettings(partial),
           runIndexNow: () => this.flushAllNow("manual"),
+          runDreamNow: () => this.runDreamNow("manual"),
           exportMemoryBundle: () => this.repository.exportMemoryBundle(),
           importMemoryBundle: (bundle) => this.replaceMemoryBundle(bundle),
           getRuntimeOverview: () => this.getRuntimeOverview(),
           getStartupRepairSnapshot: (limit) => this.getStartupRepairSnapshot(limit),
+          listCaseTraces: (limit) => this.listRecentCaseTraces(limit),
+          getCaseTrace: (caseId) => this.getCaseTrace(caseId),
         },
         this.logger,
       );
@@ -537,6 +694,164 @@ export class MemoryPluginRuntime {
     return sliceUiSnapshot(this.startupRepairSnapshot, limit);
   }
 
+  private listRecentCaseTraces(limit: number): CaseTraceRecord[] {
+    return this.repository.listRecentCaseTraces(limit);
+  }
+
+  private getCaseTrace(caseId: string): CaseTraceRecord | undefined {
+    return this.repository.getCaseTrace(caseId);
+  }
+
+  private trimCaseBuffer(): void {
+    while (this.recentCaseIds.length > RECENT_CASE_LIMIT) {
+      const removedId = this.recentCaseIds.pop();
+      if (!removedId) break;
+      this.caseById.delete(removedId);
+      for (const [sessionKey, activeCaseId] of this.activeCaseIdByRawSession.entries()) {
+        if (activeCaseId === removedId) {
+          this.activeCaseIdByRawSession.delete(sessionKey);
+        }
+      }
+    }
+  }
+
+  private upsertCase(record: CaseTraceRecord): void {
+    this.caseById.set(record.caseId, record);
+    const existingIndex = this.recentCaseIds.indexOf(record.caseId);
+    if (existingIndex >= 0) this.recentCaseIds.splice(existingIndex, 1);
+    this.recentCaseIds.unshift(record.caseId);
+    this.trimCaseBuffer();
+    this.repository.saveCaseTrace(record, RECENT_CASE_LIMIT);
+  }
+
+  private ensureCase(rawSessionKey: string, query: string): CaseTraceRecord {
+    const trimmedSession = rawSessionKey.trim();
+    const normalizedQuery = canonicalizeUserQuery(query);
+    const activeCaseId = this.activeCaseIdByRawSession.get(trimmedSession);
+    if (activeCaseId) {
+      const activeRecord = this.caseById.get(activeCaseId);
+      if (activeRecord && activeRecord.status === "running") return activeRecord;
+    }
+
+    const startedAt = nowIso();
+    const record: CaseTraceRecord = {
+      caseId: buildCaseId(trimmedSession, normalizedQuery || startedAt),
+      sessionKey: trimmedSession,
+      query: normalizedQuery,
+      startedAt,
+      status: "running",
+      toolEvents: [],
+      assistantReply: "",
+    };
+    this.activeCaseIdByRawSession.set(trimmedSession, record.caseId);
+    this.upsertCase(record);
+    return record;
+  }
+
+  private getActiveCase(rawSessionKey: string): CaseTraceRecord | undefined {
+    const trimmedSession = rawSessionKey.trim();
+    if (!trimmedSession) return undefined;
+    const caseId = this.activeCaseIdByRawSession.get(trimmedSession);
+    if (!caseId) return undefined;
+    return this.caseById.get(caseId);
+  }
+
+  private interruptActiveCase(rawSessionKey: string, reason = "interrupted_by_new_turn"): void {
+    const trimmedSession = rawSessionKey.trim();
+    if (!trimmedSession) return;
+    const caseId = this.activeCaseIdByRawSession.get(trimmedSession);
+    if (!caseId) return;
+    const record = this.caseById.get(caseId);
+    if (!record || record.status !== "running") {
+      this.activeCaseIdByRawSession.delete(trimmedSession);
+      return;
+    }
+    record.status = "interrupted";
+    record.finishedAt = nowIso();
+    if (
+      record.retrieval?.trace &&
+      !record.retrieval.trace.steps.some((step) => step.kind === "recall_skipped")
+    ) {
+      record.retrieval.trace.steps.push({
+        stepId: `${record.retrieval.trace.traceId}:step:${record.retrieval.trace.steps.length + 1}`,
+        kind: "recall_skipped",
+        title: "Recall Interrupted",
+        status: "warning",
+        inputSummary: `reason=${reason}`,
+        outputSummary: "A newer user turn interrupted this case before completion.",
+      });
+      record.retrieval.trace.finishedAt = nowIso();
+    }
+    this.upsertCase(record);
+    this.activeCaseIdByRawSession.delete(trimmedSession);
+  }
+
+  private updateCaseRetrieval(
+    rawSessionKey: string,
+    query: string,
+    result: Pick<RetrievalResult, "intent" | "enoughAt" | "context" | "trace" | "evidenceNote">,
+  ): void {
+    const record = this.ensureCase(rawSessionKey, query);
+    const trace = result.trace ? cloneJson(result.trace) : null;
+    record.retrieval = {
+      intent: result.intent,
+      enoughAt: result.enoughAt,
+      injected: Boolean(result.context.trim()),
+      contextPreview: previewText(result.context, 1200),
+      evidenceNotePreview: previewText(result.evidenceNote, 1200),
+      pathSummary: deriveCasePathSummary(trace, result.enoughAt),
+      trace,
+    };
+    this.upsertCase(record);
+  }
+
+  private updateCaseRecallSkipped(rawSessionKey: string, query: string, reason: string): void {
+    const record = this.ensureCase(rawSessionKey, query);
+    record.retrieval = {
+      intent: "general",
+      enoughAt: "none",
+      injected: false,
+      contextPreview: "",
+      evidenceNotePreview: "",
+      pathSummary: "none",
+      trace: buildRecallSkippedTrace(query, reason),
+    };
+    this.upsertCase(record);
+  }
+
+  private appendCaseToolEvent(rawSessionKey: string, query: string, event: CaseToolEvent): void {
+    const record =
+      this.getActiveCase(rawSessionKey) ??
+      (query.trim() ? this.ensureCase(rawSessionKey, query) : undefined);
+    if (!record) return;
+    record.toolEvents.push(event);
+    this.upsertCase(record);
+  }
+
+  private finalizeCase(
+    rawSessionKey: string,
+    query: string,
+    status: CaseTraceRecord["status"],
+    assistantReply = "",
+  ): void {
+    const trimmedSession = rawSessionKey.trim();
+    if (!trimmedSession) return;
+    const record =
+      this.getActiveCase(trimmedSession) ??
+      (query.trim() ? this.ensureCase(trimmedSession, query) : undefined);
+    if (!record) return;
+    if (assistantReply.trim()) {
+      record.assistantReply = previewText(assistantReply, 4000);
+    }
+    record.status = status;
+    record.finishedAt = nowIso();
+    if (record.retrieval?.trace) {
+      record.retrieval.trace.finishedAt = record.finishedAt;
+    }
+    this.upsertCase(record);
+    this.activeCaseIdByRawSession.delete(trimmedSession);
+  }
+
   private clearEphemeralMemoryState(): void {
     for (const sessionKey of Array.from(this.idleIndexTimers.keys())) {
       this.clearIdleTimer(sessionKey);
@@ -553,6 +868,9 @@ export class MemoryPluginRuntime {
     this.startupGraceByRawSession.clear();
     this.nonMemoryTurnByRawSession.clear();
     this.pendingCommandReplyByRawSession.clear();
+    this.caseById.clear();
+    this.recentCaseIds.splice(0);
+    this.activeCaseIdByRawSession.clear();
     this.retriever.resetTransientState();
   }
 
@@ -585,7 +903,7 @@ export class MemoryPluginRuntime {
   start(): void {
     if (this.started || this.stopped) return;
     this.started = true;
-    this.rescheduleHeartbeat();
+    this.rescheduleBackgroundTasks();
     this.uiServer?.start();
     void this.runStartupInitialization();
   }
@@ -594,10 +912,7 @@ export class MemoryPluginRuntime {
     if (this.stopped) return;
     this.stopped = true;
     this.started = false;
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = undefined;
-    }
+    this.clearBackgroundTimers();
     for (const sessionKey of Array.from(this.idleIndexTimers.keys())) {
       this.clearIdleTimer(sessionKey);
     }
@@ -796,38 +1111,60 @@ export class MemoryPluginRuntime {
 
   handleBeforePromptBuild = async (
     event: PluginHookBeforePromptBuildEvent,
-    _ctx: PluginHookAgentContext,
+    ctx: PluginHookAgentContext,
   ): Promise<PluginHookBeforePromptBuildResult | void> => {
-    if (!this.config.recallEnabled) return;
     const prompt = typeof event.prompt === "string" ? event.prompt : "";
-    if (prompt.trim().length < 2) return;
+    const normalizedPrompt = canonicalizeUserQuery(prompt);
+    const rawSessionKey =
+      typeof ctx.sessionKey === "string" && ctx.sessionKey.trim()
+        ? ctx.sessionKey.trim()
+        : resolveSessionKey(ctx as Record<string, unknown>);
+    if (
+      !normalizedPrompt ||
+      isSessionStartupMarkerText(normalizedPrompt) ||
+      isControlCommandText(normalizedPrompt)
+    ) {
+      return;
+    }
+    if (!this.config.recallEnabled) {
+      if (normalizedPrompt)
+        this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "recall_disabled");
+      return;
+    }
+    if (normalizedPrompt.length < 2) {
+      if (normalizedPrompt)
+        this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "prompt_too_short");
+      return;
+    }
     try {
       const startedAt = Date.now();
       const settings = this.indexer.getSettings();
-      const retrieved = await this.retriever.retrieve(prompt, {
+      const recallTopK = Math.max(1, Math.min(50, settings.recallTopK || 10));
+      const recentMessages = Array.isArray(event.messages)
+        ? buildRecentMessagesForRecall(event.messages, normalizedPrompt, {
+            includeAssistant: this.config.includeAssistant,
+            maxMessageChars: this.config.maxMessageChars,
+          })
+        : [];
+      const retrieved = await this.retriever.retrieve(normalizedPrompt, {
         retrievalMode: "auto",
-        l2Limit: 4,
-        l1Limit: 2,
-        l0Limit: 1,
+        l2Limit: recallTopK,
+        l1Limit: recallTopK,
+        l0Limit: recallTopK,
         includeFacts: true,
+        recentMessages,
       });
       const elapsedMs = Date.now() - startedAt;
-      if (
-        settings.reasoningMode === "answer_first" &&
-        elapsedMs > settings.maxAutoReplyLatencyMs + 300
-      ) {
-        this.logger.warn?.(
-          `[clawxmemory] recall slow query_ms=${elapsedMs} prompt_chars=${prompt.length}`,
-        );
-      }
       const injected = Boolean(retrieved.context?.trim());
+      this.updateCaseRetrieval(rawSessionKey, normalizedPrompt, retrieved);
       this.logger.info?.(
-        `[clawxmemory] recall mode=${retrieved.debug?.mode ?? "none"} reasoning_mode=${settings.reasoningMode} latency_cap_ms=${settings.reasoningMode === "answer_first" ? settings.maxAutoReplyLatencyMs : "none"} enough_at=${retrieved.enoughAt} injected=${injected} elapsed_ms=${retrieved.debug?.elapsedMs ?? elapsedMs} cache_hit=${retrieved.debug?.cacheHit ? "1" : "0"}`,
+        `[clawxmemory] recall mode=${retrieved.debug?.mode ?? "none"} reasoning_mode=${settings.reasoningMode} recall_top_k=${recallTopK} enough_at=${retrieved.enoughAt} injected=${injected} elapsed_ms=${retrieved.debug?.elapsedMs ?? elapsedMs} cache_hit=${retrieved.debug?.cacheHit ? "1" : "0"}`,
       );
       if (!retrieved.context.trim()) return;
       // Dynamic recall must stay in system prompt space; prependContext leaks into user-visible prompt displays.
       return { prependSystemContext: buildMemoryRecallSystemContext(retrieved.context) };
     } catch (error) {
+      if (normalizedPrompt) this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "error");
       this.logger.warn?.(`[clawxmemory] recall failed: ${String(error)}`);
       return;
     }
@@ -853,6 +1190,17 @@ export class MemoryPluginRuntime {
       this.markNonMemoryTurn(rawSessionKey);
       this.markPendingCommandReply(rawSessionKey);
       return;
+    }
+
+    if (messageInfo.role === "user" && messageInfo.content.trim()) {
+      const normalizedQuery = canonicalizeUserQuery(messageInfo.content);
+      const activeCase = this.getActiveCase(rawSessionKey);
+      if (!activeCase || canonicalizeUserQuery(activeCase.query) !== normalizedQuery) {
+        if (activeCase?.status === "running") {
+          this.interruptActiveCase(rawSessionKey);
+        }
+        this.ensureCase(rawSessionKey, normalizedQuery);
+      }
     }
 
     if (messageInfo.role === "assistant" && !messageInfo.content && !messageInfo.hasToolCalls) {
@@ -911,6 +1259,51 @@ export class MemoryPluginRuntime {
     this.appendPendingMessage(sessionKey, normalized);
   };
 
+  handleBeforeToolCall = (
+    event: PluginHookBeforeToolCallEvent,
+    ctx: PluginHookToolContext,
+  ): void => {
+    const rawSessionKey = typeof ctx.sessionKey === "string" ? ctx.sessionKey.trim() : "";
+    if (!rawSessionKey || rawSessionKey.startsWith("temp:")) return;
+    const query = this.getActiveCase(rawSessionKey)?.query ?? "";
+    if (!query) return;
+    const occurredAt = nowIso();
+    this.appendCaseToolEvent(rawSessionKey, query, {
+      eventId: buildToolEventId(rawSessionKey, event.toolName, occurredAt),
+      phase: "start",
+      toolName: event.toolName,
+      ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+      occurredAt,
+      status: "running",
+      summary: `${event.toolName} started.`,
+      paramsPreview: previewJson(event.params, 360),
+    });
+  };
+
+  handleAfterToolCall = (event: PluginHookAfterToolCallEvent, ctx: PluginHookToolContext): void => {
+    const rawSessionKey = typeof ctx.sessionKey === "string" ? ctx.sessionKey.trim() : "";
+    if (!rawSessionKey || rawSessionKey.startsWith("temp:")) return;
+    const query = this.getActiveCase(rawSessionKey)?.query ?? "";
+    if (!query) return;
+    const occurredAt = nowIso();
+    const failed = typeof event.error === "string" && event.error.trim().length > 0;
+    const resultPreview = failed
+      ? previewText(event.error ?? "", 360)
+      : previewJson(event.result, 360);
+    this.appendCaseToolEvent(rawSessionKey, query, {
+      eventId: buildToolEventId(rawSessionKey, event.toolName, occurredAt),
+      phase: "result",
+      toolName: event.toolName,
+      ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+      occurredAt,
+      status: failed ? "error" : "success",
+      summary: failed ? `${event.toolName} failed.` : `${event.toolName} completed.`,
+      paramsPreview: previewJson(event.params, 240),
+      resultPreview,
+      ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
+    });
+  };
+
   handleAgentEnd = async (
     event: PluginHookAgentEndEvent,
     ctx: PluginHookAgentContext,
@@ -944,12 +1337,35 @@ export class MemoryPluginRuntime {
       this.pendingBySession.delete(sessionKey);
       this.recentInboundBySession.delete(sessionKey);
       let messages = sanitizeStoredMessages(pending);
+      const rawMessages = Array.isArray(event.messages)
+        ? sanitizeL0Record({ sessionKey, messages: event.messages }, this.config)
+        : [];
       if (messages.length === 0) {
-        const rawMessages = Array.isArray(event.messages) ? event.messages : [];
-        messages = sanitizeL0Record({ sessionKey, messages: rawMessages }, this.config);
+        messages = rawMessages;
+      } else if (!messages.some((message) => message.role === "assistant")) {
+        const assistantReply = extractAssistantReply(rawMessages);
+        if (assistantReply) {
+          messages = [...messages, { role: "assistant", content: assistantReply }];
+        }
       }
-      if (messages.length === 0) return;
-      if (!messages.some((message) => message.role === "user")) return;
+      if (messages.length === 0) {
+        if (this.activeCaseIdByRawSession.has(rawSessionKey)) {
+          this.finalizeCase(rawSessionKey, "", "completed");
+        }
+        return;
+      }
+      if (!messages.some((message) => message.role === "user")) {
+        if (this.activeCaseIdByRawSession.has(rawSessionKey)) {
+          this.finalizeCase(rawSessionKey, "", "completed", extractAssistantReply(messages));
+        }
+        return;
+      }
+      const activeCase = this.getActiveCase(rawSessionKey);
+      const userQuery = messages.find((message) => message.role === "user")?.content ?? "";
+      if (activeCase && !activeCase.retrieval) {
+        this.updateCaseRecallSkipped(rawSessionKey, userQuery || activeCase.query, "empty_context");
+      }
+      this.finalizeCase(rawSessionKey, userQuery, "completed", extractAssistantReply(messages));
 
       const captured = this.indexer.captureL0Session({
         sessionKey,
@@ -981,6 +1397,7 @@ export class MemoryPluginRuntime {
     if (!sessionKey || sessionKey.startsWith("temp:")) return;
 
     try {
+      this.interruptActiveCase(ctx.sessionKey ?? sessionKey, "before_reset");
       const pending = this.pendingBySession.get(sessionKey) ?? [];
       this.pendingBySession.delete(sessionKey);
       this.recentInboundBySession.delete(sessionKey);
@@ -1096,34 +1513,60 @@ export class MemoryPluginRuntime {
     return aggregate;
   }
 
-  private requestIndexRun(reason: string, sessionKeys?: string[]): Promise<HeartbeatStats> {
+  private requestIndexRun(
+    reason: string,
+    sessionKeys?: string[],
+    options?: { allowWhileDream?: boolean },
+  ): Promise<HeartbeatStats> {
     if (sessionKeys && sessionKeys.length > 0) {
       sessionKeys.filter(Boolean).forEach((sessionKey) => this.queuedSessionKeys.add(sessionKey));
     } else {
       this.queuedFullRun = true;
     }
     this.queuedReason = this.queuedReason ? `${this.queuedReason}+${reason}` : reason;
-    if (!this.queuePromise) {
+    if (!this.queuePromise && (!this.dreamRunLocked || options?.allowWhileDream)) {
       this.queuePromise = this.drainIndexQueue();
+    }
+    if (!this.queuePromise) {
+      return (async () => {
+        await this.dreamRunPromise;
+        return this.queuePromise ? await this.queuePromise : emptyStats();
+      })();
     }
     return this.queuePromise;
   }
 
-  private rescheduleHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = undefined;
+  private clearBackgroundTimers(): void {
+    if (this.autoIndexTimer) {
+      clearInterval(this.autoIndexTimer);
+      this.autoIndexTimer = undefined;
     }
-    const intervalMinutes = this.config.autoIndexIntervalMinutes;
-    if (intervalMinutes <= 0) return;
-    this.heartbeatTimer = setInterval(() => {
-      for (const sessionKey of Array.from(this.debouncedSessions)) {
-        this.clearIdleTimer(sessionKey);
-      }
-      void this.requestIndexRun("scheduled").catch((error) => {
-        this.logger.warn?.(`[clawxmemory] scheduled index failed: ${String(error)}`);
-      });
-    }, intervalMinutes * 60_000);
+    if (this.autoDreamTimer) {
+      clearInterval(this.autoDreamTimer);
+      this.autoDreamTimer = undefined;
+    }
+  }
+
+  private rescheduleBackgroundTasks(): void {
+    this.clearBackgroundTimers();
+    const settings = this.indexer.getSettings();
+    if (settings.autoIndexIntervalMinutes > 0) {
+      this.autoIndexTimer = setInterval(() => {
+        for (const sessionKey of Array.from(this.debouncedSessions)) {
+          this.clearIdleTimer(sessionKey);
+        }
+        void this.requestIndexRun("scheduled").catch((error) => {
+          this.logger.warn?.(`[clawxmemory] scheduled index failed: ${String(error)}`);
+        });
+      }, settings.autoIndexIntervalMinutes * 60_000);
+    }
+    if (settings.autoDreamIntervalMinutes > 0) {
+      this.autoDreamTimer = setInterval(() => {
+        void this.runDreamNow("scheduled").catch((error) => {
+          this.logger.warn?.(`[clawxmemory] scheduled dream failed: ${String(error)}`);
+        });
+      }, settings.autoDreamIntervalMinutes * 60_000);
+    }
   }
 
   private applyIndexingSettings(partial: Partial<IndexingSettings>): IndexingSettings {
@@ -1135,8 +1578,71 @@ export class MemoryPluginRuntime {
       this.config.defaultIndexingSettings,
     );
     this.indexer.setSettings(merged);
-    this.rescheduleHeartbeat();
+    this.rescheduleBackgroundTasks();
     return merged;
+  }
+
+  private getLatestL1EndedAt(): string | undefined {
+    const windows = this.repository.listAllL1();
+    if (windows.length === 0) return undefined;
+    return windows[windows.length - 1]?.endedAt || undefined;
+  }
+
+  private getNewL1CountSinceLastSuccessfulDream(): { count: number; latestEndedAt?: string } {
+    const cutoff = this.repository.getPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY)?.trim() || "";
+    const windows = this.repository.listAllL1();
+    let latestEndedAt: string | undefined;
+    let count = 0;
+    for (const window of windows) {
+      if (!latestEndedAt || window.endedAt > latestEndedAt) {
+        latestEndedAt = window.endedAt;
+      }
+      if (!cutoff || window.endedAt > cutoff) {
+        count += 1;
+      }
+    }
+    return {
+      count,
+      ...(latestEndedAt ? { latestEndedAt } : {}),
+    };
+  }
+
+  private recordDreamLifecycle(
+    status: "running" | "success" | "skipped" | "failed",
+    summary: string,
+    options?: { completedAt?: string; latestL1EndedAt?: string },
+  ): void {
+    this.repository.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, status);
+    this.repository.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, summary.trim());
+    if (options?.completedAt) {
+      this.repository.setPipelineState(LAST_DREAM_AT_STATE_KEY, options.completedAt);
+    }
+    if (options?.latestL1EndedAt) {
+      this.repository.setPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY, options.latestL1EndedAt);
+    }
+  }
+
+  private buildSkippedDreamResult(
+    trigger: "manual" | "scheduled",
+    prepFlush: HeartbeatStats,
+    summary: string,
+    skipReason: string,
+  ): DreamRunResult {
+    return {
+      prepFlush,
+      reviewedL1: 0,
+      rewrittenProjects: 0,
+      deletedProjects: 0,
+      profileUpdated: false,
+      duplicateTopicCount: 0,
+      conflictTopicCount: 0,
+      prunedProjectL1Refs: 0,
+      prunedProfileL1Refs: 0,
+      summary,
+      trigger,
+      status: "skipped",
+      skipReason,
+    };
   }
 
   private scheduleIdleIndex(sessionKey: string): void {
@@ -1158,11 +1664,86 @@ export class MemoryPluginRuntime {
     return this.requestIndexRun(reason, [sessionKey]);
   }
 
-  private flushAllNow(reason: string): Promise<HeartbeatStats> {
+  private flushAllNow(
+    reason: string,
+    options?: { allowWhileDream?: boolean },
+  ): Promise<HeartbeatStats> {
     for (const sessionKey of Array.from(this.debouncedSessions)) {
       this.clearIdleTimer(sessionKey);
     }
-    return this.requestIndexRun(reason);
+    return this.requestIndexRun(reason, undefined, options);
+  }
+
+  private async runDreamNow(trigger: "manual" | "scheduled"): Promise<DreamRunResult> {
+    if (this.dreamRunLocked || this.dreamRunPromise) {
+      if (trigger === "scheduled") {
+        return this.buildSkippedDreamResult(
+          trigger,
+          emptyStats(),
+          "Skipped automatic Dream because another Dream reconstruction is already running.",
+          "already_running",
+        );
+      }
+      throw new Error("Dream reconstruction is already running");
+    }
+
+    this.dreamRunLocked = true;
+    const promise = (async () => {
+      this.recordDreamLifecycle(
+        "running",
+        trigger === "scheduled" ? "Automatic Dream is running." : "Manual Dream is running.",
+      );
+      if (this.queuePromise) {
+        await this.queuePromise;
+      }
+      const prepFlush = await this.flushAllNow("dream_prep", { allowWhileDream: true });
+      if (trigger === "scheduled") {
+        const settings = this.indexer.getSettings();
+        const { count: newL1Count } = this.getNewL1CountSinceLastSuccessfulDream();
+        if (newL1Count < settings.autoDreamMinNewL1) {
+          const summary = `Skipped automatic Dream: ${newL1Count} new L1 windows since the last successful Dream, below threshold ${settings.autoDreamMinNewL1}.`;
+          this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
+          return this.buildSkippedDreamResult(
+            trigger,
+            prepFlush,
+            summary,
+            "new_l1_below_threshold",
+          );
+        }
+      }
+      const outcome = await this.dreamRewriter.run();
+      const latestL1EndedAt = this.getLatestL1EndedAt();
+      this.recordDreamLifecycle("success", outcome.summary, {
+        completedAt: nowIso(),
+        ...(latestL1EndedAt ? { latestL1EndedAt } : {}),
+      });
+      this.logger.info?.(
+        `[clawxmemory] dream run(${trigger}) reviewed_l1=${outcome.reviewedL1} rewritten_projects=${outcome.rewrittenProjects} deleted_projects=${outcome.deletedProjects} profile_updated=${outcome.profileUpdated}`,
+      );
+      const result: DreamRunResult = {
+        prepFlush,
+        ...outcome,
+        trigger,
+        status: "success" as const,
+      };
+      return result;
+    })()
+      .catch((error) => {
+        this.recordDreamLifecycle("failed", `Dream ${trigger} failed: ${String(error)}`, {
+          completedAt: nowIso(),
+        });
+        throw error;
+      })
+      .finally(() => {
+        this.dreamRunPromise = undefined;
+        this.dreamRunLocked = false;
+        if ((this.queuedFullRun || this.queuedSessionKeys.size > 0) && !this.queuePromise) {
+          this.queuePromise = this.drainIndexQueue();
+        }
+      });
+
+    this.dreamRunPromise = promise;
+    return promise;
   }
 
   private startBackgroundRepair(): void {

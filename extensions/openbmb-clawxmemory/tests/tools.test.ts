@@ -8,11 +8,16 @@ import type {
 } from "../src/core/index.js";
 import { buildPluginTools } from "../src/tools.js";
 
+function readDetails<T>(result: { details?: unknown }): T {
+  return result.details as T;
+}
+
 const retrievalResult: RetrievalResult = {
   query: "project status",
   intent: "project",
   enoughAt: "l2",
   profile: null,
+  evidenceNote: "ClawXMemory is in SDK migration and the latest progress is plugin-sdk migration.",
   l2Results: [
     {
       level: "l2_project",
@@ -196,7 +201,6 @@ describe("buildPluginTools", () => {
       profileUpdated: 0,
       failed: 0,
     } satisfies HeartbeatStats);
-
     const tools = buildPluginTools(repository, retriever, { getOverview, flushAll });
     expect(tools.map((tool) => tool.name)).toEqual([
       "memory_search",
@@ -212,6 +216,7 @@ describe("buildPluginTools", () => {
       ok: true,
       intent: "project",
       enoughAt: "l2",
+      evidenceNote: retrievalResult.evidenceNote,
       refs: {
         l2: [{ id: "l2-project-1", level: "l2_project" }],
       },
@@ -263,7 +268,11 @@ describe("buildPluginTools", () => {
       offset: 0,
       count: 2,
     });
-    expect(defaultList.details.items).toEqual([
+    expect(
+      readDetails<{
+        items: Array<Record<string, unknown>>;
+      }>(defaultList).items,
+    ).toEqual([
       {
         level: "l2_time",
         id: "l2-time-1",
@@ -383,5 +392,22 @@ describe("buildPluginTools", () => {
 
     const missingIds = await memoryGet!.execute("call-9", { level: "l1", ids: [] });
     expect(missingIds.details).toMatchObject({ ok: false });
+  });
+
+  it("does not expose the legacy memory_dream_review tool", async () => {
+    const repository = createRepository();
+    const tools = buildPluginTools(repository, createRetriever(), {
+      getOverview: () => baseOverview,
+      flushAll: async () => ({
+        l0Captured: 0,
+        l1Created: 0,
+        l2TimeUpdated: 0,
+        l2ProjectUpdated: 0,
+        profileUpdated: 0,
+        failed: 0,
+      }),
+    });
+
+    expect(tools.find((tool) => tool.name === "memory_dream_review")).toBeUndefined();
   });
 });

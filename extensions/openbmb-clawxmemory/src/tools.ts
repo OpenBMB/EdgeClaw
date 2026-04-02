@@ -258,13 +258,14 @@ export function buildPluginTools(
           retrievalMode: "explicit",
           l2Limit: limit,
           l1Limit: limit,
-          l0Limit: Math.max(3, Math.floor(limit / 2)),
+          l0Limit: limit,
         });
         return jsonResult({
           ok: true,
           query: result.query,
           intent: result.intent,
           enoughAt: result.enoughAt,
+          evidenceNote: result.evidenceNote,
           context: result.context,
           profile: result.profile,
           refs: buildMemoryRefs(result),
