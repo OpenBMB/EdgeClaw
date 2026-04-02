@@ -23,7 +23,7 @@ export default definePluginEntry({
       stateDir: pluginConfig.contextStateDir as string | undefined,
       logger,
     });
-    api.registerContextEngine("clawxgovernor-context", engineFactory as ContextEngineFactory);
+    api.registerContextEngine("clawxgovernor", engineFactory as ContextEngineFactory);
     logger.info("[ClawXGovernor] Context engine registered");
 
     // --- Module 2: Tool Governor ---

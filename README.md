@@ -19,7 +19,7 @@ Edge-Cloud Collaborative AI Agent
 
 **What's New** 🔥
 
-- **[2026.04.02]** 🚀 Released three Claude Code-liked features optimized for OpenClaw — 🤖 [ClawXKairos](./extensions/clawxkairos/) (Self-Driven Agent Loop), 🛡️ [ClawXGovernor](./extensions/clawxgovernor/) (Tool Governance), and 📦 [ClawXSandbox](./extensions/clawxsandbox/) (Claude Code-Style Sandbox)
+- **[2026.04.02]** 🚀 Released three Claude Code-liked features optimized for OpenClaw — 🤖 [ClawXKairos](./extensions/clawxkairos/) (Self-Driven Agent Loop), 🛡️ [ClawXGovernor](./extensions/clawxgovernor/) (Tool Governance), and 📦 [ClawXSandbox](./extensions/ClawXSandbox/) (Claude Code-Style Sandbox)
 - **[2026.04.01]** 🎉 EdgeClaw 2.0 is officially open-sourced, featuring a brand-new memory engine and cost-saving router — bringing the Claude Code experience to OpenClaw!
 - **[2026.04.01]** 🎉 [ClawXMemory](https://github.com/OpenBMB/ClawXMemory) released — inspired by Claude Code's memory mechanism, it delivers a smoother experience for OpenClaw scenarios with multi-layered structured long-term memory and proactive reasoning!
 - **[2026.03.25]** 🎉 [ClawXRouter](https://github.com/OpenBMB/clawxrouter) released — 5-tier cost-saving routing + three-tier privacy collaboration + visual Dashboard
@@ -55,7 +55,7 @@ EdgeClaw is an **Edge-Cloud Collaborative AI Agent** jointly developed by [THUNL
 
 - **🤖 Self-Driven Loop** — [ClawXKairos](./extensions/clawxkairos/): Tick scheduling + Sleep tool + background command automation + async sub-agents, enabling the agent to work autonomously and continuously
 - **🛡️ Tool Governance** — [ClawXGovernor](./extensions/clawxgovernor/): Three hook middlewares — context tail-window trimming, tool call risk interception & audit, session note incremental append. Deeply optimized for OpenClaw scenarios, **saving 85% tokens over 30 rounds of calls**
-- **📦 Sandbox Execution** — [ClawXSandbox](./extensions/clawxsandbox/): Fully isolated local execution environment based on system-level sandboxing (bwrap / sandbox-exec). Focused on being **lightweight, fast, and zero-dependency**, completely eliminating all Docker overhead.
+- **📦 Sandbox Execution** — [ClawXSandbox](./extensions/ClawXSandbox/): Fully isolated local execution environment based on system-level sandboxing (bwrap / sandbox-exec). Focused on being **lightweight, fast, and zero-dependency**, completely eliminating all Docker overhead.
 
 **🔥 Other Core Features**
 
@@ -258,156 +258,7 @@ Security first — the security router runs first with high weight. If sensitive
 
 > For detailed documentation, see [ClawXRouter README](https://github.com/openbmb/clawxrouter).
 
----
 
-## 🛡️ ClawXGovernor — Tool Governance
-
-[ClawXGovernor](./extensions/clawxgovernor/) is a combination of three hook middlewares that provide basic context and tool governance capabilities for OpenClaw.
-
-**Not adding new "tools"** — the agent doesn't gain new action capabilities. All work happens at the hook layer, transparent to the agent. The MCP Server only exposes 9 self-state query interfaces for debugging.
-
-### Three Middlewares
-
-| Middleware         | Nature                | Hook                                                           | What It Does                                                                                                                                                                                            |
-| ------------------ | --------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **assembler**      | Context trimmer       | `registerContextEngine`                                        | Keeps the last 6 rounds of user dialogue (tail-window), token estimation (chars/4), writes a text summary on compact, fail-soft on failure                                                              |
-| **tool-governor**  | Tool call interceptor | `before_tool_call` · `after_tool_call` · `before_prompt_build` | Classifies into 5 risk levels by keyword `includes()`, string-match blocks dangerous commands (6 rules), ring counter detects loops (window 10 / threshold 3), truncates >4000 chars, writes audit logs |
-| **session-memory** | Session note appender | `before_prompt_build` · `message_sending`                      | Regex matches key points from replies, appends to markdown file, injects last 5 lines as hints in the next round                                                                                        |
-
-### Tool Risk Classification Rules
-
-| Level                | Matching Method                                              | Action                         |
-| -------------------- | ------------------------------------------------------------ | ------------------------------ |
-| **read**             | Tool name contains `find`/`grep`/`read`/`glob`/`search` etc. | Allow                          |
-| **workspace_write**  | Contains `edit`/`write`/`apply_patch`                        | Allow                          |
-| **exec**             | Contains `exec`/`shell`/`bash`                               | Requires approval              |
-| **network**          | Contains `web_search`/`fetch`                                | Allow                          |
-| **subagent_control** | Contains `sessions_spawn`/`subagent`                         | Requires approval              |
-| **unknown**          | No rule matched                                              | Allow (`defaultAction: allow`) |
-
-Hard-coded blocks: `rm -rf /`, fork bomb, `mkfs`, `dd if=/dev/zero`. Audit logs written to `~/.openclaw/cc-tool-governor/audit.jsonl`.
-
-### Current Status
-
-Features have been E2E verified, but all are **minimal implementations** — compact lacks LLM summarization, risk classification lacks semantic understanding, note extraction lacks LLM extraction, and there are no quantitative benchmarks.
-
-> For detailed documentation, see [ClawXGovernor README](./extensions/clawxgovernor/Readme_zh.md).
-
----
-
-## 🧩 Claude Code-Liked Features
-
-What makes Claude Code truly "addictive" isn't just single-turn response quality, but a series of **system-level capabilities** that make the agent feel like a collaborator with memory, autonomous action, and an environment it can't break. EdgeClaw replicates these capabilities one by one through its extension mechanism:
-
-### 🤖 Kairos — Self-Driven Agent Loop
-
-Claude Code's agent can work continuously without user intervention — reading files, running tests, modifying code, running tests again — until the task is complete. [ClawXKairos](./extensions/clawxkairos/) brings this behavior to OpenClaw:
-
-| Capability              | Mechanism                                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Tick Scheduling**     | Automatically injects `<tick>` wake-up messages after agent turns end, driving the next round of work |
-| **Sleep Tool**          | Agent calls `Sleep({ duration_ms })` to actively hibernate when idle, avoiding empty spinning         |
-| **Background Commands** | Shell commands exceeding a threshold are automatically backgrounded, not blocking agent progress      |
-| **Async Sub-agents**    | Sub-agents launch non-blocking, main agent doesn't need to wait for sub-task completion               |
-| **Safety Limits**       | `maxTurnsPerSession` prevents infinite loops, `minSleepMs` prevents spin-bombing                      |
-
-Toggle at runtime via `/kairos on|off|status` commands, supporting `on-message`, `on-heartbeat`, and `on-gateway-start` startup modes.
-
-### 🛡️ Basic Context Management
-
-Claude Code manages the context window with extreme precision — automatically trimming old conversations, compressing verbose tool outputs, and proactively compacting when approaching the window limit. EdgeClaw provides a basic version through [ClawXGovernor](./extensions/clawxgovernor/)'s three middlewares:
-
-- **Tail-window trimming**: Keeps the last N rounds of dialogue (default 6), exceeded portions are trimmed with a text summary generated
-- **Tool output compression**: Tool results exceeding 4000 characters are automatically truncated with a summary, preventing a single call from filling the context
-- **Session note injection**: Extracts key points from agent replies, injected as lightweight hints in the next round, compensating for information loss from trimming
-
-This is a minimal implementation — no LLM-driven summarization, no semantic understanding, but it already prevents context overflow in long sessions.
-
-### 📦 Sandboxed Execution
-
-Claude Code executes all commands in a sandbox — even if the agent accidentally runs `rm -rf`, it only affects the isolated environment, not the user's host. [OpenShell Sandbox](./extensions/openshell/) provides equivalent capability for EdgeClaw:
-
-| Mode       | Description                                                                                                                                               |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Mirror** | Local workspace auto-mirrors to remote sandbox, agent's file reads/writes and command execution happen in the sandbox, synced back to local on completion |
-| **Remote** | Fully remote workspace, suitable for CI/CD or cloud deployment scenarios                                                                                  |
-
-The sandbox is SSH-based, supporting custom providers, GPU resource requests, and timeout control. Long-running commands are automatically backgrounded, and when paired with Kairos, enables the "agent dispatches build task → sleeps waiting → wakes to check results" autonomous workflow.
-
----
-
-## ⚠️ Pitfall Guide
-
-Below are practical lessons learned during EdgeClaw plugin development and integration testing, sorted by severity.
-
-### 🔴 Plugin Hook Intercepts Its Own MCP Tools
-
-The `before_tool_call` hook intercepts **all** tool calls, including its own MCP tools. MCP tool names follow the format `<server>__<tool>` (e.g., `clawxgovernor__tool_risk_classify`). If the hook's classification logic only recognizes built-in tool names, MCP tools will hit `defaultAction` and be incorrectly intercepted.
-
-**Solution**: Cover MCP tool keywords in the tool classification whitelist, or set `defaultAction` to `allow`.
-
-### 🔴 `--session-id` Does Not Isolate Session Context
-
-`--session-id` only sets a metadata tag and doesn't create an independent session. All `--local` agent runs share `sessionKey: agent:<agentId>:main`, and old conversation history is fully injected into the new request's context.
-
-**Solution**: Clear session state before testing:
-
-```bash
-node -e "
-const fs = require('fs');
-const p = require('os').homedir() + '/.openclaw/agents/main/sessions/sessions.json';
-const d = JSON.parse(fs.readFileSync(p,'utf-8'));
-delete d['agent:main:main'];
-fs.writeFileSync(p, JSON.stringify(d, null, 2));
-"
-```
-
-### 🟠 ClawXRouter Token-Saver May Hijack Model Routing
-
-Configured `primary: "yeysai/minimax-m2.5"`, but logs show `model overridden to gpt-5-mini`. The token-saver router automatically redirects to different tier models based on message complexity. If a tier's corresponding provider uses a local proxy that isn't running, it will cause a 504 timeout.
-
-**Solution**: Disable token-saver for debugging (`"token-saver": { "enabled": false }`), or ensure all providers referenced in tiers are reachable. Note that `clawxrouter.json` takes priority over routing config in `openclaw.json`.
-
-### 🟡 `tools.alsoAllow` Reports "unknown entries" at Startup
-
-MCP tools are registered dynamically at runtime. Gateway's static validation of `alsoAllow` at startup will report unknown entries warnings. **Can be safely ignored** — check that `systemPromptReport.tools.entries` contains the corresponding MCP tools to confirm successful registration.
-
-### 🟡 OpenClaw Plugin SDK Type Import Paths
-
-Types like `ContextEngineFactory` are not in `openclaw/plugin-sdk/context-engine`, but at the `openclaw/plugin-sdk` root path. The `requireApproval` return value cannot be `boolean` — it needs to be a `{ title, description, severity }` object. It's recommended to use `grep` to search for specific type export locations in `node_modules/openclaw`.
-
-### 🟢 Thinking Model Latency and Long System Prompts
-
-Thinking models like minimax-m2.5 have a reasoning process per request, combined with ~31K chars of system prompts (AGENTS.md + Skills + 35 tool schemas), latency is typically 30–120 seconds. E2E test timeouts should be 300+ seconds. You can mitigate this by setting `"thinking": "low"` to reduce reasoning depth, or by reducing the number of registered tools.
-
----
-
-### Usage Modes
-
-**Mode 1: Token-Saver Cost-Saving Mode (Default)** — Fill in your API Key and it's ready to use. ClawXRouter automatically routes requests to the most economical model. Tiers can be customized in `openclaw.json` or via the Dashboard.
-
-**Mode 2: Privacy + Cost-Saving Dual Routing** — Enable the privacy router in `~/.edgeclaw/clawxrouter.json`; requires a local LLM backend (Ollama / vLLM):
-
-```json
-{
-  "privacy": {
-    "routers": {
-      "privacy": { "enabled": true, "type": "builtin", "weight": 90 },
-      "token-saver": { "enabled": true, "type": "builtin", "weight": 40 }
-    },
-    "pipeline": {
-      "onUserMessage": ["privacy", "token-saver"],
-      "onToolCallProposed": ["privacy"],
-      "onToolCallExecuted": ["privacy"]
-    },
-    "localModel": {
-      "enabled": true,
-      "endpoint": "http://localhost:11434",
-      "model": "openbmb/minicpm4.1"
-    }
-  }
-}
-```
 
 ---
 
@@ -557,8 +408,15 @@ EdgeClaw/
 │   │       ├── kairos-prompt.ts         # Autonomous mode system prompt injection
 │   │       └── heartbeat-ack-guard.ts   # HEARTBEAT_OK interception → forced Sleep
 │   │
-│   ├── openshell/                       # [Built-in] OpenShell sandbox execution
-│   │   ├── index.ts                     # Plugin entry point
+│   ├── ClawXSandbox/                    # [Built-in] ClawXSandbox system-level sandbox
+│   │   ├── src/
+│   │   │   ├── index.ts                # Plugin entry point
+│   │   │   ├── bwrap-backend.ts        # bwrap/sandbox-exec sandbox backend
+│   │   │   ├── fs-bridge.ts            # File system bridge
+│   │   │   └── config.ts              # Sandbox configuration
+│   │   └── tests/                      # Unit tests
+│   │
+# Plugin entry point
 │   │   └── src/
 │   │       ├── backend.ts              # SSH sandbox backend
 │   │       ├── mirror.ts              # Local-remote workspace mirroring
@@ -581,9 +439,10 @@ EdgeClaw/
     ├── clawxrouter.json                 # ClawXRouter config (auto-generated)
     ├── clawxrouter-stats.json           # Token statistics
     ├── clawxmemory/                     # ClawXMemory SQLite data
-    ├── cc-context-engine/state.json     # Context engine state
-    ├── cc-tool-governor/audit.jsonl     # Tool audit logs
-    ├── cc-session-memory/notes/         # Session notes
+    ├── clawxgovernor/
+    │   ├── context-state.json           # Context engine state
+    │   ├── audit.jsonl                  # Tool audit logs
+    │   └── notes/                       # Session notes
     └── workspace-main/                  # Agent workspace
 ```
 
@@ -623,7 +482,7 @@ If this project is helpful to your research or work, please give us a ⭐!
 - [ClawXMemory](https://github.com/OpenBMB/ClawXMemory) — Multi-layered memory system for long-term context
 - [ClawXGovernor](./extensions/clawxgovernor/) — Tool governance (context trimming + tool call interception & audit + session notes), EdgeClaw built-in extension
 - [ClawXKairos](./extensions/clawxkairos/) — Self-driven agent loop (tick scheduling + sleep + background commands + async sub-agents)
-- [ClawXSandbox](./extensions/clawxsandbox/) — Lightweight, zero-dependency isolated execution environment based on system-level sandboxing (bwrap / sandbox-exec)
+- [ClawXSandbox](./extensions/ClawXSandbox/) — Lightweight, zero-dependency isolated execution environment based on system-level sandboxing (bwrap / sandbox-exec)
 
 ### License
 
