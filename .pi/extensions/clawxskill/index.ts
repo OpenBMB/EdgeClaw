@@ -30,7 +30,7 @@ export interface SkillDiscoveryConfig {
   logLevel?: "debug" | "info" | "warn" | "error" | "silent";
 }
 
-const CONFIG_PATH = path.join(os.homedir(), ".openclaw", "skill-discovery.json");
+const CONFIG_PATH = path.join(os.homedir(), ".openclaw", "clawxskill.json");
 
 const CONFIG_TEMPLATE = `{
   // Master switch — set to false to disable the entire extension
@@ -100,7 +100,7 @@ function createLogger(tag: string) {
   let logStream: fs.WriteStream | null = null;
   try {
     fs.mkdirSync(logDir, { recursive: true });
-    logStream = fs.createWriteStream(path.join(logDir, "skill-discovery.log"), { flags: "a" });
+    logStream = fs.createWriteStream(path.join(logDir, "clawxskill.log"), { flags: "a" });
   } catch {
     // Filesystem error — console only
   }
@@ -127,7 +127,7 @@ function createLogger(tag: string) {
   };
 }
 
-const log = createLogger("skill-discovery");
+const log = createLogger("clawxskill");
 
 // ---- Name normalization ----
 // pi.getCommands() returns "skill:think-base", watcher returns "think-base".
@@ -138,7 +138,7 @@ function normalizeSkillName(raw: string): string {
 
 // ---- Extension entry point ----
 
-export default function skillDiscoveryExtension(pi: ExtensionAPI) {
+export default function clawxskillExtension(pi: ExtensionAPI) {
   // Honor the enabled flag — if explicitly false, skip all registration
   if (config.enabled === false) {
     log.info("extension disabled via config (enabled: false)");

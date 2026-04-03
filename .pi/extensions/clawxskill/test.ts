@@ -1,7 +1,7 @@
 /**
- * Standalone test for skill-discovery extension core logic.
+ * Standalone test for clawxskill extension core logic.
  *
- * Run: npx tsx .pi/extensions/skill-discovery/test.ts
+ * Run: npx tsx .pi/extensions/clawxskill/test.ts
  */
 import { InvertedIndex, tokenize } from "./engines/inverted-index.js";
 import { SkillBackup } from "./skill-backup.js";
