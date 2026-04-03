@@ -1,0 +1,17 @@
+{
+  "id": "clawxtool",
+  "name": "ClawXTool",
+  "description": "Unified tool suite: cron parsing, bash security, secret scanning, notebook editing, git worktrees, task management, memory age annotations, and structured user questions.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "bashSecurity": { "type": "object", "additionalProperties": true },
+      "secretScanner": { "type": "object", "additionalProperties": true },
+      "taskManager": { "type": "object", "additionalProperties": true },
+      "memoryAge": { "type": "object", "additionalProperties": true },
+      "askUser": { "type": "object", "additionalProperties": true },
+      "gitWorktree": { "type": "object", "additionalProperties": true }
+    }
+  }
+}

@@ -318,6 +318,12 @@ importers:
 
   extensions/copilot-proxy: {}
 
+  extensions/ct-task-manager:
+    dependencies:
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
+
   extensions/deepgram: {}
 
   extensions/deepseek: {}

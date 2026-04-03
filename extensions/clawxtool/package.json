@@ -1,0 +1,12 @@
+{
+  "name": "@openclaw/clawxtool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unified ClawXTool suite for EdgeClaw.",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
