@@ -1,6 +1,6 @@
+import type { IndexingSettings } from "./core/types.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { IndexingSettings } from "./core/types.js";
 
 export interface PluginRuntimeConfig {
   dataDir: string;
@@ -13,6 +13,7 @@ export interface PluginRuntimeConfig {
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
   autoDreamMinNewL1: number;
+  dreamProjectRebuildTimeoutMs: number;
   indexIdleDebounceMs: number;
   defaultIndexingSettings: IndexingSettings;
   recallEnabled: boolean;
@@ -68,6 +69,11 @@ export const pluginConfigJsonSchema = {
       type: "integer",
       default: 10,
     },
+    dreamProjectRebuildTimeoutMs: {
+      type: "integer",
+      default: 180000,
+      description: "Timeout in milliseconds for the Dream project rebuild LLM request. Set to 0 to disable the timeout.",
+    },
     reasoningMode: {
       type: "string",
       enum: ["answer_first", "accuracy_first"],
@@ -113,8 +119,7 @@ export const pluginConfigJsonSchema = {
     uiPort: {
       type: "integer",
       default: 39393,
-      description:
-        "Port for the local dashboard HTTP server. Change this if 39393 is already in use.",
+      description: "Port for the local dashboard HTTP server. Change this if 39393 is already in use.",
     },
     uiPathPrefix: {
       type: "string",
@@ -148,6 +153,11 @@ export const pluginConfigUiHints = {
   autoDreamMinNewL1: {
     label: "Auto Dream L1 Threshold",
     placeholder: "10",
+  },
+  dreamProjectRebuildTimeoutMs: {
+    label: "Dream Rebuild Timeout (ms)",
+    placeholder: "180000",
+    help: "Default is 180000ms. Set to 0 to disable the timeout for Dream project rebuild requests.",
   },
   reasoningMode: {
     label: "Reasoning Mode",
@@ -199,25 +209,26 @@ function toInteger(value: unknown, fallback: number): number {
   return fallback;
 }
 
+function toNonNegativeInteger(value: unknown, fallback: number): number {
+  const parsed = toInteger(value, fallback);
+  return parsed >= 0 ? parsed : fallback;
+}
+
 export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
   const cfg = (raw ?? {}) as Record<string, unknown>;
-  const dataDir =
-    typeof cfg.dataDir === "string" && cfg.dataDir.trim()
-      ? cfg.dataDir
-      : join(homedir(), ".openclaw", "clawxmemory");
-  const dbPath =
-    typeof cfg.dbPath === "string" && cfg.dbPath.trim()
-      ? cfg.dbPath
-      : join(dataDir, "memory.sqlite");
-  const skillsDir =
-    typeof cfg.skillsDir === "string" && cfg.skillsDir.trim() ? cfg.skillsDir : undefined;
+  const dataDir = typeof cfg.dataDir === "string" && cfg.dataDir.trim()
+    ? cfg.dataDir
+    : join(homedir(), ".openclaw", "clawxmemory");
+  const dbPath = typeof cfg.dbPath === "string" && cfg.dbPath.trim()
+    ? cfg.dbPath
+    : join(dataDir, "memory.sqlite");
+  const skillsDir = typeof cfg.skillsDir === "string" && cfg.skillsDir.trim() ? cfg.skillsDir : undefined;
 
-  const configuredRecallTopK =
-    typeof cfg.recallTopK === "number" && Number.isFinite(cfg.recallTopK)
-      ? Math.floor(cfg.recallTopK)
-      : typeof cfg.recallTopK === "string" && cfg.recallTopK.trim()
-        ? Number.parseInt(cfg.recallTopK, 10)
-        : 10;
+  const configuredRecallTopK = typeof cfg.recallTopK === "number" && Number.isFinite(cfg.recallTopK)
+    ? Math.floor(cfg.recallTopK)
+    : typeof cfg.recallTopK === "string" && cfg.recallTopK.trim()
+      ? Number.parseInt(cfg.recallTopK, 10)
+      : 10;
   const captureStrategy = cfg.captureStrategy === "last_turn" ? "last_turn" : "full_session";
   const runtime: PluginRuntimeConfig = {
     dataDir,
@@ -229,26 +240,22 @@ export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
     autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
     autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
     autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
+    dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     indexIdleDebounceMs: Math.max(200, toInteger(cfg.indexIdleDebounceMs, 2500)),
     defaultIndexingSettings: {
       reasoningMode: cfg.reasoningMode === "accuracy_first" ? "accuracy_first" : "answer_first",
-      recallTopK: Math.max(
-        1,
-        Math.min(50, Number.isFinite(configuredRecallTopK) ? configuredRecallTopK : 10),
-      ),
+      recallTopK: Math.max(1, Math.min(50, Number.isFinite(configuredRecallTopK) ? configuredRecallTopK : 10)),
       autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
       autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
       autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
+      dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     },
     recallEnabled: toBoolean(cfg.recallEnabled, true),
     addEnabled: toBoolean(cfg.addEnabled, true),
     uiEnabled: toBoolean(cfg.uiEnabled, true),
     uiHost: typeof cfg.uiHost === "string" && cfg.uiHost.trim() ? cfg.uiHost : "127.0.0.1",
     uiPort: Math.max(1024, toInteger(cfg.uiPort, 39393)),
-    uiPathPrefix:
-      typeof cfg.uiPathPrefix === "string" && cfg.uiPathPrefix.trim()
-        ? cfg.uiPathPrefix
-        : "/clawxmemory",
+    uiPathPrefix: typeof cfg.uiPathPrefix === "string" && cfg.uiPathPrefix.trim() ? cfg.uiPathPrefix : "/clawxmemory",
   };
   if (skillsDir) {
     runtime.skillsDir = skillsDir;

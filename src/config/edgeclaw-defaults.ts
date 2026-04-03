@@ -1,4 +1,5 @@
 import path from "node:path";
+import { resolveBundledPluginsDir } from "../plugins/bundled-dir.js";
 import { resolveStateDir, DEFAULT_GATEWAY_PORT } from "./paths.js";
 import type { OpenClawConfig } from "./types.js";
 
@@ -11,12 +12,15 @@ import type { OpenClawConfig } from "./types.js";
  *
  * ClawXRouter is pre-configured for token-saver-only mode (privacy
  * router disabled). ClawXMemory is enabled as the memory slot.
+ * ClawXGovernor is enabled for tool governance, context management,
+ * and session memory; its MCP server is auto-configured when bundled.
  */
 export function generateEdgeClawDefaults(env: NodeJS.ProcessEnv = process.env): OpenClawConfig {
   const stateDir = resolveStateDir(env);
   const apiKeyRef = "${EDGECLAW_API_KEY}";
   const baseUrl = env.EDGECLAW_BASE_URL?.trim() || "https://yeysai.com/v1";
   const proxyUrl = env.EDGECLAW_PROXY_URL?.trim() || baseUrl;
+  const bundledDir = resolveBundledPluginsDir(env);
 
   return {
     models: {
@@ -176,7 +180,7 @@ export function generateEdgeClawDefaults(env: NodeJS.ProcessEnv = process.env): 
     },
     skills: { install: { nodeManager: "npm" } },
     plugins: {
-      allow: ["ClawXRouter", "openbmb-clawxmemory"],
+      allow: ["ClawXRouter", "openbmb-clawxmemory", "clawxgovernor"],
       entries: {
         ClawXRouter: {
           enabled: true,
@@ -223,12 +227,49 @@ export function generateEdgeClawDefaults(env: NodeJS.ProcessEnv = process.env): 
             dataDir: path.join(stateDir, "clawxmemory"),
           },
         },
+        clawxgovernor: {
+          enabled: true,
+          hooks: { allowPromptInjection: true },
+          config: {
+            recentTailTurns: 6,
+            compactThresholdRatio: 0.75,
+            summarizeThreshold: 4000,
+            loopWindowSize: 10,
+            loopMaxRepeats: 3,
+            maxHintLines: 5,
+          },
+        },
         "memory-core": { enabled: false },
       },
       slots: { memory: "openbmb-clawxmemory" },
     },
     tools: {
-      alsoAllow: ["memory_overview", "memory_list", "memory_flush"],
+      alsoAllow: [
+        "memory_overview",
+        "memory_list",
+        "memory_flush",
+        "clawxgovernor__context_inspect",
+        "clawxgovernor__context_budget_check",
+        "clawxgovernor__context_force_compact",
+        "clawxgovernor__tool_risk_classify",
+        "clawxgovernor__tool_audit_query",
+        "clawxgovernor__tool_result_summarize",
+        "clawxgovernor__session_note_append",
+        "clawxgovernor__session_note_read",
+        "clawxgovernor__session_note_search",
+      ],
     },
+    ...(bundledDir
+      ? {
+          mcp: {
+            servers: {
+              clawxgovernor: {
+                command: "npx",
+                args: ["tsx", path.join(bundledDir, "clawxgovernor", "mcp-server", "index.ts")],
+              },
+            },
+          },
+        }
+      : {}),
   } as OpenClawConfig;
 }

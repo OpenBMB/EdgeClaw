@@ -32,6 +32,7 @@ export interface IndexingSettings {
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
   autoDreamMinNewL1: number;
+  dreamProjectRebuildTimeoutMs: number;
 }
 
 export interface ActiveTopicBufferRecord {

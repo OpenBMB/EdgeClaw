@@ -1,0 +1,48 @@
+{
+  "name": "clawxgovernor",
+  "version": "0.2.0",
+  "description": "工具治理 — 上下文工作集管理、工具风险分级与审计、会话级增量记忆。",
+  "keywords": [
+    "clawxgovernor",
+    "context-engine",
+    "openclaw",
+    "session-memory",
+    "tool-governance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenBMB/EdgeClaw"
+  },
+  "files": [
+    "index.ts",
+    "src/",
+    "mcp-server/",
+    "skills/",
+    "openclaw.plugin.json"
+  ],
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "mcp-server": "npx tsx mcp-server/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "tsx": "^4.21.0",
+    "zod": "^3.24.4"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.22"
+    },
+    "build": {
+      "openclawVersion": "2026.3.28"
+    }
+  }
+}

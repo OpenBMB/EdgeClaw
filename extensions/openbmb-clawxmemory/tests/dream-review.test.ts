@@ -3,23 +3,10 @@ import type {
   DreamReviewResult,
   GlobalProfileRecord,
   L0SessionRecord,
-  LlmMemoryExtractor,
   L1WindowRecord,
   L2ProjectIndexRecord,
 } from "../src/core/index.js";
 import { DreamReviewRunner, DreamRewriteRunner } from "../src/core/index.js";
-
-function asDreamReviewExtractor(
-  extractor: Pick<LlmMemoryExtractor, "reviewDream">,
-): LlmMemoryExtractor {
-  return extractor as LlmMemoryExtractor;
-}
-
-function asDreamRewriteExtractor(
-  extractor: Pick<LlmMemoryExtractor, "planDreamProjectRebuild" | "rewriteDreamGlobalProfile">,
-): LlmMemoryExtractor {
-  return extractor as LlmMemoryExtractor;
-}
 
 function createL1(overrides: Partial<L1WindowRecord> = {}): L1WindowRecord {
   return {
@@ -115,23 +102,20 @@ describe("DreamReviewRunner", () => {
   it("returns a no-signal review when indexed memory is empty", async () => {
     const extractor = {
       reviewDream: vi.fn(),
-    };
-    const runner = new DreamReviewRunner(
-      {
-        listRecentL1: () => [],
-        getL2ProjectByKey: () => undefined,
-        getGlobalProfileRecord: () => ({
-          recordId: "global_profile_record",
-          profileText: "",
-          sourceL1Ids: [],
-          createdAt: "2026-04-01T00:00:00.000Z",
-          updatedAt: "2026-04-01T00:00:00.000Z",
-        }),
-        getL0ByL1Ids: () => [],
-        getL2TimeByDate: () => undefined,
-      },
-      asDreamReviewExtractor(extractor),
-    );
+    } as never;
+    const runner = new DreamReviewRunner({
+      listRecentL1: () => [],
+      getL2ProjectByKey: () => undefined,
+      getGlobalProfileRecord: () => ({
+        recordId: "global_profile_record",
+        profileText: "",
+        sourceL1Ids: [],
+        createdAt: "2026-04-01T00:00:00.000Z",
+        updatedAt: "2026-04-01T00:00:00.000Z",
+      }),
+      getL0ByL1Ids: () => [],
+      getL2TimeByDate: () => undefined,
+    }, extractor);
 
     const result = await runner.review("all");
     expect(result.summary).toContain("Not enough indexed memory evidence");
@@ -146,8 +130,7 @@ describe("DreamReviewRunner", () => {
       projectRebuild: [
         {
           title: "Project summary lags recent L1",
-          rationale:
-            "The latest L1 shows a clearer project stage transition than the current L2Project summary.",
+          rationale: "The latest L1 shows a clearer project stage transition than the current L2Project summary.",
           confidence: 0.83,
           target: "l2_project",
           evidenceRefs: ["l1:l1-1", "l2_project:l2-project-1"],
@@ -160,17 +143,14 @@ describe("DreamReviewRunner", () => {
     };
     const extractor = {
       reviewDream: vi.fn().mockResolvedValue(extractorResult),
-    };
-    const runner = new DreamReviewRunner(
-      {
-        listRecentL1: () => [createL1()],
-        getL2ProjectByKey: () => createProject(),
-        getGlobalProfileRecord: () => createProfile(),
-        getL0ByL1Ids: () => [createL0()],
-        getL2TimeByDate: () => undefined,
-      },
-      asDreamReviewExtractor(extractor),
-    );
+    } as never;
+    const runner = new DreamReviewRunner({
+      listRecentL1: () => [createL1()],
+      getL2ProjectByKey: () => createProject(),
+      getGlobalProfileRecord: () => createProfile(),
+      getL0ByL1Ids: () => [createL0()],
+      getL2TimeByDate: () => undefined,
+    }, extractor);
 
     const result = await runner.review("all");
 
@@ -182,13 +162,11 @@ describe("DreamReviewRunner", () => {
         title: "Missing L2Time summary for 2026-04-01",
       }),
     ]);
-    expect(result.evidenceRefs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ refId: "l1:l1-1", level: "l1" }),
-        expect.objectContaining({ refId: "l2_project:l2-project-1", level: "l2_project" }),
-        expect.objectContaining({ refId: "profile:global_profile_record", level: "profile" }),
-      ]),
-    );
+    expect(result.evidenceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ refId: "l1:l1-1", level: "l1" }),
+      expect.objectContaining({ refId: "l2_project:l2-project-1", level: "l2_project" }),
+      expect.objectContaining({ refId: "profile:global_profile_record", level: "profile" }),
+    ]));
   });
 });
 
@@ -225,7 +203,7 @@ describe("DreamRewriteRunner", () => {
         sourceL1Ids: ["l1-1", "l1-2"],
         conflictWithExisting: false,
       }),
-    };
+    } as never;
 
     const currentProject: L2ProjectIndexRecord = {
       ...createProject(),
@@ -239,19 +217,16 @@ describe("DreamRewriteRunner", () => {
       l1Source: ["l1-1"],
       updatedAt: "2026-04-01T11:00:00.000Z",
     };
-    const runner = new DreamRewriteRunner(
-      {
-        listAllL1: () => [createL1(), createSecondL1()],
-        listAllL2Projects: () => [currentProject, duplicateProject],
-        getGlobalProfileRecord: () => ({
-          ...createProfile(),
-          sourceL1Ids: ["l1-profile", "l1-1", "l1-stale"],
-        }),
-        getL0ByL1Ids: () => [createL0()],
-        applyDreamRewrite,
-      },
-      asDreamRewriteExtractor(extractor),
-    );
+    const runner = new DreamRewriteRunner({
+      listAllL1: () => [createL1(), createSecondL1()],
+      listAllL2Projects: () => [currentProject, duplicateProject],
+      getGlobalProfileRecord: () => ({
+        ...createProfile(),
+        sourceL1Ids: ["l1-profile", "l1-1", "l1-stale"],
+      }),
+      getL0ByL1Ids: () => [createL0()],
+      applyDreamRewrite,
+    }, extractor);
 
     const result = await runner.run();
 
@@ -279,22 +254,63 @@ describe("DreamRewriteRunner", () => {
     });
   });
 
+  it("passes the configured Dream rebuild timeout into project planning", async () => {
+    const applyDreamRewrite = vi.fn();
+    const extractor = {
+      planDreamProjectRebuild: vi.fn().mockResolvedValue({
+        summary: "Merged duplicate Dream project summaries into one canonical project.",
+        duplicateTopicCount: 0,
+        conflictTopicCount: 0,
+        projects: [
+          {
+            projectKey: "dream-review",
+            projectName: "Dream Review",
+            currentStatus: "in_progress",
+            summary: "Dream now rebuilds L2 project memory from validated L1 windows.",
+            latestProgress: "Exact L1 references were pruned for the rebuilt project.",
+            retainedL1Ids: ["l1-2"],
+          },
+        ],
+        deletedProjectKeys: [],
+        l1Issues: [],
+      }),
+      rewriteDreamGlobalProfile: vi.fn().mockResolvedValue({
+        profileText: "用户偏好用中文做规划，并且会迭代式地整理 memory 架构。",
+        sourceL1Ids: ["l1-1", "l1-2"],
+        conflictWithExisting: false,
+      }),
+    } as never;
+
+    const runner = new DreamRewriteRunner({
+      listAllL1: () => [createL1(), createSecondL1()],
+      listAllL2Projects: () => [createProject()],
+      getGlobalProfileRecord: () => createProfile(),
+      getL0ByL1Ids: () => [createL0()],
+      applyDreamRewrite,
+    }, extractor, {
+      getDreamProjectRebuildTimeoutMs: () => 42_000,
+    });
+
+    await runner.run();
+
+    expect(extractor.planDreamProjectRebuild).toHaveBeenCalledWith(expect.objectContaining({
+      timeoutMs: 42_000,
+    }));
+  });
+
   it("fails closed when project rebuild planning fails", async () => {
     const applyDreamRewrite = vi.fn();
     const extractor = {
       planDreamProjectRebuild: vi.fn().mockRejectedValue(new Error("project rebuild failed")),
       rewriteDreamGlobalProfile: vi.fn(),
-    };
-    const runner = new DreamRewriteRunner(
-      {
-        listAllL1: () => [createL1(), createSecondL1()],
-        listAllL2Projects: () => [createProject()],
-        getGlobalProfileRecord: () => createProfile(),
-        getL0ByL1Ids: () => [createL0()],
-        applyDreamRewrite,
-      },
-      asDreamRewriteExtractor(extractor),
-    );
+    } as never;
+    const runner = new DreamRewriteRunner({
+      listAllL1: () => [createL1(), createSecondL1()],
+      listAllL2Projects: () => [createProject()],
+      getGlobalProfileRecord: () => createProfile(),
+      getL0ByL1Ids: () => [createL0()],
+      applyDreamRewrite,
+    }, extractor);
 
     await expect(runner.run()).rejects.toThrow("project rebuild failed");
     expect(extractor.rewriteDreamGlobalProfile).not.toHaveBeenCalled();
@@ -324,17 +340,14 @@ describe("DreamRewriteRunner", () => {
     const extractorFail = {
       planDreamProjectRebuild: vi.fn().mockResolvedValue(projectPlan),
       rewriteDreamGlobalProfile: vi.fn().mockRejectedValue(new Error("profile rewrite failed")),
-    };
-    const runnerFail = new DreamRewriteRunner(
-      {
-        listAllL1: () => [createL1(), createSecondL1()],
-        listAllL2Projects: () => [createProject()],
-        getGlobalProfileRecord: () => createProfile(),
-        getL0ByL1Ids: () => [createL0()],
-        applyDreamRewrite,
-      },
-      asDreamRewriteExtractor(extractorFail),
-    );
+    } as never;
+    const runnerFail = new DreamRewriteRunner({
+      listAllL1: () => [createL1(), createSecondL1()],
+      listAllL2Projects: () => [createProject()],
+      getGlobalProfileRecord: () => createProfile(),
+      getL0ByL1Ids: () => [createL0()],
+      applyDreamRewrite,
+    }, extractorFail);
 
     await expect(runnerFail.run()).rejects.toThrow("profile rewrite failed");
     expect(applyDreamRewrite).not.toHaveBeenCalled();
@@ -346,17 +359,14 @@ describe("DreamRewriteRunner", () => {
         sourceL1Ids: [],
         conflictWithExisting: false,
       }),
-    };
-    const runnerGate = new DreamRewriteRunner(
-      {
-        listAllL1: () => [createL1(), createSecondL1()],
-        listAllL2Projects: () => [createProject()],
-        getGlobalProfileRecord: () => createProfile(),
-        getL0ByL1Ids: () => [createL0()],
-        applyDreamRewrite,
-      },
-      asDreamRewriteExtractor(extractorGate),
-    );
+    } as never;
+    const runnerGate = new DreamRewriteRunner({
+      listAllL1: () => [createL1(), createSecondL1()],
+      listAllL2Projects: () => [createProject()],
+      getGlobalProfileRecord: () => createProfile(),
+      getL0ByL1Ids: () => [createL0()],
+      applyDreamRewrite,
+    }, extractorGate);
 
     await expect(runnerGate.run()).rejects.toThrow("source support gate");
     expect(applyDreamRewrite).not.toHaveBeenCalled();
@@ -374,17 +384,14 @@ describe("DreamRewriteRunner", () => {
         l1Issues: [],
       }),
       rewriteDreamGlobalProfile: vi.fn(),
-    };
-    const runner = new DreamRewriteRunner(
-      {
-        listAllL1: () => [createL1(), createSecondL1()],
-        listAllL2Projects: () => [createProject()],
-        getGlobalProfileRecord: () => createProfile(),
-        getL0ByL1Ids: () => [createL0()],
-        applyDreamRewrite,
-      },
-      asDreamRewriteExtractor(extractor),
-    );
+    } as never;
+    const runner = new DreamRewriteRunner({
+      listAllL1: () => [createL1(), createSecondL1()],
+      listAllL2Projects: () => [createProject()],
+      getGlobalProfileRecord: () => createProfile(),
+      getL0ByL1Ids: () => [createL0()],
+      applyDreamRewrite,
+    }, extractor);
 
     await expect(runner.run()).rejects.toThrow("no valid projects");
     expect(applyDreamRewrite).not.toHaveBeenCalled();
@@ -411,25 +418,19 @@ describe("DreamRewriteRunner", () => {
         l1Issues: [],
       }),
       rewriteDreamGlobalProfile: vi.fn(),
-    };
-    const runner = new DreamRewriteRunner(
-      {
-        listAllL1: () => [createL1(), createSecondL1()],
-        listAllL2Projects: () => [
-          createProject(),
-          {
-            ...createProject(),
-            l2IndexId: "l2-project-old",
-            projectKey: "old-dream-review",
-            projectName: "Old Dream Review",
-          },
-        ],
-        getGlobalProfileRecord: () => createProfile(),
-        getL0ByL1Ids: () => [createL0()],
-        applyDreamRewrite,
-      },
-      asDreamRewriteExtractor(extractor),
-    );
+    } as never;
+    const runner = new DreamRewriteRunner({
+      listAllL1: () => [createL1(), createSecondL1()],
+      listAllL2Projects: () => [createProject(), {
+        ...createProject(),
+        l2IndexId: "l2-project-old",
+        projectKey: "old-dream-review",
+        projectName: "Old Dream Review",
+      }],
+      getGlobalProfileRecord: () => createProfile(),
+      getL0ByL1Ids: () => [createL0()],
+      applyDreamRewrite,
+    }, extractor);
 
     await expect(runner.run()).rejects.toThrow("did not explain current projects");
     expect(applyDreamRewrite).not.toHaveBeenCalled();

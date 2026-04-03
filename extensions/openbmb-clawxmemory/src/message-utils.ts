@@ -1,15 +1,11 @@
 import type { MemoryMessage } from "./core/types.js";
 
 const MEMORY_CONTEXT_HEADER = "You are using multi-level memory indexes for this turn.";
-const MEMORY_CONTEXT_FOOTER =
-  "Treat the above as authoritative prior memory when it is relevant. Prioritize the user's latest request, and do not claim memory is missing or that this is a fresh conversation if the answer is already shown above.";
+const MEMORY_CONTEXT_FOOTER = "Treat the above as authoritative prior memory when it is relevant. Prioritize the user's latest request, and do not claim memory is missing or that this is a fresh conversation if the answer is already shown above.";
 const RECALL_CONTEXT_HEADER = "## ClawXMemory Recall";
-const RECALL_CONTEXT_INSTRUCTION =
-  "Use the following retrieved ClawXMemory evidence for this turn.";
-const RECALL_CONTEXT_FOOTER =
-  "Treat the selected evidence above as authoritative historical memory for this turn when it is relevant.";
-const RECALL_CONTEXT_FOOTER_FINAL =
-  "If the needed answer is already shown above, do not claim that memory is missing or that this is a fresh conversation.";
+const RECALL_CONTEXT_INSTRUCTION = "Use the following retrieved ClawXMemory evidence for this turn.";
+const RECALL_CONTEXT_FOOTER = "Treat the selected evidence above as authoritative historical memory for this turn when it is relevant.";
+const RECALL_CONTEXT_FOOTER_FINAL = "If the needed answer is already shown above, do not claim that memory is missing or that this is a fresh conversation.";
 export const SESSION_START_PREFIX = "A new session was started via /new or /reset.";
 const SLUG_PROMPT_PREFIX = "Based on this conversation, generate a short 1-2 word filename slug";
 const MAX_CONTENT_EXTRACTION_DEPTH = 5;
@@ -59,6 +55,24 @@ const KNOWN_SLASH_COMMANDS = new Set([
   "compact",
 ]);
 const KNOWN_BANG_COMMANDS = new Set(["poll", "stop"]);
+const PLUGIN_STATE_LINE_PATTERNS = [
+  /^project state maintained by\b/i,
+  /^session status\b/i,
+  /^current git branch\s*:/i,
+  /^git status(?: summary)?\s*:/i,
+] as const;
+const PLUGIN_STATE_METADATA_PATTERNS = [
+  /\bproject state maintained by\b/i,
+  /\bsession status\b/i,
+  /\bagent\s*:/i,
+  /\bhost\s*:/i,
+  /\bworkspace\s*:/i,
+  /\bos\s*:/i,
+  /\bnode\s*:/i,
+  /\bmodel\s*:/i,
+  /\bcurrent git branch\s*:/i,
+  /\bgit status(?: summary)?\s*:/i,
+] as const;
 
 export interface TranscriptMessageInfo {
   role: "user" | "assistant" | undefined;
@@ -73,7 +87,7 @@ function truncate(text: string, maxLength: number): string {
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+    ? value as Record<string, unknown>
     : undefined;
 }
 
@@ -88,10 +102,7 @@ function extractTextFromObject(content: Record<string, unknown>, depth: number):
   if (["toolcall", "toolresult", "image", "input_image", "file", "media"].includes(type)) {
     return "";
   }
-  if (
-    ["text", "input_text", "output_text", "paragraph"].includes(type) &&
-    typeof content.text === "string"
-  ) {
+  if (["text", "input_text", "output_text", "paragraph"].includes(type) && typeof content.text === "string") {
     return content.text;
   }
   if (typeof content.text === "string" && type === "message_text") {
@@ -99,7 +110,10 @@ function extractTextFromObject(content: Record<string, unknown>, depth: number):
   }
 
   const parts: string[] = [];
-  const prioritizedKeys = ["text", "body", "message", "content", "caption", "prompt", "value"];
+  if (typeof content.text === "string") {
+    pushUniqueText(parts, content.text);
+  }
+  const prioritizedKeys = ["content", "body", "message", "caption"];
   const listKeys = ["parts", "items", "blocks", "segments", "chunks"];
 
   for (const key of prioritizedKeys) {
@@ -184,16 +198,84 @@ function compactWhitespace(text: string): string {
   return compact.join("\n").trim();
 }
 
+function normalizePluginNoiseProbe(text: string): string {
+  return text
+    .replace(/\r/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .replace(/^[>\-*\s]+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function countPluginStateMarkers(text: string): number {
+  const normalized = normalizePluginNoiseProbe(text);
+  let count = 0;
+  for (const pattern of PLUGIN_STATE_METADATA_PATTERNS) {
+    if (pattern.test(normalized)) count += 1;
+  }
+  return count;
+}
+
+function startsWithPluginStateLine(text: string): boolean {
+  const normalized = normalizePluginNoiseProbe(text);
+  return PLUGIN_STATE_LINE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function lineLooksLikePluginNoise(text: string): boolean {
+  const normalized = normalizePluginNoiseProbe(text);
+  if (!normalized) return false;
+  return startsWithPluginStateLine(normalized) || countPluginStateMarkers(normalized) >= 4;
+}
+
+function paragraphLooksLikePluginNoise(text: string): boolean {
+  const normalized = normalizePluginNoiseProbe(text);
+  if (!normalized) return false;
+  if (startsWithPluginStateLine(normalized)) return true;
+
+  const lines = text
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => normalizePluginNoiseProbe(line))
+    .filter(Boolean);
+  const noisyLines = lines.filter((line) => startsWithPluginStateLine(line) || countPluginStateMarkers(line) >= 3).length;
+  const markerCount = countPluginStateMarkers(normalized);
+  if (/session status/i.test(normalized) && markerCount >= 2) return true;
+  return markerCount >= 4 && noisyLines >= Math.max(1, Math.ceil(lines.length / 2));
+}
+
+function stripPluginStateScaffolding(text: string): string {
+  const normalized = compactWhitespace(text);
+  if (!normalized) return "";
+
+  const paragraphs = normalized
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  while (paragraphs.length > 0 && paragraphLooksLikePluginNoise(paragraphs[0]!)) {
+    paragraphs.shift();
+  }
+
+  let cleaned = paragraphs.join("\n\n").trim();
+  if (!cleaned) return "";
+
+  const lines = cleaned.split("\n");
+  while (lines.length > 0 && lineLooksLikePluginNoise(lines[0]!)) {
+    lines.shift();
+  }
+  cleaned = compactWhitespace(lines.join("\n"));
+  if (!cleaned) return "";
+  return paragraphLooksLikePluginNoise(cleaned) ? "" : cleaned;
+}
+
 function normalizeSenderHint(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function collectSenderHints(text: string): string[] {
   const hints = new Set<string>();
-  const blockPattern =
-    /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*```(?:json)?\s*([\s\S]*?)\s*```/gi;
-  const inlinePattern =
-    /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*(\{[\s\S]*?\})/gi;
+  const blockPattern = /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*```(?:json)?\s*([\s\S]*?)\s*```/gi;
+  const inlinePattern = /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*(\{[\s\S]*?\})/gi;
 
   const add = (value: unknown): void => {
     if (typeof value !== "string") return;
@@ -226,23 +308,17 @@ function collectSenderHints(text: string): string[] {
 }
 
 function stripUntrustedSenderMetadata(text: string): string {
-  const codeFencePattern =
-    /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*```(?:json)?[\s\S]*?```\s*/gi;
-  const inlineJsonPattern =
-    /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*\{[\s\S]*?\}\s*/gi;
-  return text.replace(codeFencePattern, "").replace(inlineJsonPattern, "");
+  const codeFencePattern = /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*```(?:json)?[\s\S]*?```\s*/gi;
+  const inlineJsonPattern = /(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:\s*\{[\s\S]*?\}\s*/gi;
+  return text
+    .replace(codeFencePattern, "")
+    .replace(inlineJsonPattern, "");
 }
 
 function stripQuotedContextBlocks(text: string): string {
   return text
-    .replace(
-      /(?:Chat history since last reply|Replied message)\s*\(untrusted[^)]*\)\s*:\s*```(?:json)?[\s\S]*?```\s*/gi,
-      "",
-    )
-    .replace(
-      /\[Chat messages since your last reply - for context\][\s\S]*?(?=\[Current message - respond to this\]|$)/gi,
-      "",
-    );
+    .replace(/(?:Chat history since last reply|Replied message)\s*\(untrusted[^)]*\)\s*:\s*```(?:json)?[\s\S]*?```\s*/gi, "")
+    .replace(/\[Chat messages since your last reply - for context\][\s\S]*?(?=\[Current message - respond to this\]|$)/gi, "");
 }
 
 function extractCurrentMessageSegment(text: string): string {
@@ -277,10 +353,7 @@ function stripLeadingCurrentMessageEnvelope(text: string): string {
 function looksLikeOpaqueSenderLabel(label: string): boolean {
   const trimmed = label.trim();
   if (!trimmed || trimmed.length > 120) return false;
-  if (
-    /^[A-Za-z0-9_.@()\- ]+$/.test(trimmed) &&
-    (/[0-9_]/.test(trimmed) || /^[A-Za-z][A-Za-z0-9_.@()\- ]{4,}$/.test(trimmed))
-  ) {
+  if (/^[A-Za-z0-9_.@()\- ]+$/.test(trimmed) && (/[0-9_]/.test(trimmed) || /^[A-Za-z][A-Za-z0-9_.@()\- ]{4,}$/.test(trimmed))) {
     return true;
   }
   return false;
@@ -318,17 +391,11 @@ function stripLeadingMessageEnvelopeLines(text: string): string {
     if (value === "```" || value.toLowerCase() === "```json") return true;
     if (value === "{" || value === "}") return true;
     if (/^(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:?/i.test(value)) return true;
-    if (/^(?:Chat history since last reply|Replied message)\s*\(untrusted[^)]*\)\s*:?/i.test(value))
-      return true;
+    if (/^(?:Chat history since last reply|Replied message)\s*\(untrusted[^)]*\)\s*:?/i.test(value)) return true;
+    if (/^System:\s*\[[^\]\n]*(?:\d{4}-\d{1,2}-\d{1,2}|GMT|UTC)[^\]\n]*\]\s*/i.test(value)) return true;
     if (/^\[message_id:[^\]]+\]$/i.test(value)) return true;
-    if (/^\[[^\]\n]*(?:for context|Current message - respond to this)[^\]\n]*\]$/i.test(value))
-      return true;
-    if (
-      /^\[[^\]\n]*(?:\d{4}-\d{1,2}-\d{1,2}|GMT|UTC|channel:\d+)[^\]\n]*\]\s*[^:\n]{1,120}:\s*/i.test(
-        value,
-      )
-    )
-      return true;
+    if (/^\[[^\]\n]*(?:for context|Current message - respond to this)[^\]\n]*\]$/i.test(value)) return true;
+    if (/^\[[^\]\n]*(?:\d{4}-\d{1,2}-\d{1,2}|GMT|UTC|channel:\d+)[^\]\n]*\]\s*[^:\n]{1,120}:\s*/i.test(value)) return true;
     return false;
   };
 
@@ -352,6 +419,9 @@ function stripUserNoise(text: string): string {
   cleaned = stripLeadingMessageEnvelopeLines(cleaned);
   cleaned = stripLeadingSenderPrefix(cleaned, senderHints);
   cleaned = stripLeadingMentions(cleaned);
+  cleaned = stripPluginStateScaffolding(cleaned);
+  cleaned = stripLeadingMessageEnvelopeLines(cleaned);
+  cleaned = stripLeadingTimestampPrefix(cleaned);
   return compactWhitespace(cleaned);
 }
 
@@ -366,7 +436,9 @@ function stripAssistantThinking(text: string): string {
     .replace(/<\/?think[^>]*>/gi, "")
     .replace(/<\/?thinking[^>]*>/gi, "");
 
-  const lines = withoutThink.split("\n").map((line) => line.trimEnd());
+  const lines = withoutThink
+    .split("\n")
+    .map((line) => line.trimEnd());
 
   const compact: string[] = [];
   let previousEmpty = false;
@@ -378,42 +450,35 @@ function stripAssistantThinking(text: string): string {
   }
 
   const normalized = compact.join("\n").trim();
-  const paragraphs = normalized
-    .split(/\n\s*\n/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const paragraphs = normalized.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
   if (paragraphs.length >= 2) {
     const first = paragraphs[0] ?? "";
-    const looksLikeMetaReasoning =
-      (/^用户/.test(first) && /(需要|应该|这是|表达|分享|说明|记录)/.test(first)) ||
-      (/^搜索结果/.test(first) && /(需要|无法|不太理想)/.test(first)) ||
-      (/^这搜索/.test(first) && /不太全|看不到|找不到/.test(first));
+    const looksLikeMetaReasoning = (
+      (/^用户/.test(first) && /(需要|应该|这是|表达|分享|说明|记录)/.test(first))
+      || (/^搜索结果/.test(first) && /(需要|无法|不太理想)/.test(first))
+      || (/^这搜索/.test(first) && /不太全|看不到|找不到/.test(first))
+    );
     if (looksLikeMetaReasoning) {
-      return paragraphs.slice(1).join("\n\n").trim();
+      return stripPluginStateScaffolding(paragraphs.slice(1).join("\n\n").trim());
     }
   }
 
-  return normalized;
+  return stripPluginStateScaffolding(normalized);
 }
 
 function hasToolCallContent(content: unknown): boolean {
-  return (
-    Array.isArray(content) &&
-    content.some((block) => {
-      if (!block || typeof block !== "object") return false;
-      const type = (block as Record<string, unknown>).type;
-      return type === "toolCall" || type === "toolResult";
-    })
-  );
+  return Array.isArray(content) && content.some((block) => {
+    if (!block || typeof block !== "object") return false;
+    const type = (block as Record<string, unknown>).type;
+    return type === "toolCall" || type === "toolResult";
+  });
 }
 
 function shouldSkipUserMessage(content: string): boolean {
   if (!content) return true;
-  return (
-    isSessionStartupMarkerText(content) ||
-    isCommandOnlyUserText(content) ||
-    content.startsWith(SLUG_PROMPT_PREFIX)
-  );
+  return isSessionStartupMarkerText(content)
+    || isCommandOnlyUserText(content)
+    || content.startsWith(SLUG_PROMPT_PREFIX);
 }
 
 function parseLeadingSlashCommand(text: string): string | undefined {
@@ -438,11 +503,11 @@ function parseBangCommand(text: string): string | undefined {
 export function isSessionStartupMarkerText(text: string): boolean {
   const normalized = compactWhitespace(stripUserNoise(text));
   if (!normalized) return false;
-  return (
-    normalized.includes(SESSION_START_PREFIX) ||
-    (normalized.includes("A new session was started via /new or /reset.") &&
-      SESSION_START_SEQUENCE_PATTERN.test(normalized))
-  );
+  return normalized.includes(SESSION_START_PREFIX)
+    || (
+      normalized.includes("A new session was started via /new or /reset.")
+      && SESSION_START_SEQUENCE_PATTERN.test(normalized)
+    );
 }
 
 export function isCommandOnlyUserText(text: string): boolean {
@@ -458,21 +523,19 @@ export function inspectTranscriptMessage(raw: unknown): TranscriptMessageInfo {
 
   const msg = raw as Record<string, unknown>;
   const nestedMessage = asRecord(msg.message);
-  const role =
-    typeof msg.role === "string"
-      ? msg.role
-      : typeof nestedMessage?.role === "string"
-        ? nestedMessage.role
-        : "";
+  const role = typeof msg.role === "string"
+    ? msg.role
+    : typeof nestedMessage?.role === "string"
+      ? nestedMessage.role
+      : "";
   const normalizedRole = role === "user" || role === "assistant" ? role : undefined;
   const rawContent = msg.content ?? nestedMessage?.content;
   const rawText = extractTextFromContent(rawContent).trim();
-  const content =
-    normalizedRole === "user"
-      ? stripUserNoise(rawText)
-      : normalizedRole === "assistant"
-        ? stripAssistantThinking(rawText)
-        : "";
+  const content = normalizedRole === "user"
+    ? stripUserNoise(rawText)
+    : normalizedRole === "assistant"
+      ? stripAssistantThinking(rawText)
+      : "";
   return {
     role: normalizedRole,
     content,
@@ -490,10 +553,8 @@ function shouldSkipAssistantMessage(rawContent: unknown, content: string): boole
   if (hasToolCallContent(rawContent)) return true;
   if (!content.includes("\n")) {
     const compact = content.trim();
-    if (
-      (/^用户/.test(compact) && /(需要|应该|这是|表达|分享|记录)/.test(compact)) ||
-      (/^搜索结果/.test(compact) && /(需要|无法|不太理想)/.test(compact))
-    ) {
+    if ((/^用户/.test(compact) && /(需要|应该|这是|表达|分享|记录)/.test(compact))
+      || (/^搜索结果/.test(compact) && /(需要|无法|不太理想)/.test(compact))) {
       return true;
     }
   }
@@ -523,12 +584,11 @@ function normalizeSingleMessage(
     role,
     content: truncate(content, options.maxMessageChars),
   };
-  const rawId =
-    typeof msg.id === "string"
-      ? msg.id
-      : typeof nestedMessage?.id === "string"
-        ? nestedMessage.id
-        : undefined;
+  const rawId = typeof msg.id === "string"
+    ? msg.id
+    : typeof nestedMessage?.id === "string"
+      ? nestedMessage.id
+      : undefined;
   if (rawId) {
     normalized.msgId = rawId;
   }
@@ -544,11 +604,7 @@ export function normalizeTranscriptMessage(
 
 export function normalizeMessages(
   rawMessages: unknown[],
-  options: {
-    includeAssistant: boolean;
-    maxMessageChars: number;
-    captureStrategy: "last_turn" | "full_session";
-  },
+  options: { includeAssistant: boolean; maxMessageChars: number; captureStrategy: "last_turn" | "full_session" },
 ): MemoryMessage[] {
   const all: MemoryMessage[] = [];
   for (const raw of rawMessages) {

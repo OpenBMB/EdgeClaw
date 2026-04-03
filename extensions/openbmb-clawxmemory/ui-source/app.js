@@ -38,9 +38,13 @@ const LOCALES = {
     "settings.autoIndexInterval": "自动索引间隔（小时）",
     "settings.autoDreamInterval": "自动 Dream 间隔（小时）",
     "settings.autoDreamMinL1": "自动 Dream 最小新增 L1",
+    "settings.dreamRebuildTimeout": "Dream 重构超时（秒）",
+    "settings.dreamRebuildTimeoutHint": "默认 180 秒；0 表示不设超时。该设置同时作用于手动 Dream 和自动 Dream。",
     "settings.scheduleHint": "0 表示关闭自动任务",
     "settings.autoDreamHint": "只有新增 L1 达到门槛时，自动 Dream 才会真正执行。",
     "settings.off": "已关闭",
+    "settings.advanced": "高级参数",
+    "settings.dataManagement": "数据管理",
     "settings.save": "保存设置",
     "settings.theme": "主题",
     "settings.theme.light": "浅色",
@@ -63,22 +67,19 @@ const LOCALES = {
     "confirm.sync.body": "将扫描最近对话并更新记忆索引，这可能需要一些时间。",
     "confirm.sync.ok": "开始同步",
     "confirm.dream.title": "记忆 Dream",
-    "confirm.dream.body":
-      "记忆准备开始睡觉了。它会安静整理你留下的记忆线索，重构更清晰的项目记忆与全局画像。",
+    "confirm.dream.body": "记忆准备开始睡觉了。它会安静整理你留下的记忆线索，重构更清晰的项目记忆与全局画像。",
     "confirm.dream.ok": "开始 Dream",
     "confirm.clear.title": "清除记忆",
     "confirm.clear.body": "此操作将删除所有已索引的记忆数据，且不可撤销。确定继续吗？",
     "confirm.clear.ok": "确认清除",
     "confirm.import.title": "导入记忆",
-    "confirm.import.body":
-      "这会用导入文件中的记忆覆盖当前设备上的全部记忆数据，当前设备记忆将被替换。确定继续吗？",
+    "confirm.import.body": "这会用导入文件中的记忆覆盖当前设备上的全部记忆数据，当前设备记忆将被替换。确定继续吗？",
     "confirm.import.ok": "确认导入",
     "confirm.cancel": "取消",
     "status.building": "同步中…",
     "status.built": "已构建 · L0 {0} / L1 {1} / L2T {2} / L2P {3} / 画像 {4}",
     "status.dreaming": "Dream 重构中…",
-    "status.dreamed":
-      "Dream 完成 · 审查 L1 {0} / 重构项目 {1} / 删除项目 {2} / 画像 {3} / 重复 {4} / 冲突 {5}",
+    "status.dreamed": "Dream 完成 · 审查 L1 {0} / 重构项目 {1} / 删除项目 {2} / 画像 {3} / 重复 {4} / 冲突 {5}",
     "status.dreamFailed": "Dream 失败：{0}",
     "status.clearing": "清空中…",
     "status.cleared": "已清空本地记忆",
@@ -261,8 +262,7 @@ const LOCALES = {
     "board.memoryTrace.artifacts.context": "Context",
     "board.memoryTrace.artifacts.tools": "Tools",
     "board.memoryTrace.artifacts.answer": "Answer",
-    "board.memoryTrace.observed":
-      "开发者调试视图：展示 ClawXMemory 的可观测记忆推理链路与 hop prompt，不展示模型隐藏思维链。",
+    "board.memoryTrace.observed": "开发者调试视图：展示 ClawXMemory 的可观测记忆推理链路与 hop prompt，不展示模型隐藏思维链。",
     "board.memoryTrace.none": "无",
     "board.profile": "个人画像",
     "board.profile.empty": "暂无画像数据",
@@ -313,18 +313,20 @@ const LOCALES = {
     "detail.empty": "Select a record to view details",
     "settings.title": "Settings",
     "settings.mode": "Reasoning mode",
-    "settings.mode.help":
-      "Speed first stops at the L2 evidence note; accuracy first can continue into L1/L0.",
+    "settings.mode.help": "Speed first stops at the L2 evidence note; accuracy first can continue into L1/L0.",
     "settings.mode.answer_first": "Speed first",
     "settings.mode.accuracy_first": "Accuracy first",
     "settings.maxLatency": "Recall Top K",
     "settings.autoIndexInterval": "Auto index interval (hours)",
     "settings.autoDreamInterval": "Auto Dream interval (hours)",
     "settings.autoDreamMinL1": "Auto Dream min new L1",
+    "settings.dreamRebuildTimeout": "Dream rebuild timeout (seconds)",
+    "settings.dreamRebuildTimeoutHint": "Default 180 seconds. Set 0 to disable the timeout for both manual and automatic Dream runs.",
     "settings.scheduleHint": "0 disables the automatic job",
-    "settings.autoDreamHint":
-      "Automatic Dream only runs when new L1 windows reach the configured threshold.",
+    "settings.autoDreamHint": "Automatic Dream only runs when new L1 windows reach the configured threshold.",
     "settings.off": "Off",
+    "settings.advanced": "Advanced",
+    "settings.dataManagement": "Data",
     "settings.save": "Save",
     "settings.theme": "Theme",
     "settings.theme.light": "Light",
@@ -344,27 +346,22 @@ const LOCALES = {
     "status.refreshing": "Refreshing…",
     "status.refreshed": "Refreshed",
     "confirm.sync.title": "Sync Index",
-    "confirm.sync.body":
-      "This will scan recent conversations and update the memory index. It may take a moment.",
+    "confirm.sync.body": "This will scan recent conversations and update the memory index. It may take a moment.",
     "confirm.sync.ok": "Start Sync",
     "confirm.dream.title": "Memory Dream",
-    "confirm.dream.body":
-      "Memory is about to drift off. It will quietly reorganize the memory traces you've left behind, rebuilding clearer project memory and a sharper global profile without touching raw L1 or time-layer memory.",
+    "confirm.dream.body": "Memory is about to drift off. It will quietly reorganize the memory traces you've left behind, rebuilding clearer project memory and a sharper global profile without touching raw L1 or time-layer memory.",
     "confirm.dream.ok": "Run Dream",
     "confirm.clear.title": "Clear Memory",
-    "confirm.clear.body":
-      "This will permanently delete all indexed memory data. This action cannot be undone. Continue?",
+    "confirm.clear.body": "This will permanently delete all indexed memory data. This action cannot be undone. Continue?",
     "confirm.clear.ok": "Confirm Clear",
     "confirm.import.title": "Import Memory",
-    "confirm.import.body":
-      "This will replace all memory on this device with the imported memory bundle. Current device memory will be overwritten. Continue?",
+    "confirm.import.body": "This will replace all memory on this device with the imported memory bundle. Current device memory will be overwritten. Continue?",
     "confirm.import.ok": "Confirm Import",
     "confirm.cancel": "Cancel",
     "status.building": "Syncing…",
     "status.built": "Built · L0 {0} / L1 {1} / L2T {2} / L2P {3} / Profile {4}",
     "status.dreaming": "Dream rebuilding…",
-    "status.dreamed":
-      "Dream complete · Reviewed L1 {0} / Rebuilt projects {1} / Deleted projects {2} / Profile {3} / Duplicates {4} / Conflicts {5}",
+    "status.dreamed": "Dream complete · Reviewed L1 {0} / Rebuilt projects {1} / Deleted projects {2} / Profile {3} / Duplicates {4} / Conflicts {5}",
     "status.dreamFailed": "Dream failed: {0}",
     "status.clearing": "Clearing…",
     "status.cleared": "Local memory cleared",
@@ -547,8 +544,7 @@ const LOCALES = {
     "board.memoryTrace.artifacts.context": "Context",
     "board.memoryTrace.artifacts.tools": "Tools",
     "board.memoryTrace.artifacts.answer": "Answer",
-    "board.memoryTrace.observed":
-      "Developer debug view: shows observable ClawXMemory memory-reasoning steps and hop prompts, not the model's hidden chain-of-thought.",
+    "board.memoryTrace.observed": "Developer debug view: shows observable ClawXMemory memory-reasoning steps and hop prompts, not the model's hidden chain-of-thought.",
     "board.memoryTrace.none": "None",
     "board.profile": "Personal Profile",
     "board.profile.empty": "No profile data yet",
@@ -700,6 +696,7 @@ const maxAutoReplyLatencyInput = $("#maxAutoReplyLatencyInput");
 const autoIndexIntervalHoursInput = $("#autoIndexIntervalHoursInput");
 const autoDreamIntervalHoursInput = $("#autoDreamIntervalHoursInput");
 const autoDreamMinL1Input = $("#autoDreamMinL1Input");
+const dreamRebuildTimeoutSecondsInput = $("#dreamRebuildTimeoutSecondsInput");
 const latencyFieldWrap = $("#latencyFieldWrap");
 const langToggle = document.getElementById("langToggle");
 
@@ -753,15 +750,11 @@ const OVERVIEW_KEYS = {
 };
 
 function formatStatus(value) {
-  const normalized =
-    value === "done" || value === "completed" || value === "complete"
-      ? "done"
-      : value === "blocked" ||
-          value === "on_hold" ||
-          value === "in_progress" ||
-          value === "in progress"
-        ? "in_progress"
-        : "planned";
+  const normalized = value === "done" || value === "completed" || value === "complete"
+    ? "done"
+    : value === "blocked" || value === "on_hold" || value === "in_progress" || value === "in progress"
+      ? "in_progress"
+      : "planned";
   return t(`project.${normalized}`) || normalized || "-";
 }
 
@@ -777,14 +770,9 @@ const state = {
     autoIndexIntervalMinutes: 60,
     autoDreamIntervalMinutes: 360,
     autoDreamMinNewL1: 10,
+    dreamProjectRebuildTimeoutMs: 180000,
   },
-  globalProfile: {
-    recordId: "global_profile_record",
-    profileText: "",
-    sourceL1Ids: [],
-    createdAt: "",
-    updatedAt: "",
-  },
+  globalProfile: { recordId: "global_profile_record", profileText: "", sourceL1Ids: [], createdAt: "", updatedAt: "" },
   baseRaw: { l2_time: [], l2_project: [], l1: [], l0: [], profile: [] },
   baseItems: { l2_time: [], l2_project: [], l1: [], l0: [], profile: [] },
   visibleItems: [],
@@ -814,6 +802,7 @@ const state = {
   connL1Ids: [],
   connL0Map: {},
 };
+let settingsSaveRequestId = 0;
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -882,9 +871,7 @@ function setActivity(key, tone = "idle", ...args) {
 function updateStatusPill(overview = {}) {
   const pending = Number(overview.pendingL0 ?? 0);
   const openTopics = Number(overview.openTopics ?? 0);
-  const lastIndexed = overview.lastIndexedAt
-    ? formatTime(overview.lastIndexedAt)
-    : t("nav.waiting");
+  const lastIndexed = overview.lastIndexedAt ? formatTime(overview.lastIndexedAt) : t("nav.waiting");
   const conflictCount = Array.isArray(overview.runtimeIssues) ? overview.runtimeIssues.length : 0;
   const startupRepairStatus = String(overview.startupRepairStatus || "idle");
   if (statusPill) {
@@ -900,7 +887,7 @@ function updateStatusPill(overview = {}) {
     } else if (pending > 0) {
       statusPill.textContent = t("status.pending", pending, openTopics);
       statusPill.dataset.tone = "pending";
-    } else {
+  } else {
       statusPill.textContent = t("status.ready");
       statusPill.dataset.tone = "ready";
     }
@@ -946,14 +933,10 @@ function formatConflictSummary(conflict) {
 /* ── Overview ────────────────────────────────────────────── */
 
 const OV_ICONS = {
-  memory:
-    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
-  recall:
-    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  reasoning:
-    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
-  health:
-    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+  memory: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+  recall: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  reasoning: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  health: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
 };
 
 function createOvGroup(titleKey, iconKey, content) {
@@ -1046,8 +1029,7 @@ function renderOverview(overview = {}) {
   const lastRecallEnoughAt = overview.lastRecallEnoughAt || "none";
   const lastRecallCacheHit = Boolean(overview.lastRecallCacheHit);
   const lastRecallPath = overview.lastRecallPath || "explicit";
-  const currentReasoningMode =
-    overview.currentReasoningMode || state.settings.reasoningMode || "answer_first";
+  const currentReasoningMode = overview.currentReasoningMode || state.settings.reasoningMode || "answer_first";
   const autoIndexSchedule = formatScheduleHours(state.settings.autoIndexIntervalMinutes);
   const autoDreamSchedule = formatScheduleHours(state.settings.autoDreamIntervalMinutes);
   const lastDreamAt = overview.lastDreamAt ? formatTime(overview.lastDreamAt) : t("nav.waiting");
@@ -1056,13 +1038,7 @@ function renderOverview(overview = {}) {
   const lastRecallBudgetLimited = Boolean(overview.lastRecallBudgetLimited);
   const lastShadowDeepQueued = Boolean(overview.lastShadowDeepQueued);
   const primaryConflict = formatConflictSummary(runtimeIssues[0]);
-  const healthTone = startupRepairRunning
-    ? "warning"
-    : startupRepairFailed
-      ? "danger"
-      : memoryRuntimeHealthy
-        ? "success"
-        : "danger";
+  const healthTone = startupRepairRunning ? "warning" : startupRepairFailed ? "danger" : memoryRuntimeHealthy ? "success" : "danger";
   const healthSummary = startupRepairRunning
     ? t("boundary.pendingRestart")
     : startupRepairFailed
@@ -1070,9 +1046,8 @@ function renderOverview(overview = {}) {
       : memoryRuntimeHealthy
         ? t("boundary.healthy")
         : t("boundary.conflicted");
-  const healthDetail =
-    startupRepairMessage ||
-    (startupRepairRunning
+  const healthDetail = startupRepairMessage
+    || (startupRepairRunning
       ? t("boundary.startupFixRunning")
       : startupRepairFailed
         ? t("boundary.startupFixFailed")
@@ -1085,11 +1060,7 @@ function renderOverview(overview = {}) {
     createHeroCell(overview.totalL1 ?? 0, t("nav.l1")),
     createHeroCell(overview.totalL2Project ?? 0, t("nav.l2_project")),
     createHeroCell(overview.totalL2Time ?? 0, t("nav.l2_time")),
-    createHeroCell(
-      overview.totalProfiles ?? 0,
-      t("nav.profile"),
-      overview.lastIndexedAt ? "✓" : "–",
-    ),
+    createHeroCell(overview.totalProfiles ?? 0, t("nav.profile"), overview.lastIndexedAt ? "✓" : "–"),
     createHeroCell(overview.pendingL0 ?? 0, t("overview.pending")),
   );
   const g1 = createOvGroup("overview.group.memory", "memory", heroRow);
@@ -1098,11 +1069,7 @@ function renderOverview(overview = {}) {
   recallGrid.className = "ov-metric-grid";
   recallGrid.append(
     createMetricCell(t("overview.recallMs"), `${overview.lastRecallMs ?? 0} ms`, "default"),
-    createMetricCell(
-      t("overview.recallMode"),
-      t(`recall.${overview.lastRecallMode || "none"}`),
-      "default",
-    ),
+    createMetricCell(t("overview.recallMode"), t(`recall.${overview.lastRecallMode || "none"}`), "default"),
     createMetricCell(t("overview.recallPath"), t(`recall.path.${lastRecallPath}`), "default"),
     createMetricCell(
       t("overview.recallInjected"),
@@ -1118,11 +1085,7 @@ function renderOverview(overview = {}) {
   const reasonGrid = document.createElement("div");
   reasonGrid.className = "ov-metric-grid";
   reasonGrid.append(
-    createMetricCell(
-      t("overview.reasoningMode"),
-      t(`reasoning.${currentReasoningMode}`),
-      "default",
-    ),
+    createMetricCell(t("overview.reasoningMode"), t(`reasoning.${currentReasoningMode}`), "default"),
     createMetricCell(t("overview.queued"), overview.queuedSessions ?? 0, "default"),
     createMetricCell(t("overview.autoIndexSchedule"), autoIndexSchedule, "default"),
     createMetricCell(
@@ -1199,6 +1162,18 @@ function parseHoursToMinutes(value, fallbackMinutes) {
   return Math.max(0, Math.round(parsed * 60));
 }
 
+function millisecondsToSecondsValue(value, fallbackSeconds) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(fallbackSeconds);
+  return String(Math.max(0, Math.round(numeric / 1000)));
+}
+
+function parseSecondsToMilliseconds(value, fallbackMs) {
+  const parsed = Number.parseFloat(String(value || "").trim());
+  if (!Number.isFinite(parsed)) return fallbackMs;
+  return Math.max(0, Math.round(parsed * 1000));
+}
+
 function formatScheduleHours(minutes) {
   const numeric = Number(minutes);
   if (!Number.isFinite(numeric) || numeric <= 0) return t("settings.off");
@@ -1214,6 +1189,7 @@ function applySettings(settings = {}) {
     autoIndexIntervalMinutes: 60,
     autoDreamIntervalMinutes: 360,
     autoDreamMinNewL1: 10,
+    dreamProjectRebuildTimeoutMs: 180000,
     ...(settings || {}),
   };
   const activeMode = state.settings.reasoningMode || "answer_first";
@@ -1224,45 +1200,70 @@ function applySettings(settings = {}) {
   }
   maxAutoReplyLatencyInput.value = String(state.settings.recallTopK ?? 10);
   if (autoIndexIntervalHoursInput) {
-    autoIndexIntervalHoursInput.value = minutesToHoursValue(
-      state.settings.autoIndexIntervalMinutes,
-      1,
-    );
+    autoIndexIntervalHoursInput.value = minutesToHoursValue(state.settings.autoIndexIntervalMinutes, 1);
   }
   if (autoDreamIntervalHoursInput) {
-    autoDreamIntervalHoursInput.value = minutesToHoursValue(
-      state.settings.autoDreamIntervalMinutes,
-      6,
-    );
+    autoDreamIntervalHoursInput.value = minutesToHoursValue(state.settings.autoDreamIntervalMinutes, 6);
   }
   if (autoDreamMinL1Input) {
     autoDreamMinL1Input.value = String(Math.max(0, Number(state.settings.autoDreamMinNewL1 ?? 10)));
   }
+  if (dreamRebuildTimeoutSecondsInput) {
+    dreamRebuildTimeoutSecondsInput.value = millisecondsToSecondsValue(
+      state.settings.dreamProjectRebuildTimeoutMs,
+      180,
+    );
+  }
   updateSettingsVisibility();
+}
+
+function buildSettingsSummary(settings) {
+  const modeLabel = t(`reasoning.${settings.reasoningMode || "answer_first"}`);
+  return `${modeLabel} · topK=${settings.recallTopK ?? 10} · index=${formatScheduleHours(settings.autoIndexIntervalMinutes)} · dream=${formatScheduleHours(settings.autoDreamIntervalMinutes)} / L1>=${settings.autoDreamMinNewL1 ?? 10}`;
+}
+
+function syncSavedSettings(settings, options = {}) {
+  const { syncForm = true } = options;
+  if (syncForm) {
+    applySettings(settings);
+  } else {
+    state.settings = {
+      ...state.settings,
+      ...(settings || {}),
+    };
+    const activeMode = state.settings.reasoningMode || "answer_first";
+    if (reasoningModeToggle) {
+      reasoningModeToggle.querySelectorAll(".popover-seg-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.mode === activeMode);
+      });
+    }
+    updateSettingsVisibility();
+  }
+  renderOverview({
+    ...state.overview,
+    currentReasoningMode: settings.reasoningMode || state.settings.reasoningMode || "answer_first",
+  });
 }
 
 function readSettingsForm() {
   const parsedRecallTopK = Number.parseInt(String(maxAutoReplyLatencyInput.value || "").trim(), 10);
   const parsedDreamMinL1 = Number.parseInt(String(autoDreamMinL1Input?.value || "").trim(), 10);
   const activeBtn = reasoningModeToggle?.querySelector(".popover-seg-btn.active");
-  const reasoningMode =
-    activeBtn?.dataset.mode === "accuracy_first" ? "accuracy_first" : "answer_first";
+  const reasoningMode = activeBtn?.dataset.mode === "accuracy_first" ? "accuracy_first" : "answer_first";
   return {
     reasoningMode,
     recallTopK: Number.isFinite(parsedRecallTopK)
       ? Math.max(1, Math.min(50, parsedRecallTopK))
       : state.settings.recallTopK,
-    autoIndexIntervalMinutes: parseHoursToMinutes(
-      autoIndexIntervalHoursInput?.value,
-      state.settings.autoIndexIntervalMinutes ?? 60,
-    ),
-    autoDreamIntervalMinutes: parseHoursToMinutes(
-      autoDreamIntervalHoursInput?.value,
-      state.settings.autoDreamIntervalMinutes ?? 360,
-    ),
+    autoIndexIntervalMinutes: parseHoursToMinutes(autoIndexIntervalHoursInput?.value, state.settings.autoIndexIntervalMinutes ?? 60),
+    autoDreamIntervalMinutes: parseHoursToMinutes(autoDreamIntervalHoursInput?.value, state.settings.autoDreamIntervalMinutes ?? 360),
     autoDreamMinNewL1: Number.isFinite(parsedDreamMinL1)
       ? Math.max(0, parsedDreamMinL1)
       : state.settings.autoDreamMinNewL1,
+    dreamProjectRebuildTimeoutMs: parseSecondsToMilliseconds(
+      dreamRebuildTimeoutSecondsInput?.value,
+      state.settings.dreamProjectRebuildTimeoutMs ?? 180000,
+    ),
   };
 }
 
@@ -1315,9 +1316,7 @@ function normalizeEntry(level, rawInput) {
 
   if (level === "l2_time") {
     return {
-      level,
-      id: getRawId(level, raw),
-      badge: "time",
+      level, id: getRawId(level, raw), badge: "time",
       title: raw.dateKey || t("entry.unnamed.time"),
       subtitle: raw.summary || t("detail.noSummary"),
       meta: `L1 ${raw.l1Source?.length ?? 0} · ${formatTime(raw.updatedAt)}`,
@@ -1327,9 +1326,7 @@ function normalizeEntry(level, rawInput) {
 
   if (level === "l2_project") {
     return {
-      level,
-      id: getRawId(level, raw),
-      badge: formatStatus(raw.currentStatus),
+      level, id: getRawId(level, raw), badge: formatStatus(raw.currentStatus),
       title: raw.projectName || t("entry.unnamed.project"),
       subtitle: raw.latestProgress || raw.summary || t("detail.noProgress"),
       meta: `${t("meta.sourceCount", raw.l1Source?.length ?? 0)} · ${formatTime(raw.updatedAt)}`,
@@ -1339,9 +1336,7 @@ function normalizeEntry(level, rawInput) {
 
   if (level === "l1") {
     return {
-      level,
-      id: getRawId(level, raw),
-      badge: "topic",
+      level, id: getRawId(level, raw), badge: "topic",
       title: raw.timePeriod || t("entry.unnamed.window"),
       subtitle: raw.summary || t("detail.noSummary"),
       meta: `${t("meta.l0Count", raw.l0Source?.length ?? 0)} · ${t("meta.projectCount", raw.projectDetails?.length ?? 0)}`,
@@ -1354,9 +1349,7 @@ function normalizeEntry(level, rawInput) {
     const userMsgs = msgs.filter((m) => m.role === "user").map((m) => m.content);
     const asstMsgs = msgs.filter((m) => m.role === "assistant").map((m) => m.content);
     return {
-      level,
-      id: getRawId(level, raw),
-      badge: "raw",
+      level, id: getRawId(level, raw), badge: "raw",
       title: shortText(userMsgs[userMsgs.length - 1] || t("entry.unnamed.session"), 80),
       subtitle: shortText(asstMsgs[asstMsgs.length - 1] || t("detail.noMessages"), 180),
       meta: formatTime(raw.timestamp),
@@ -1366,9 +1359,7 @@ function normalizeEntry(level, rawInput) {
 
   if (level === "profile") {
     return {
-      level,
-      id: getRawId(level, raw),
-      badge: "profile",
+      level, id: getRawId(level, raw), badge: "profile",
       title: t("entry.globalProfile"),
       subtitle: raw.profileText || t("detail.noProfile"),
       meta: `L1 ${raw.sourceL1Ids?.length ?? 0} · ${formatTime(raw.updatedAt)}`,
@@ -1577,9 +1568,7 @@ async function navigateToRecord(id, level) {
         raw = data[0];
         lookupMap[id] = raw;
       }
-    } catch (e) {
-      console.warn("Failed to fetch record:", e);
-    }
+    } catch (e) { console.warn("Failed to fetch record:", e); }
   }
   if (!raw) return;
   const entry = normalizeEntry(level, raw);
@@ -1624,8 +1613,7 @@ function createMessageList(messages = []) {
   list.className = "message-list";
   messages.forEach((msg) => {
     const item = document.createElement("div");
-    const roleClass =
-      msg.role === "user" ? " is-user" : msg.role === "assistant" ? " is-assistant" : "";
+    const roleClass = msg.role === "user" ? " is-user" : msg.role === "assistant" ? " is-assistant" : "";
     item.className = `message-item${roleClass}`;
     const role = document.createElement("div");
     role.className = "message-role";
@@ -1663,10 +1651,7 @@ function renderDetail() {
     );
     detailBody.append(
       createDetailSection(t("detail.summary"), raw.summary || t("detail.noSummary")),
-      createDetailSection(
-        t("detail.sourceWindows"),
-        createClickableTagList(raw.l1Source || [], "l1"),
-      ),
+      createDetailSection(t("detail.sourceWindows"), createClickableTagList(raw.l1Source || [], "l1")),
     );
     return;
   }
@@ -1680,10 +1665,7 @@ function renderDetail() {
     detailBody.append(
       createDetailSection(t("detail.summary"), raw.summary || t("detail.noSummary")),
       createDetailSection(t("detail.progress"), raw.latestProgress || t("detail.noProgress")),
-      createDetailSection(
-        t("detail.sourceWindows"),
-        createClickableTagList(raw.l1Source || [], "l1"),
-      ),
+      createDetailSection(t("detail.sourceWindows"), createClickableTagList(raw.l1Source || [], "l1")),
     );
     return;
   }
@@ -1697,17 +1679,10 @@ function renderDetail() {
     detailBody.append(
       createDetailSection(t("detail.summary"), raw.summary || t("detail.noSummary")),
       createDetailSection(t("detail.situation"), raw.situationTimeInfo || t("detail.noSituation")),
-      createDetailSection(
-        t("detail.projects"),
-        raw.projectDetails?.length
-          ? createProjectStack(raw.projectDetails)
-          : t("detail.noProjects"),
-      ),
+      createDetailSection(t("detail.projects"), raw.projectDetails?.length ? createProjectStack(raw.projectDetails) : t("detail.noProjects")),
       createDetailSection(
         t("detail.facts"),
-        raw.facts?.length
-          ? createTagList(raw.facts.map((f) => `${f.factKey}: ${f.factValue}`))
-          : t("detail.noFacts"),
+        raw.facts?.length ? createTagList(raw.facts.map((f) => `${f.factKey}: ${f.factValue}`)) : t("detail.noFacts"),
       ),
       createDetailSection(t("detail.sourceL0"), createClickableTagList(raw.l0Source || [], "l0")),
     );
@@ -1733,10 +1708,7 @@ function renderDetail() {
     );
     detailBody.append(
       createDetailSection(t("detail.profileSummary"), raw.profileText || t("detail.noProfile")),
-      createDetailSection(
-        t("detail.sourceWindows"),
-        createClickableTagList(raw.sourceL1Ids || [], "l1"),
-      ),
+      createDetailSection(t("detail.sourceWindows"), createClickableTagList(raw.sourceL1Ids || [], "l1")),
     );
   }
 }
@@ -1859,7 +1831,7 @@ function createProjectCard(project) {
   const id = project.l2IndexId || project.projectKey || project.projectName || "";
   card.dataset.id = id;
   const connId = state.connectionTarget
-    ? state.connectionTarget.l2IndexId || state.connectionTarget.projectKey || ""
+    ? (state.connectionTarget.l2IndexId || state.connectionTarget.projectKey || "")
     : "";
   if (connId && connId === id) card.classList.add("active");
 
@@ -1901,7 +1873,7 @@ function renderTimelineBoard() {
     node.className = "timeline-node";
     const recId = record.l2IndexId || record.dateKey || "";
     const connId = state.connectionTarget
-      ? state.connectionTarget.l2IndexId || state.connectionTarget.dateKey || ""
+      ? (state.connectionTarget.l2IndexId || state.connectionTarget.dateKey || "")
       : "";
     if (connId && connId === recId) node.classList.add("active");
 
@@ -1940,22 +1912,14 @@ async function showL1Detail(id) {
   if (!raw) {
     try {
       const data = await fetchJson(`./api/l1/byIds?ids=${encodeURIComponent(id)}`);
-      if (data && data.length > 0) {
-        raw = data[0];
-        state.l1ById[id] = raw;
-      }
-    } catch (e) {
-      console.warn("Failed to fetch L1:", e);
-    }
+      if (data && data.length > 0) { raw = data[0]; state.l1ById[id] = raw; }
+    } catch (e) { console.warn("Failed to fetch L1:", e); }
   }
   if (!raw) return;
   const entry = normalizeEntry("l1", raw);
   if (!entry) return;
   let idx = state.visibleItems.findIndex((i) => i.id === entry.id);
-  if (idx < 0) {
-    state.visibleItems.push(entry);
-    idx = state.visibleItems.length - 1;
-  }
+  if (idx < 0) { state.visibleItems.push(entry); idx = state.visibleItems.length - 1; }
   state.selectedIndex = idx;
   renderDetail();
   setPanel("detail");
@@ -1976,12 +1940,8 @@ async function renderProfileBoard() {
   if (missingL1.length > 0) {
     try {
       const data = await fetchJson(`./api/l1/byIds?ids=${missingL1.join(",")}`);
-      (data || []).forEach((r) => {
-        if (r.l1IndexId) state.l1ById[r.l1IndexId] = r;
-      });
-    } catch (e) {
-      console.warn("Failed to fetch L1 for profile:", e);
-    }
+      (data || []).forEach((r) => { if (r.l1IndexId) state.l1ById[r.l1IndexId] = r; });
+    } catch (e) { console.warn("Failed to fetch L1 for profile:", e); }
   }
 
   const card = document.createElement("div");
@@ -2028,14 +1988,7 @@ async function renderProfileBoard() {
 /* ── Connection Panel ────────────────────────────────────── */
 
 function getRecordId(record) {
-  return (
-    record.l2IndexId ||
-    record.recordId ||
-    record.dateKey ||
-    record.projectKey ||
-    record.projectName ||
-    ""
-  );
+  return record.l2IndexId || record.recordId || record.dateKey || record.projectKey || record.projectName || "";
 }
 
 async function openConnection(l2Record, type) {
@@ -2055,33 +2008,25 @@ async function openConnection(l2Record, type) {
   connectionPanel.classList.add("conn-open");
 
   const l1SourceIds = l2Record.l1Source || l2Record.sourceL1Ids || [];
-  const missingL1 = l1SourceIds.filter((id) => !state.l1ById[id]);
+  const missingL1 = l1SourceIds.filter(id => !state.l1ById[id]);
   if (missingL1.length > 0) {
     try {
       const l1Data = await fetchJson(`./api/l1/byIds?ids=${missingL1.join(",")}`);
-      (l1Data || []).forEach((r) => {
-        if (r.l1IndexId) state.l1ById[r.l1IndexId] = r;
-      });
-    } catch (e) {
-      console.warn("Failed to fetch missing L1:", e);
-    }
+      (l1Data || []).forEach(r => { if (r.l1IndexId) state.l1ById[r.l1IndexId] = r; });
+    } catch (e) { console.warn("Failed to fetch missing L1:", e); }
   }
 
   const allL0Ids = new Set();
-  l1SourceIds.forEach((l1Id) => {
+  l1SourceIds.forEach(l1Id => {
     const l1 = state.l1ById[l1Id];
-    if (l1 && l1.l0Source) l1.l0Source.forEach((id) => allL0Ids.add(id));
+    if (l1 && l1.l0Source) l1.l0Source.forEach(id => allL0Ids.add(id));
   });
-  const missingL0 = [...allL0Ids].filter((id) => !state.l0ById[id]);
+  const missingL0 = [...allL0Ids].filter(id => !state.l0ById[id]);
   if (missingL0.length > 0) {
     try {
       const l0Data = await fetchJson(`./api/l0/byIds?ids=${missingL0.join(",")}`);
-      (l0Data || []).forEach((r) => {
-        if (r.l0IndexId) state.l0ById[r.l0IndexId] = r;
-      });
-    } catch (e) {
-      console.warn("Failed to fetch missing L0:", e);
-    }
+      (l0Data || []).forEach(r => { if (r.l0IndexId) state.l0ById[r.l0IndexId] = r; });
+    } catch (e) { console.warn("Failed to fetch missing L0:", e); }
   }
 
   renderConnectionGraph(l2Record, type);
@@ -2154,24 +2099,10 @@ function fillConnColumns() {
   l1Header.className = "conn-col-header";
   l1Header.innerHTML = `<span>${t("connection.l1")}</span>`;
   if (l1TotalPages > 1) {
-    l1Header.append(
-      createConnPager(
-        state.connL1Page,
-        l1TotalPages,
-        () => {
-          state.connL1Page--;
-          state.connActiveL1 = null;
-          state.connL0Page = 0;
-          fillConnColumns();
-        },
-        () => {
-          state.connL1Page++;
-          state.connActiveL1 = null;
-          state.connL0Page = 0;
-          fillConnColumns();
-        },
-      ),
-    );
+    l1Header.append(createConnPager(state.connL1Page, l1TotalPages,
+      () => { state.connL1Page--; state.connActiveL1 = null; state.connL0Page = 0; fillConnColumns(); },
+      () => { state.connL1Page++; state.connActiveL1 = null; state.connL0Page = 0; fillConnColumns(); },
+    ));
   }
   colL1.append(l1Header);
 
@@ -2207,20 +2138,10 @@ function fillConnColumns() {
   l0Header.className = "conn-col-header";
   l0Header.innerHTML = `<span>${t("connection.l0")}</span>`;
   if (l0TotalPages > 1) {
-    l0Header.append(
-      createConnPager(
-        state.connL0Page,
-        l0TotalPages,
-        () => {
-          state.connL0Page--;
-          fillConnColumns();
-        },
-        () => {
-          state.connL0Page++;
-          fillConnColumns();
-        },
-      ),
-    );
+    l0Header.append(createConnPager(state.connL0Page, l0TotalPages,
+      () => { state.connL0Page--; fillConnColumns(); },
+      () => { state.connL0Page++; fillConnColumns(); },
+    ));
   }
   colL0.append(l0Header);
 
@@ -2253,12 +2174,11 @@ function createConnNode(level, record, type) {
     node.dataset.id = getRecordId(record);
     const title = document.createElement("div");
     title.className = "conn-node-title";
-    title.textContent =
-      type === "l2_project"
-        ? record.projectName || t("entry.unnamed.project")
-        : type === "profile"
-          ? t("entry.globalProfile")
-          : record.dateKey || t("entry.unnamed.time");
+    title.textContent = type === "l2_project"
+      ? (record.projectName || t("entry.unnamed.project"))
+      : type === "profile"
+        ? t("entry.globalProfile")
+        : (record.dateKey || t("entry.unnamed.time"));
     const sub = document.createElement("div");
     sub.className = "conn-node-sub";
     sub.textContent = record.summary || record.latestProgress || record.profileText || "";
@@ -2279,10 +2199,7 @@ function createConnNode(level, record, type) {
     const asstMsgs = msgs.filter((m) => m.role === "assistant");
     const title = document.createElement("div");
     title.className = "conn-node-title";
-    title.textContent = shortText(
-      userMsgs[userMsgs.length - 1]?.content || t("entry.unnamed.session"),
-      50,
-    );
+    title.textContent = shortText(userMsgs[userMsgs.length - 1]?.content || t("entry.unnamed.session"), 50);
     const sub = document.createElement("div");
     sub.className = "conn-node-sub";
     sub.textContent = shortText(asstMsgs[asstMsgs.length - 1]?.content || "", 70);
@@ -2327,10 +2244,7 @@ function createConnPager(page, totalPages, onPrev, onNext) {
   prev.className = "conn-pager-btn";
   prev.textContent = "\u2039";
   prev.disabled = page <= 0;
-  prev.addEventListener("click", (e) => {
-    e.stopPropagation();
-    onPrev();
-  });
+  prev.addEventListener("click", (e) => { e.stopPropagation(); onPrev(); });
   const info = document.createElement("span");
   info.className = "conn-pager-info";
   info.textContent = `${page + 1} / ${totalPages}`;
@@ -2339,10 +2253,7 @@ function createConnPager(page, totalPages, onPrev, onNext) {
   next.className = "conn-pager-btn";
   next.textContent = "\u203A";
   next.disabled = page >= totalPages - 1;
-  next.addEventListener("click", (e) => {
-    e.stopPropagation();
-    onNext();
-  });
+  next.addEventListener("click", (e) => { e.stopPropagation(); onNext(); });
   wrap.append(prev, info, next);
   return wrap;
 }
@@ -2428,9 +2339,7 @@ function clearHighlight() {
   if (!graph) return;
   delete graph.dataset.highlight;
   graph.querySelectorAll(".conn-node").forEach((n) => n.classList.remove("conn-dim", "conn-hl"));
-  connectionSvg
-    .querySelectorAll(".conn-line")
-    .forEach((p) => p.classList.remove("conn-line-dim", "conn-line-hl"));
+  connectionSvg.querySelectorAll(".conn-line").forEach((p) => p.classList.remove("conn-line-dim", "conn-line-hl"));
 }
 
 function highlightL1(l1Id) {
@@ -2442,25 +2351,12 @@ function highlightL1(l1Id) {
 
   graph.dataset.highlight = l1Id;
   graph.querySelectorAll(".conn-node").forEach((n) => n.classList.add("conn-dim"));
-  graph.querySelectorAll(`.conn-node-l1[data-id="${l1Id}"]`).forEach((n) => {
-    n.classList.remove("conn-dim");
-    n.classList.add("conn-hl");
-  });
-  graph.querySelectorAll(`.conn-node-l0[data-parent="${l1Id}"]`).forEach((n) => {
-    n.classList.remove("conn-dim");
-    n.classList.add("conn-hl");
-  });
-  graph.querySelectorAll(".conn-node-l2").forEach((n) => {
-    n.classList.remove("conn-dim");
-  });
+  graph.querySelectorAll(`.conn-node-l1[data-id="${l1Id}"]`).forEach((n) => { n.classList.remove("conn-dim"); n.classList.add("conn-hl"); });
+  graph.querySelectorAll(`.conn-node-l0[data-parent="${l1Id}"]`).forEach((n) => { n.classList.remove("conn-dim"); n.classList.add("conn-hl"); });
+  graph.querySelectorAll(".conn-node-l2").forEach((n) => { n.classList.remove("conn-dim"); });
   connectionSvg.querySelectorAll(".conn-line").forEach((p) => {
-    if (p.dataset.l1 === l1Id) {
-      p.classList.remove("conn-line-dim");
-      p.classList.add("conn-line-hl");
-    } else {
-      p.classList.add("conn-line-dim");
-      p.classList.remove("conn-line-hl");
-    }
+    if (p.dataset.l1 === l1Id) { p.classList.remove("conn-line-dim"); p.classList.add("conn-line-hl"); }
+    else { p.classList.add("conn-line-dim"); p.classList.remove("conn-line-hl"); }
   });
 }
 
@@ -2585,17 +2481,15 @@ async function loadLevel(level, query = "") {
 async function refreshDashboard(msgKey = "status.refreshed", tone = "success", ...args) {
   setActivity("status.refreshing");
   await loadSnapshot();
-  const memoryTraceVisible =
-    (state.viewMode === "command_center" && state.activeBoard === "memory_trace") ||
-    (state.viewMode === "list" && state.activeLevel === "memory_trace");
+  const memoryTraceVisible = (
+    (state.viewMode === "command_center" && state.activeBoard === "memory_trace")
+    || (state.viewMode === "list" && state.activeLevel === "memory_trace")
+  );
   if (memoryTraceVisible) {
     await loadCases({ silent: false, preserveScroll: true });
   }
   await loadLevel(state.activeLevel, listQueryInput.value || "");
-  if (
-    state.overview.startupRepairStatus === "running" ||
-    state.overview.startupRepairStatus === "failed"
-  ) {
+  if (state.overview.startupRepairStatus === "running" || state.overview.startupRepairStatus === "failed") {
     updateActivityFromOverview();
     return;
   }
@@ -2645,8 +2539,7 @@ function renderDebugValue(value) {
 
 function getCurrentMemoryTraceRoot() {
   if (state.viewMode === "list" && state.activeLevel === "memory_trace") return entryList;
-  if (state.viewMode === "command_center" && state.activeBoard === "memory_trace")
-    return memoryTraceBoard;
+  if (state.viewMode === "command_center" && state.activeBoard === "memory_trace") return memoryTraceBoard;
   return null;
 }
 
@@ -2669,9 +2562,11 @@ function restoreMemoryTraceScrollState(root, scrollState) {
 }
 
 function getPromptDebugStateKey(step, promptDebug) {
-  return [state.selectedCaseId || "", step?.stepId || "", promptDebug?.requestLabel || ""].join(
-    "::",
-  );
+  return [
+    state.selectedCaseId || "",
+    step?.stepId || "",
+    promptDebug?.requestLabel || "",
+  ].join("::");
 }
 
 function createPromptDebugBlock(promptDebug, step) {
@@ -2692,16 +2587,10 @@ function createPromptDebugBlock(promptDebug, step) {
   const sections = [
     { title: t("board.memoryTrace.systemPrompt"), value: promptDebug.systemPrompt || "" },
     { title: t("board.memoryTrace.userPrompt"), value: promptDebug.userPrompt || "" },
-    {
-      title: t("board.memoryTrace.rawOutput"),
-      value: promptDebug.rawResponse || promptDebug.errorMessage || "",
-    },
+    { title: t("board.memoryTrace.rawOutput"), value: promptDebug.rawResponse || promptDebug.errorMessage || "" },
   ];
   if (promptDebug.parsedResult !== undefined) {
-    sections.push({
-      title: t("board.memoryTrace.parsedResult"),
-      value: renderDebugValue(promptDebug.parsedResult),
-    });
+    sections.push({ title: t("board.memoryTrace.parsedResult"), value: renderDebugValue(promptDebug.parsedResult) });
   }
 
   sections.forEach((section) => {
@@ -2822,9 +2711,7 @@ function createToolEventItem(event) {
   title.textContent = `${event.toolName} · ${event.phase}`;
   const meta = document.createElement("span");
   meta.className = "memory-trace-kind-badge";
-  meta.textContent = formatCaseStatus(
-    event.status === "running" ? "running" : event.status === "error" ? "error" : "completed",
-  );
+  meta.textContent = formatCaseStatus(event.status === "running" ? "running" : event.status === "error" ? "error" : "completed");
   head.append(title, meta);
 
   const summary = document.createElement("div");
@@ -2905,8 +2792,7 @@ function createMemoryTraceSelector() {
     return wrap;
   }
 
-  const active =
-    state.cases.find((record) => record.caseId === state.selectedCaseId) || state.cases[0];
+  const active = state.cases.find((record) => record.caseId === state.selectedCaseId) || state.cases[0];
   const trigger = document.createElement("button");
   trigger.type = "button";
   trigger.className = "memory-trace-selector-trigger";
@@ -2982,7 +2868,7 @@ function createMemoryTraceTimeline(record) {
 
       const stepCard = createMemoryTraceStep(step, index);
       stepCard.addEventListener("click", () => {
-        state.selectedCaseStepId = state.selectedCaseStepId === step.stepId ? "" : step.stepId;
+        state.selectedCaseStepId = (state.selectedCaseStepId === step.stepId) ? "" : step.stepId;
         renderVisibleMemoryTrace({ preserveScroll: true });
       });
       item.append(stepCard);
@@ -3039,18 +2925,9 @@ function createMemoryTraceHero(record) {
   chips.className = "memory-trace-meta-grid";
   chips.append(
     createTraceMetaChip(t("board.memoryTrace.status"), formatCaseStatus(record.status)),
-    createTraceMetaChip(
-      t("board.memoryTrace.mode"),
-      record.retrieval?.trace?.mode || t("board.memoryTrace.none"),
-    ),
-    createTraceMetaChip(
-      t("board.memoryTrace.enoughAt"),
-      t(`enough.${record.retrieval?.enoughAt || "none"}`),
-    ),
-    createTraceMetaChip(
-      t("board.memoryTrace.injected"),
-      formatInjectedFlag(Boolean(record.retrieval?.injected)),
-    ),
+    createTraceMetaChip(t("board.memoryTrace.mode"), record.retrieval?.trace?.mode || t("board.memoryTrace.none")),
+    createTraceMetaChip(t("board.memoryTrace.enoughAt"), t(`enough.${record.retrieval?.enoughAt || "none"}`)),
+    createTraceMetaChip(t("board.memoryTrace.injected"), formatInjectedFlag(Boolean(record.retrieval?.injected))),
     createTraceMetaChip(t("board.memoryTrace.session"), record.sessionKey || "-"),
     createTraceMetaChip(t("board.memoryTrace.started"), formatTime(record.startedAt)),
     createTraceMetaChip(t("board.memoryTrace.finished"), formatTime(record.finishedAt || "")),
@@ -3117,7 +2994,10 @@ function renderMemoryTraceWorkspace(target, options = {}) {
   }
 
   const record = state.selectedCase;
-  page.append(createMemoryTraceHero(record), createMemoryTraceTimeline(record));
+  page.append(
+    createMemoryTraceHero(record),
+    createMemoryTraceTimeline(record),
+  );
 
   target.append(page);
   restoreMemoryTraceScrollState(listMode ? entryList : target, scrollState);
@@ -3163,26 +3043,17 @@ async function loadCases(options = {}) {
   const { silent = false, preserveScroll = silent } = options;
   state.caseLoading = true;
   if (!silent) {
-    renderVisibleMemoryTrace({
-      preserveScroll,
-      forceLoading: !state.cases.length && !state.selectedCase,
-    });
+    renderVisibleMemoryTrace({ preserveScroll, forceLoading: !state.cases.length && !state.selectedCase });
   }
   state.cases = await fetchJson("./api/cases?limit=5");
   if (!Array.isArray(state.cases)) state.cases = [];
-  if (
-    !state.selectedCaseId ||
-    !state.cases.some((record) => record.caseId === state.selectedCaseId)
-  ) {
+  if (!state.selectedCaseId || !state.cases.some((record) => record.caseId === state.selectedCaseId)) {
     state.selectedCaseId = state.cases[0]?.caseId || "";
   }
   if (state.selectedCaseId) {
     state.selectedCase = await fetchJson(`./api/cases/${encodeURIComponent(state.selectedCaseId)}`);
     const steps = state.selectedCase?.retrieval?.trace?.steps || [];
-    if (
-      state.selectedCaseStepId &&
-      !steps.some((step) => step.stepId === state.selectedCaseStepId)
-    ) {
+    if (state.selectedCaseStepId && !steps.some((step) => step.stepId === state.selectedCaseStepId)) {
       state.selectedCaseStepId = steps[0]?.stepId || "";
     }
   } else {
@@ -3198,12 +3069,47 @@ async function loadCases(options = {}) {
 /* ── Actions ─────────────────────────────────────────────── */
 
 async function saveSettings() {
+  const requestId = ++settingsSaveRequestId;
   const payload = readSettingsForm();
   const settings = await postJson("./api/settings", payload);
-  applySettings(settings);
-  const modeLabel = t(`reasoning.${settings.reasoningMode || "answer_first"}`);
-  const summary = `${modeLabel} · topK=${settings.recallTopK ?? 10} · index=${formatScheduleHours(settings.autoIndexIntervalMinutes)} · dream=${formatScheduleHours(settings.autoDreamIntervalMinutes)} / L1>=${settings.autoDreamMinNewL1 ?? 10}`;
+  if (requestId !== settingsSaveRequestId) return;
+  syncSavedSettings(settings, { syncForm: true });
+  const summary = buildSettingsSummary(settings);
   setActivity("status.settingsSaved", "success", summary);
+}
+
+async function saveReasoningMode(mode) {
+  const nextMode = mode === "accuracy_first" ? "accuracy_first" : "answer_first";
+  const previousMode = state.settings.reasoningMode || "answer_first";
+  if (nextMode === previousMode) return;
+
+  state.settings = {
+    ...state.settings,
+    reasoningMode: nextMode,
+  };
+  renderOverview({
+    ...state.overview,
+    currentReasoningMode: nextMode,
+  });
+
+  const requestId = ++settingsSaveRequestId;
+  try {
+    const settings = await postJson("./api/settings", { reasoningMode: nextMode });
+    if (requestId !== settingsSaveRequestId) return;
+    syncSavedSettings(settings, { syncForm: false });
+    setActivity("status.settingsSaved", "success", buildSettingsSummary(settings));
+  } catch (error) {
+    if (requestId !== settingsSaveRequestId) return;
+    state.settings = {
+      ...state.settings,
+      reasoningMode: previousMode,
+    };
+    renderOverview({
+      ...state.overview,
+      currentReasoningMode: previousMode,
+    });
+    setActivity("status.loadFail", "danger", error instanceof Error ? error.message : String(error));
+  }
 }
 
 function showModal({ icon, iconClass, title, body, confirmText, cancelText, confirmClass }) {
@@ -3232,15 +3138,9 @@ function showModal({ icon, iconClass, title, body, confirmText, cancelText, conf
       overlay.removeEventListener("click", onBackdrop);
       resolve(result);
     }
-    function onConfirm() {
-      cleanup(true);
-    }
-    function onCancel() {
-      cleanup(false);
-    }
-    function onBackdrop(e) {
-      if (e.target === overlay) cleanup(false);
-    }
+    function onConfirm() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onBackdrop(e) { if (e.target === overlay) cleanup(false); }
 
     confirmBtn.addEventListener("click", onConfirm);
     cancelBtn.addEventListener("click", onCancel);
@@ -3250,8 +3150,7 @@ function showModal({ icon, iconClass, title, body, confirmText, cancelText, conf
 
 async function buildNow() {
   const ok = await showModal({
-    icon: "⟳",
-    iconClass: "icon-sync",
+    icon: "⟳", iconClass: "icon-sync",
     title: t("confirm.sync.title"),
     body: t("confirm.sync.body"),
     confirmText: t("confirm.sync.ok"),
@@ -3259,21 +3158,12 @@ async function buildNow() {
   if (!ok) return;
   setActivity("status.building");
   const s = await postJson("./api/index/run");
-  await refreshDashboard(
-    "status.built",
-    "success",
-    s.l0Captured ?? 0,
-    s.l1Created ?? 0,
-    s.l2TimeUpdated ?? 0,
-    s.l2ProjectUpdated ?? 0,
-    s.profileUpdated ?? 0,
-  );
+  await refreshDashboard("status.built", "success", s.l0Captured ?? 0, s.l1Created ?? 0, s.l2TimeUpdated ?? 0, s.l2ProjectUpdated ?? 0, s.profileUpdated ?? 0);
 }
 
 async function dreamRun() {
   const ok = await showModal({
-    icon: "✦",
-    iconClass: "icon-sync",
+    icon: "✦", iconClass: "icon-sync",
     title: t("confirm.dream.title"),
     body: t("confirm.dream.body"),
     confirmText: t("confirm.dream.ok"),
@@ -3296,18 +3186,13 @@ async function dreamRun() {
     try {
       await refreshDashboard();
     } catch {}
-    setActivity(
-      "status.dreamFailed",
-      "danger",
-      error instanceof Error ? error.message : String(error),
-    );
+    setActivity("status.dreamFailed", "danger", error instanceof Error ? error.message : String(error));
   }
 }
 
 async function clearMemory() {
   const ok = await showModal({
-    icon: "⚠",
-    iconClass: "icon-danger",
+    icon: "⚠", iconClass: "icon-danger",
     title: t("confirm.clear.title"),
     body: t("confirm.clear.body"),
     confirmText: t("confirm.clear.ok"),
@@ -3337,18 +3222,13 @@ async function exportMemory() {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
     setActivity("status.exported", "success", filename);
   } catch (error) {
-    setActivity(
-      "status.exportFailed",
-      "danger",
-      error instanceof Error ? error.message : String(error),
-    );
+    setActivity("status.exportFailed", "danger", error instanceof Error ? error.message : String(error));
   }
 }
 
 async function importMemoryBundle(bundle) {
   const ok = await showModal({
-    icon: "⇪",
-    iconClass: "icon-danger",
+    icon: "⇪", iconClass: "icon-danger",
     title: t("confirm.import.title"),
     body: t("confirm.import.body"),
     confirmText: t("confirm.import.ok"),
@@ -3376,22 +3256,13 @@ async function handleImportFile(file) {
   try {
     const raw = await file.text();
     const parsed = JSON.parse(raw);
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !Array.isArray(parsed.l0Sessions) ||
-      !Array.isArray(parsed.l1Windows)
-    ) {
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.l0Sessions) || !Array.isArray(parsed.l1Windows)) {
       setActivity("status.importInvalid", "danger");
       return;
     }
     await importMemoryBundle(parsed);
   } catch (error) {
-    setActivity(
-      "status.importFailed",
-      "danger",
-      error instanceof Error ? error.message : String(error),
-    );
+    setActivity("status.importFailed", "danger", error instanceof Error ? error.message : String(error));
   } finally {
     if (importMemoryInput) importMemoryInput.value = "";
   }
@@ -3436,33 +3307,37 @@ if (importMemoryInput) {
 clearMemoryBtn.addEventListener("click", () => void clearMemory());
 const listClearBtn = document.getElementById("listClearBtn");
 listSearchBtn.addEventListener("click", () => void searchCurrentLevel());
-listQueryInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    void searchCurrentLevel();
-  }
+listQueryInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); void searchCurrentLevel(); } });
+if (listClearBtn) listClearBtn.addEventListener("click", () => {
+  listQueryInput.value = "";
+  state.isSearching = false;
+  state.listPage = 0;
+  if (listClearBtn) listClearBtn.style.display = "none";
+  void loadLevel(state.activeLevel, "");
 });
-if (listClearBtn)
-  listClearBtn.addEventListener("click", () => {
-    listQueryInput.value = "";
-    state.isSearching = false;
-    state.listPage = 0;
-    if (listClearBtn) listClearBtn.style.display = "none";
-    void loadLevel(state.activeLevel, "");
-  });
 
 const settingsPopover = document.getElementById("settingsPopover");
 const navMenuTrigger = document.getElementById("navMenuTrigger");
 
-function closePopover() {
-  settingsPopover?.classList.remove("open");
+function initSectionToggles() {
+  settingsPopover?.querySelectorAll(".popover-section-toggle").forEach((toggle) => {
+    const body = toggle.nextElementSibling;
+    if (!body || !body.classList.contains("popover-section-body")) return;
+    toggle.addEventListener("click", () => {
+      const isOpen = toggle.classList.toggle("open");
+      body.classList.toggle("open", isOpen);
+    });
+  });
 }
+initSectionToggles();
+
+function closePopover() { settingsPopover?.classList.remove("open"); }
 
 function positionPopover() {
   if (!navMenuTrigger || !settingsPopover) return;
   const rect = navMenuTrigger.getBoundingClientRect();
   settingsPopover.style.left = rect.left + "px";
-  settingsPopover.style.bottom = window.innerHeight - rect.top + 6 + "px";
+  settingsPopover.style.bottom = (window.innerHeight - rect.top + 6) + "px";
 }
 
 navMenuTrigger?.addEventListener("click", (e) => {
@@ -3475,46 +3350,37 @@ navMenuTrigger?.addEventListener("click", (e) => {
 
 settingsPopover?.addEventListener("click", (e) => {
   const item = e.target instanceof Element ? e.target.closest(".popover-item") : null;
-  if (
-    item &&
-    (item.id === "overviewToggleBtn" ||
-      item.id === "exportMemoryBtn" ||
-      item.id === "importMemoryBtn")
-  ) {
+  if (item && (item.id === "overviewToggleBtn" || item.id === "exportMemoryBtn" || item.id === "importMemoryBtn")) {
     closePopover();
   }
 });
 
 document.addEventListener("click", (e) => {
-  if (
-    settingsPopover?.classList.contains("open") &&
-    !settingsPopover.contains(e.target) &&
-    !navMenuTrigger?.contains(e.target)
-  ) {
+  if (settingsPopover?.classList.contains("open") &&
+      !settingsPopover.contains(e.target) &&
+      !navMenuTrigger?.contains(e.target)) {
     closePopover();
   }
 });
 
 if (detailToggleBtn) detailToggleBtn.addEventListener("click", () => togglePanel("detail"));
-if (reasoningModeToggle)
-  reasoningModeToggle.addEventListener("click", (e) => {
-    const btn = e.target instanceof Element ? e.target.closest("[data-mode]") : null;
-    if (!btn) return;
-    reasoningModeToggle
-      .querySelectorAll(".popover-seg-btn")
-      .forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    updateSettingsVisibility();
-  });
+if (reasoningModeToggle) reasoningModeToggle.addEventListener("click", (e) => {
+  const btn = e.target instanceof Element ? e.target.closest("[data-mode]") : null;
+  if (!btn) return;
+  const mode = btn.dataset.mode === "accuracy_first" ? "accuracy_first" : "answer_first";
+  if ((state.settings.reasoningMode || "answer_first") === mode) return;
+  reasoningModeToggle.querySelectorAll(".popover-seg-btn").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  updateSettingsVisibility();
+  void saveReasoningMode(mode);
+});
 overviewCloseBtn.addEventListener("click", () => setPanel(null));
 if (settingsCloseBtn) settingsCloseBtn.addEventListener("click", () => setPanel(null));
 detailCloseBtn.addEventListener("click", () => setPanel(null));
 navToggleBtn.addEventListener("click", () => setNavOpen(true));
 navCloseBtn.addEventListener("click", () => setNavOpen(false));
 appScrim.addEventListener("click", () => closeTransientUi());
-window.addEventListener("resize", () => {
-  if (!isNavDrawerLayout()) setNavOpen(false);
-});
+window.addEventListener("resize", () => { if (!isNavDrawerLayout()) setNavOpen(false); });
 
 themeToggle.addEventListener("click", (e) => {
   const btn = e.target instanceof Element ? e.target.closest("[data-theme-value]") : null;
@@ -3525,21 +3391,19 @@ themeToggle.addEventListener("click", (e) => {
 });
 
 const accentPicker = document.getElementById("accentPicker");
-if (accentPicker)
-  accentPicker.addEventListener("click", (e) => {
-    const dot = e.target instanceof Element ? e.target.closest("[data-accent]") : null;
-    if (!dot) return;
-    applyAccent(dot.dataset.accent);
-  });
+if (accentPicker) accentPicker.addEventListener("click", (e) => {
+  const dot = e.target instanceof Element ? e.target.closest("[data-accent]") : null;
+  if (!dot) return;
+  applyAccent(dot.dataset.accent);
+});
 
-if (langToggle)
-  langToggle.addEventListener("click", (e) => {
-    const btn = e.target instanceof Element ? e.target.closest("[data-locale]") : null;
-    if (!btn) return;
-    langToggle.querySelectorAll(".popover-seg-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    setLocale(btn.dataset.locale);
-  });
+if (langToggle) langToggle.addEventListener("click", (e) => {
+  const btn = e.target instanceof Element ? e.target.closest("[data-locale]") : null;
+  if (!btn) return;
+  langToggle.querySelectorAll(".popover-seg-btn").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  setLocale(btn.dataset.locale);
+});
 
 viewToggleBtn.addEventListener("click", () => {
   switchView(state.viewMode === "command_center" ? "list" : "command_center");
@@ -3549,11 +3413,7 @@ boardNavTabs.addEventListener("click", (e) => {
   const btn = e.target instanceof Element ? e.target.closest("[data-board]") : null;
   if (!btn) return;
   const board = btn.dataset.board;
-  if (
-    board &&
-    (board === "project" || board === "timeline" || board === "memory_trace" || board === "profile")
-  )
-    switchBoard(board);
+  if (board && (board === "project" || board === "timeline" || board === "memory_trace" || board === "profile")) switchBoard(board);
 });
 
 connectionBackBtn.addEventListener("click", () => closeConnection());
@@ -3587,7 +3447,7 @@ async function bootstrap() {
     h2.textContent = t("topbar.commandCenter");
     renderCommandCenter();
   } else {
-    await loadLevel(state.activeLevel);
+  await loadLevel(state.activeLevel);
   }
   renderDetail();
   updateActivityFromOverview();
@@ -3595,9 +3455,10 @@ async function bootstrap() {
 
 window.setInterval(() => {
   if (document.visibilityState !== "visible") return;
-  const traceVisible =
-    (state.viewMode === "command_center" && state.activeBoard === "memory_trace") ||
-    (state.viewMode === "list" && state.activeLevel === "memory_trace");
+  const traceVisible = (
+    (state.viewMode === "command_center" && state.activeBoard === "memory_trace")
+    || (state.viewMode === "list" && state.activeLevel === "memory_trace")
+  );
   if (!traceVisible || state.caseLoading) return;
   void loadCases({ silent: true, preserveScroll: true });
 }, 4000);

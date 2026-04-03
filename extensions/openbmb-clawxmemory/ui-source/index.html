@@ -101,32 +101,41 @@
               </div>
             </div>
 
-            <div class="popover-group popover-group-stack" id="latencyFieldWrap">
-              <span class="popover-label" data-i18n="settings.maxLatency">召回数量</span>
-              <input id="maxAutoReplyLatencyInput" class="popover-input" type="number" min="1" max="50" step="1" placeholder="10" />
-            </div>
-
-            <div class="popover-group popover-group-stack" id="autoIndexIntervalWrap">
-              <span class="popover-label" data-i18n="settings.autoIndexInterval">自动索引间隔（小时）</span>
-              <input id="autoIndexIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="1" />
-              <span class="popover-note" data-i18n="settings.scheduleHint">0 表示关闭自动任务</span>
-            </div>
-
-            <div class="popover-group popover-group-stack" id="autoDreamIntervalWrap">
-              <span class="popover-label" data-i18n="settings.autoDreamInterval">自动 Dream 间隔（小时）</span>
-              <input id="autoDreamIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="6" />
-              <span class="popover-note" data-i18n="settings.autoDreamHint">只有新增 L1 达到门槛时，自动 Dream 才会真正执行。</span>
-            </div>
-
-            <div class="popover-group popover-group-stack" id="autoDreamThresholdWrap">
-              <span class="popover-label" data-i18n="settings.autoDreamMinL1">自动 Dream 最小新增 L1</span>
-              <input id="autoDreamMinL1Input" class="popover-input" type="number" min="0" step="1" placeholder="10" />
-            </div>
-
-            <button class="popover-item popover-save" id="saveSettingsBtn" type="button">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              <span data-i18n="settings.save">保存设置</span>
+            <button class="popover-section-toggle" id="advancedSettingsToggle" type="button">
+              <svg class="popover-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span data-i18n="settings.advanced">高级参数</span>
             </button>
+            <div class="popover-section-body" id="advancedSettingsBody">
+              <div class="popover-section-inner">
+                <div class="popover-group popover-group-stack" id="latencyFieldWrap">
+                  <span class="popover-label" data-i18n="settings.maxLatency">召回数量</span>
+                  <input id="maxAutoReplyLatencyInput" class="popover-input" type="number" min="1" max="50" step="1" placeholder="10" />
+                </div>
+                <div class="popover-group popover-group-stack" id="autoIndexIntervalWrap">
+                  <span class="popover-label" data-i18n="settings.autoIndexInterval">自动索引间隔（小时）</span>
+                  <input id="autoIndexIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="1" />
+                  <span class="popover-note" data-i18n="settings.scheduleHint">0 表示关闭自动任务</span>
+                </div>
+                <div class="popover-group popover-group-stack" id="autoDreamIntervalWrap">
+                  <span class="popover-label" data-i18n="settings.autoDreamInterval">自动 Dream 间隔（小时）</span>
+                  <input id="autoDreamIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="6" />
+                  <span class="popover-note" data-i18n="settings.autoDreamHint">只有新增 L1 达到门槛时，自动 Dream 才会真正执行。</span>
+                </div>
+                <div class="popover-group popover-group-stack" id="autoDreamThresholdWrap">
+                  <span class="popover-label" data-i18n="settings.autoDreamMinL1">自动 Dream 最小新增 L1</span>
+                  <input id="autoDreamMinL1Input" class="popover-input" type="number" min="0" step="1" placeholder="10" />
+                </div>
+                <div class="popover-group popover-group-stack" id="dreamRebuildTimeoutWrap">
+                  <span class="popover-label" data-i18n="settings.dreamRebuildTimeout">Dream 重构超时（秒）</span>
+                  <input id="dreamRebuildTimeoutSecondsInput" class="popover-input" type="number" min="0" step="1" placeholder="180" />
+                  <span class="popover-note" data-i18n="settings.dreamRebuildTimeoutHint">默认 180 秒；0 表示不设超时，同时作用于手动和自动 Dream。</span>
+                </div>
+                <button class="popover-item popover-save" id="saveSettingsBtn" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  <span data-i18n="settings.save">保存设置</span>
+                </button>
+              </div>
+            </div>
 
             <div class="popover-divider"></div>
 
@@ -164,18 +173,26 @@
 
             <div class="popover-divider"></div>
 
-            <button class="popover-item" id="exportMemoryBtn" type="button">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span data-i18n="settings.export">导出记忆</span>
+            <button class="popover-section-toggle" id="dataManagementToggle" type="button">
+              <svg class="popover-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span data-i18n="settings.dataManagement">数据管理</span>
             </button>
-            <button class="popover-item" id="importMemoryBtn" type="button">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <span data-i18n="settings.import">导入记忆</span>
-            </button>
-            <button class="popover-item popover-danger" id="clearMemoryBtn" type="button">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              <span data-i18n="settings.clear">清除记忆</span>
-            </button>
+            <div class="popover-section-body" id="dataManagementBody">
+              <div class="popover-section-inner">
+                <button class="popover-item" id="exportMemoryBtn" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <span data-i18n="settings.export">导出记忆</span>
+                </button>
+                <button class="popover-item" id="importMemoryBtn" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span data-i18n="settings.import">导入记忆</span>
+                </button>
+                <button class="popover-item popover-danger" id="clearMemoryBtn" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  <span data-i18n="settings.clear">清除记忆</span>
+                </button>
+              </div>
+            </div>
           </div>
           <button class="nav-menu-trigger" id="navMenuTrigger" type="button">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>

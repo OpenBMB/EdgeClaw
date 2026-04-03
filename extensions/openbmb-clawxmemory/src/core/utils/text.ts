@@ -22,7 +22,7 @@ export function scoreMatch(query: string, text: string): number {
   for (const word of qWords) {
     if (t.includes(word)) hits += 1;
   }
-  const wordScore = (hits / qWords.length) * 0.7;
+  const wordScore = hits / qWords.length * 0.7;
 
   const qCompact = q.replace(/\s+/g, "");
   const tCompact = t.replace(/\s+/g, "");

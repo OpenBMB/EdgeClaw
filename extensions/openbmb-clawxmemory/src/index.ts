@@ -1,12 +1,8 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { pluginConfigJsonSchema, pluginConfigUiHints } from "./config.js";
 import { registerMemoryHooks } from "./hooks.js";
 import { buildMemoryPromptSection } from "./prompt-section.js";
 import { MemoryPluginRuntime } from "./runtime.js";
-
-function isGatewayRuntimeProcess(): boolean {
-  return process.argv.some((value) => value === "gateway" || value.includes("openclaw-gateway"));
-}
+import { pluginConfigJsonSchema, pluginConfigUiHints } from "./config.js";
 
 const plugin = definePluginEntry({
   id: "openbmb-clawxmemory",
@@ -27,17 +23,15 @@ const plugin = definePluginEntry({
     });
 
     api.registerMemoryPromptSection(buildMemoryPromptSection);
+    api.registerMemoryRuntime(runtime.getMemoryRuntimeAdapter());
 
     const tools = runtime.getTools();
     api.registerTool(() => tools, { names: tools.map((tool) => tool.name) });
     registerMemoryHooks(api, runtime);
 
-    const liveRuntimeEnabled = isGatewayRuntimeProcess();
     api.registerService({
       id: "openbmb-clawxmemory-runtime",
-      start: () => {
-        if (liveRuntimeEnabled) runtime.start();
-      },
+      start: () => runtime.start(),
       stop: () => runtime.stop(),
     });
   },

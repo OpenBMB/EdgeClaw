@@ -17,38 +17,29 @@ const noParameters = Type.Object({});
 
 const memorySearchParameters = Type.Object({
   query: Type.String({ description: "Question or topic to search in memory." }),
-  limit: Type.Optional(
-    Type.Integer({ minimum: 1, description: "Maximum items per memory level." }),
-  ),
+  limit: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum items per memory level." })),
 });
 
 const memoryListParameters = Type.Object({
-  level: Type.Optional(
-    Type.Union(
-      [
-        Type.Literal("l2"),
-        Type.Literal("l2_project"),
-        Type.Literal("l2_time"),
-        Type.Literal("l1"),
-        Type.Literal("l0"),
-      ],
-      { description: "Memory level to browse." },
-    ),
-  ),
+  level: Type.Optional(Type.Union([
+    Type.Literal("l2"),
+    Type.Literal("l2_project"),
+    Type.Literal("l2_time"),
+    Type.Literal("l1"),
+    Type.Literal("l0"),
+  ], { description: "Memory level to browse." })),
   query: Type.Optional(Type.String({ description: "Optional search string for browsing memory." })),
-  limit: Type.Optional(
-    Type.Integer({ minimum: 1, maximum: 50, description: "Maximum items to return." }),
-  ),
-  offset: Type.Optional(
-    Type.Integer({ minimum: 0, description: "Skip this many results before returning items." }),
-  ),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50, description: "Maximum items to return." })),
+  offset: Type.Optional(Type.Integer({ minimum: 0, description: "Skip this many results before returning items." })),
 });
 
 const memoryGetParameters = Type.Object({
-  level: Type.Union(
-    [Type.Literal("l2_project"), Type.Literal("l2_time"), Type.Literal("l1"), Type.Literal("l0")],
-    { description: "Memory level to read." },
-  ),
+  level: Type.Union([
+    Type.Literal("l2_project"),
+    Type.Literal("l2_time"),
+    Type.Literal("l1"),
+    Type.Literal("l0"),
+  ], { description: "Memory level to read." }),
   ids: Type.Array(Type.String({ minLength: 1 }), {
     minItems: 1,
     description: "One or more ids returned by memory_search.",
@@ -68,13 +59,7 @@ function isMemoryGetLevel(value: string): value is MemoryGetLevel {
 }
 
 function isMemoryListLevel(value: string): value is MemoryListLevel {
-  return (
-    value === "l2" ||
-    value === "l2_project" ||
-    value === "l2_time" ||
-    value === "l1" ||
-    value === "l0"
-  );
+  return value === "l2" || value === "l2_project" || value === "l2_time" || value === "l1" || value === "l0";
 }
 
 function toLimit(raw: unknown, fallback: number): number {
@@ -190,9 +175,7 @@ function buildL1ListItem(item: L1WindowRecord): Record<string, unknown> {
 }
 
 function buildL0Preview(messages: L0SessionRecord["messages"]): string {
-  const preferred = messages.find(
-    (message) => typeof message.content === "string" && message.content.trim(),
-  );
+  const preferred = messages.find((message) => typeof message.content === "string" && message.content.trim());
   if (!preferred) return "";
   return truncate(preferred.content.trim(), 160);
 }
@@ -209,10 +192,7 @@ function buildL0ListItem(item: L0SessionRecord): Record<string, unknown> {
   };
 }
 
-function compareByTimestampDesc(
-  left: { updatedAt?: string; endedAt?: string; timestamp?: string },
-  right: { updatedAt?: string; endedAt?: string; timestamp?: string },
-): number {
+function compareByTimestampDesc(left: { updatedAt?: string; endedAt?: string; timestamp?: string }, right: { updatedAt?: string; endedAt?: string; timestamp?: string }): number {
   const leftValue = left.updatedAt ?? left.endedAt ?? left.timestamp ?? "";
   const rightValue = right.updatedAt ?? right.endedAt ?? right.timestamp ?? "";
   return rightValue.localeCompare(leftValue);
@@ -244,8 +224,7 @@ export function buildPluginTools(
     {
       name: "memory_search",
       label: "Search ClawXMemory",
-      description:
-        "Search ClawXMemory and return recall context plus ids for exact follow-up reads.",
+      description: "Search ClawXMemory and return recall context plus ids for exact follow-up reads.",
       parameters: memorySearchParameters,
       async execute(_id, params) {
         const input = (params ?? {}) as Record<string, unknown>;
@@ -276,8 +255,7 @@ export function buildPluginTools(
     {
       name: "memory_overview",
       label: "Inspect ClawXMemory Status",
-      description:
-        "Return current ClawXMemory counts, freshness, runtime health, and recall diagnostics.",
+      description: "Return current ClawXMemory counts, freshness, runtime health, and recall diagnostics.",
       parameters: noParameters,
       async execute() {
         const overview = callbacks.getOverview?.() ?? repository.getOverview();
@@ -290,17 +268,13 @@ export function buildPluginTools(
     {
       name: "memory_list",
       label: "Browse ClawXMemory",
-      description:
-        "Browse recent ClawXMemory indexes and sessions, or filter them with a query string.",
+      description: "Browse recent ClawXMemory indexes and sessions, or filter them with a query string.",
       parameters: memoryListParameters,
       async execute(_id, params) {
         const input = (params ?? {}) as Record<string, unknown>;
         const levelInput = typeof input.level === "string" ? input.level.trim() : "l2";
         if (!isMemoryListLevel(levelInput)) {
-          return jsonResult({
-            ok: false,
-            error: "level must be one of l2, l2_project, l2_time, l1, l0",
-          });
+          return jsonResult({ ok: false, error: "level must be one of l2, l2_project, l2_time, l1, l0" });
         }
 
         const query = normalizeQuery(input.query);
@@ -311,18 +285,13 @@ export function buildPluginTools(
 
         if (levelInput === "l2") {
           if (query) {
-            items = repository
-              .searchL2Hits(query, pageSize)
-              .map((hit) =>
-                hit.level === "l2_project"
-                  ? buildL2ProjectListItem(hit.item)
-                  : buildL2TimeListItem(hit.item),
-              )
-              .slice(offset, offset + limit);
+            items = repository.searchL2Hits(query, pageSize).map((hit) =>
+              hit.level === "l2_project"
+                ? buildL2ProjectListItem(hit.item)
+                : buildL2TimeListItem(hit.item)
+            ).slice(offset, offset + limit);
           } else {
-            const projectItems = repository
-              .listRecentL2Projects(pageSize)
-              .map(buildL2ProjectListItem);
+            const projectItems = repository.listRecentL2Projects(pageSize).map(buildL2ProjectListItem);
             const timeItems = repository.listRecentL2Time(pageSize).map(buildL2TimeListItem);
             items = [...projectItems, ...timeItems]
               .sort(compareByTimestampDesc)
@@ -330,39 +299,25 @@ export function buildPluginTools(
           }
         } else if (levelInput === "l2_project") {
           items = query
-            ? repository
-                .searchL2ProjectIndexes(query, pageSize)
-                .filter(
-                  (hit): hit is Extract<L2SearchResult, { level: "l2_project" }> =>
-                    hit.level === "l2_project",
-                )
-                .map((hit) => buildL2ProjectListItem(hit.item))
-                .slice(offset, offset + limit)
+            ? repository.searchL2ProjectIndexes(query, pageSize)
+              .filter((hit): hit is Extract<L2SearchResult, { level: "l2_project" }> => hit.level === "l2_project")
+              .map((hit) => buildL2ProjectListItem(hit.item))
+              .slice(offset, offset + limit)
             : repository.listRecentL2Projects(limit, offset).map(buildL2ProjectListItem);
         } else if (levelInput === "l2_time") {
           items = query
-            ? repository
-                .searchL2TimeIndexes(query, pageSize)
-                .filter(
-                  (hit): hit is Extract<L2SearchResult, { level: "l2_time" }> =>
-                    hit.level === "l2_time",
-                )
-                .map((hit) => buildL2TimeListItem(hit.item))
-                .slice(offset, offset + limit)
+            ? repository.searchL2TimeIndexes(query, pageSize)
+              .filter((hit): hit is Extract<L2SearchResult, { level: "l2_time" }> => hit.level === "l2_time")
+              .map((hit) => buildL2TimeListItem(hit.item))
+              .slice(offset, offset + limit)
             : repository.listRecentL2Time(limit, offset).map(buildL2TimeListItem);
         } else if (levelInput === "l1") {
           items = query
-            ? repository
-                .searchL1(query, pageSize)
-                .map(buildL1ListItem)
-                .slice(offset, offset + limit)
+            ? repository.searchL1(query, pageSize).map(buildL1ListItem).slice(offset, offset + limit)
             : repository.listRecentL1(limit, offset).map(buildL1ListItem);
         } else {
           items = query
-            ? repository
-                .searchL0(query, pageSize)
-                .map(buildL0ListItem)
-                .slice(offset, offset + limit)
+            ? repository.searchL0(query, pageSize).map(buildL0ListItem).slice(offset, offset + limit)
             : repository.listRecentL0(limit, offset).map(buildL0ListItem);
         }
 
@@ -387,23 +342,18 @@ export function buildPluginTools(
         const level = typeof input.level === "string" ? input.level.trim() : "";
         const ids = normalizeIds(input.ids);
         if (!isMemoryGetLevel(level)) {
-          return jsonResult({
-            ok: false,
-            error: "level must be one of l2_project, l2_time, l1, l0",
-          });
+          return jsonResult({ ok: false, error: "level must be one of l2_project, l2_time, l1, l0" });
         }
         if (ids.length === 0) {
           return jsonResult({ ok: false, error: "ids must contain at least one non-empty id" });
         }
 
         const records = selectRecords(repository, level, ids);
-        const foundIds = new Set(
-          records.map((record) => {
-            if ("l2IndexId" in record) return record.l2IndexId;
-            if ("l1IndexId" in record) return record.l1IndexId;
-            return record.l0IndexId;
-          }),
-        );
+        const foundIds = new Set(records.map((record) => {
+          if ("l2IndexId" in record) return record.l2IndexId;
+          if ("l1IndexId" in record) return record.l1IndexId;
+          return record.l0IndexId;
+        }));
 
         return jsonResult({
           ok: true,
@@ -419,8 +369,7 @@ export function buildPluginTools(
     {
       name: "memory_flush",
       label: "Flush ClawXMemory",
-      description:
-        "Run a manual ClawXMemory indexing flush so pending memory becomes searchable sooner.",
+      description: "Run a manual ClawXMemory indexing flush so pending memory becomes searchable sooner.",
       parameters: noParameters,
       async execute() {
         if (!callbacks.flushAll) {

@@ -2,14 +2,7 @@
 name: memory-dream-review
 description: Review ClawXMemory memory quality with a read-only Dream pass over recent L1, linked project memories, and the global profile.
 homepage: https://github.com/OpenBMB/ClawXMemory/tree/main/clawxmemory
-metadata:
-  {
-    "openclaw":
-      {
-        "skillKey": "openbmb-clawxmemory",
-        "requires": { "config": ["plugins.entries.openbmb-clawxmemory.enabled"] },
-      },
-  }
+metadata: {"openclaw":{"skillKey":"openbmb-clawxmemory","requires":{"config":["plugins.entries.openbmb-clawxmemory.enabled"]}}}
 ---
 
 # Memory Dream Review

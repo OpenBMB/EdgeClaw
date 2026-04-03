@@ -24,50 +24,34 @@ function safeJsonParse(raw, fallback) {
   }
 }
 
-const dbPath = resolve(
-  parseArg("--db", join(homedir(), ".openclaw", "clawxmemory", "memory.sqlite")),
-);
+const dbPath = resolve(parseArg("--db", join(homedir(), ".openclaw", "clawxmemory", "memory.sqlite")));
 const limit = parsePositiveInt(parseArg("--limit", "5"), 5);
 
 if (!existsSync(dbPath)) {
-  console.error(
-    JSON.stringify(
-      {
-        ok: false,
-        error: "Database file not found",
-        dbPath,
-      },
-      null,
-      2,
-    ),
-  );
+  console.error(JSON.stringify({
+    ok: false,
+    error: "Database file not found",
+    dbPath,
+  }, null, 2));
   process.exit(1);
 }
 
 const db = new DatabaseSync(dbPath);
 
 const l0Rows = db
-  .prepare(
-    "SELECT l0_index_id, session_key, timestamp, messages_json FROM l0_sessions ORDER BY timestamp DESC LIMIT ?",
-  )
+  .prepare("SELECT l0_index_id, session_key, timestamp, messages_json FROM l0_sessions ORDER BY timestamp DESC LIMIT ?")
   .all(limit);
 
 const l1Rows = db
-  .prepare(
-    "SELECT l1_index_id, time_period, summary, project_tags_json FROM l1_windows ORDER BY created_at DESC LIMIT ?",
-  )
+  .prepare("SELECT l1_index_id, time_period, summary, project_tags_json FROM l1_windows ORDER BY created_at DESC LIMIT ?")
   .all(limit);
 
 const l2ProjectRows = db
-  .prepare(
-    "SELECT l2_index_id, project_name, current_status, latest_progress FROM l2_project_indexes ORDER BY updated_at DESC LIMIT ?",
-  )
+  .prepare("SELECT l2_index_id, project_name, current_status, latest_progress FROM l2_project_indexes ORDER BY updated_at DESC LIMIT ?")
   .all(limit);
 
 const l2TimeRows = db
-  .prepare(
-    "SELECT l2_index_id, date_key, summary FROM l2_time_indexes ORDER BY updated_at DESC LIMIT ?",
-  )
+  .prepare("SELECT l2_index_id, date_key, summary FROM l2_time_indexes ORDER BY updated_at DESC LIMIT ?")
   .all(limit);
 
 const output = {

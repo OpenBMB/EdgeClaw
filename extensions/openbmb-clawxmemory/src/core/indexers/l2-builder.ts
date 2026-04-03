@@ -15,7 +15,10 @@ function formatLocalDayKey(value: string): string {
   return `${year}-${month}-${day}`;
 }
 
-export function buildL2TimeFromL1(l1: L1WindowRecord, summary: string): L2TimeIndexRecord {
+export function buildL2TimeFromL1(
+  l1: L1WindowRecord,
+  summary: string,
+): L2TimeIndexRecord {
   const dateKey = formatLocalDayKey(l1.startedAt || l1.endedAt || l1.createdAt);
   const now = nowIso();
   return {

@@ -28,7 +28,11 @@ function resolveDefaultSkillsDir(): string {
   return fileURLToPath(new URL("../../../skills/", import.meta.url));
 }
 
-function readJsonWithFallback<T>(path: string, fallback: T, errors: string[]): T {
+function readJsonWithFallback<T>(
+  path: string,
+  fallback: T,
+  errors: string[],
+): T {
   if (!existsSync(path)) {
     errors.push(`missing file: ${path}`);
     return fallback;
@@ -44,10 +48,7 @@ function readJsonWithFallback<T>(path: string, fallback: T, errors: string[]): T
 
 function ensureKeywords(values: unknown, fallback: string[]): string[] {
   if (!Array.isArray(values)) return fallback;
-  const cleaned = values
-    .filter((v): v is string => typeof v === "string")
-    .map((v) => v.trim())
-    .filter(Boolean);
+  const cleaned = values.filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean);
   return cleaned.length > 0 ? cleaned : fallback;
 }
 
@@ -72,32 +73,22 @@ function normalizePattern(item: ExtractionPatternFile, fallback: ExtractionPatte
 }
 
 function normalizeExtractionRules(input: ExtractionRulesFile): SkillsRuntime["extractionRules"] {
-  const projectPatterns = (
-    Array.isArray(input.projectPatterns) && input.projectPatterns.length > 0
-      ? input.projectPatterns
-      : DEFAULT_EXTRACTION_RULES.projectPatterns
-  ).map((item, index) => {
-    const fallback =
-      DEFAULT_EXTRACTION_RULES.projectPatterns[index] ??
-      DEFAULT_EXTRACTION_RULES.projectPatterns[0]!;
-    return normalizePattern(item, fallback);
-  });
+  const projectPatterns = (Array.isArray(input.projectPatterns) && input.projectPatterns.length > 0
+    ? input.projectPatterns
+    : DEFAULT_EXTRACTION_RULES.projectPatterns).map((item, index) => {
+      const fallback = DEFAULT_EXTRACTION_RULES.projectPatterns[index] ?? DEFAULT_EXTRACTION_RULES.projectPatterns[0]!;
+      return normalizePattern(item, fallback);
+    });
 
-  const factRulesRaw =
-    Array.isArray(input.factRules) && input.factRules.length > 0
-      ? input.factRules
-      : DEFAULT_EXTRACTION_RULES.factRules;
+  const factRulesRaw = Array.isArray(input.factRules) && input.factRules.length > 0
+    ? input.factRules
+    : DEFAULT_EXTRACTION_RULES.factRules;
 
   const factRules = factRulesRaw.map((item, index) => {
-    const fallback =
-      DEFAULT_EXTRACTION_RULES.factRules[index] ?? DEFAULT_EXTRACTION_RULES.factRules[0]!;
+    const fallback = DEFAULT_EXTRACTION_RULES.factRules[index] ?? DEFAULT_EXTRACTION_RULES.factRules[0]!;
     return {
       name: item.name || fallback.name || `rule_${index}`,
-      regex: toRegExp(
-        item.pattern,
-        item.flags,
-        toRegExp(fallback.pattern, fallback.flags, /(?:)/g),
-      ),
+      regex: toRegExp(item.pattern, item.flags, toRegExp(fallback.pattern, fallback.flags, /(?:)/g)),
       keyPrefix: item.keyPrefix || fallback.keyPrefix,
       confidence: Number.isFinite(item.confidence) ? item.confidence : fallback.confidence,
       maxLength: Number.isFinite(item.maxLength) ? item.maxLength! : (fallback.maxLength ?? 120),
@@ -109,12 +100,8 @@ function normalizeExtractionRules(input: ExtractionRulesFile): SkillsRuntime["ex
   return {
     projectPatterns,
     factRules,
-    maxProjectTags: Number.isFinite(input.maxProjectTags)
-      ? input.maxProjectTags!
-      : (DEFAULT_EXTRACTION_RULES.maxProjectTags ?? 8),
-    maxFacts: Number.isFinite(input.maxFacts)
-      ? input.maxFacts!
-      : (DEFAULT_EXTRACTION_RULES.maxFacts ?? 16),
+    maxProjectTags: Number.isFinite(input.maxProjectTags) ? input.maxProjectTags! : (DEFAULT_EXTRACTION_RULES.maxProjectTags ?? 8),
+    maxFacts: Number.isFinite(input.maxFacts) ? input.maxFacts! : (DEFAULT_EXTRACTION_RULES.maxFacts ?? 16),
     projectTagMinLength: Number.isFinite(input.projectTagMinLength)
       ? input.projectTagMinLength!
       : (DEFAULT_EXTRACTION_RULES.projectTagMinLength ?? 2),
@@ -133,8 +120,7 @@ function normalizeProjectStatusRules(input: ProjectStatusRulesFile): ProjectStat
   const rules = Array.isArray(input.rules) ? input.rules : DEFAULT_PROJECT_STATUS_RULES.rules;
   const normalizedRules = rules
     .map((rule, index) => {
-      const fallback =
-        DEFAULT_PROJECT_STATUS_RULES.rules[index] ?? DEFAULT_PROJECT_STATUS_RULES.rules[0]!;
+      const fallback = DEFAULT_PROJECT_STATUS_RULES.rules[index] ?? DEFAULT_PROJECT_STATUS_RULES.rules[0]!;
       const keywords = ensureKeywords(rule.keywords, fallback.keywords);
       return {
         status: rule.status || fallback.status,
@@ -163,11 +149,7 @@ function tryLoadSkillsFromDir(skillsDir: string): SkillsRuntime {
 
   const intentRaw = readJsonWithFallback(intentPath, DEFAULT_INTENT_RULES, errors);
   const extractionRaw = readJsonWithFallback(extractionPath, DEFAULT_EXTRACTION_RULES, errors);
-  const projectStatusRaw = readJsonWithFallback(
-    projectStatusPath,
-    DEFAULT_PROJECT_STATUS_RULES,
-    errors,
-  );
+  const projectStatusRaw = readJsonWithFallback(projectStatusPath, DEFAULT_PROJECT_STATUS_RULES, errors);
 
   let contextTemplate = DEFAULT_CONTEXT_TEMPLATE;
   if (!existsSync(contextPath)) {
@@ -219,8 +201,6 @@ export function loadSkillsRuntime(options: LoadSkillsOptions = {}): SkillsRuntim
     }
   }
 
-  logger.warn?.(
-    `[clawxmemory] skills loaded with fallback. errors=${fallback.metadata.errors.join(" | ")}`,
-  );
+  logger.warn?.(`[clawxmemory] skills loaded with fallback. errors=${fallback.metadata.errors.join(" | ")}`);
   return fallback;
 }

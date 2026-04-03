@@ -100,26 +100,22 @@ describe("MemoryRepository.applyDreamRewrite", () => {
         l1Source: ["l1-2"],
       }),
     ]);
-    expect(repository.getGlobalProfileRecord()).toEqual(
-      expect.objectContaining({
-        profileText: "New profile",
-        sourceL1Ids: ["l1-2"],
-      }),
-    );
+    expect(repository.getGlobalProfileRecord()).toEqual(expect.objectContaining({
+      profileText: "New profile",
+      sourceL1Ids: ["l1-2"],
+    }));
     expect(repository.listAllL2Time()).toEqual([
       expect.objectContaining({
         l2IndexId: "l2-time-1",
         l1Source: ["l1-1"],
       }),
     ]);
-    expect(repository.listAllIndexLinks()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ fromId: "l2-project-1", toId: "l1-2" }),
-        expect.objectContaining({ fromId: "l2-time-1", toId: "l1-1" }),
-      ]),
-    );
-    expect(repository.listAllIndexLinks()).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ fromId: "l2-project-1", toId: "l1-1" })]),
-    );
+    expect(repository.listAllIndexLinks()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fromId: "l2-project-1", toId: "l1-2" }),
+      expect.objectContaining({ fromId: "l2-time-1", toId: "l1-1" }),
+    ]));
+    expect(repository.listAllIndexLinks()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ fromId: "l2-project-1", toId: "l1-1" }),
+    ]));
   });
 });

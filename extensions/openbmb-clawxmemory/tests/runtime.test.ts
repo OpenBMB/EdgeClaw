@@ -14,17 +14,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function setRuntimeRetriever(
-  runtime: MemoryPluginRuntime,
-  retrieve: MemoryPluginRuntime["retriever"]["retrieve"],
-): void {
-  Object.defineProperty(runtime, "retriever", {
-    value: { retrieve },
-    configurable: true,
-    writable: true,
-  });
-}
-
 describe("MemoryPluginRuntime", () => {
   const cleanupPaths: string[] = [];
   const runtimes: MemoryPluginRuntime[] = [];
@@ -35,9 +24,7 @@ describe("MemoryPluginRuntime", () => {
     for (const runtime of runtimes.splice(0)) {
       runtime.stop();
     }
-    await Promise.all(
-      cleanupPaths.splice(0).map((target) => rm(target, { recursive: true, force: true })),
-    );
+    await Promise.all(cleanupPaths.splice(0).map((target) => rm(target, { recursive: true, force: true })));
   });
 
   it("applies managed memory boundary config without overwriting unrelated settings", () => {
@@ -91,18 +78,16 @@ describe("MemoryPluginRuntime", () => {
     const result = applyManagedMemoryBoundaryConfig(source);
 
     expect(result.changed).toBe(true);
-    expect(result.changedPaths).toEqual(
-      expect.arrayContaining([
-        "plugins.slots.memory",
-        "plugins.entries.openbmb-clawxmemory.enabled",
-        "plugins.entries.openbmb-clawxmemory.hooks.allowPromptInjection",
-        "plugins.entries.memory-core.enabled",
-        "hooks.internal.entries.session-memory.enabled",
-        "agents.defaults.memorySearch.enabled",
-        "agents.defaults.compaction.memoryFlush.enabled",
-        "tools.alsoAllow",
-      ]),
-    );
+    expect(result.changedPaths).toEqual(expect.arrayContaining([
+      "plugins.slots.memory",
+      "plugins.entries.openbmb-clawxmemory.enabled",
+      "plugins.entries.openbmb-clawxmemory.hooks.allowPromptInjection",
+      "plugins.entries.memory-core.enabled",
+      "hooks.internal.entries.session-memory.enabled",
+      "agents.defaults.memorySearch.enabled",
+      "agents.defaults.compaction.memoryFlush.enabled",
+      "tools.alsoAllow",
+    ]));
     expect(result.config).toMatchObject({
       plugins: {
         slots: {
@@ -201,9 +186,8 @@ describe("MemoryPluginRuntime", () => {
     });
     runtimes.push(runtime);
 
-    setRuntimeRetriever(
-      runtime,
-      vi.fn().mockResolvedValue({
+    (runtime as { retriever: { retrieve: ReturnType<typeof vi.fn> } }).retriever = {
+      retrieve: vi.fn().mockResolvedValue({
         query: "What happened yesterday?",
         intent: "time",
         enoughAt: "l2",
@@ -219,7 +203,7 @@ describe("MemoryPluginRuntime", () => {
           cacheHit: false,
         },
       }),
-    );
+    };
 
     const result = await runtime.handleBeforePromptBuild(
       { prompt: "What happened yesterday?", messages: [] },
@@ -265,7 +249,7 @@ describe("MemoryPluginRuntime", () => {
         cacheHit: false,
       },
     });
-    setRuntimeRetriever(runtime, retrieve);
+    (runtime as { retriever: { retrieve: typeof retrieve } }).retriever = { retrieve };
 
     await runtime.handleBeforePromptBuild(
       {
@@ -308,9 +292,8 @@ describe("MemoryPluginRuntime", () => {
     });
     runtimes.push(runtime);
 
-    setRuntimeRetriever(
-      runtime,
-      vi.fn().mockResolvedValue({
+    (runtime as { retriever: { retrieve: ReturnType<typeof vi.fn> } }).retriever = {
+      retrieve: vi.fn().mockResolvedValue({
         query: "我上周项目进展如何",
         intent: "project",
         enoughAt: "l1",
@@ -384,7 +367,7 @@ describe("MemoryPluginRuntime", () => {
           path: "auto",
         },
       }),
-    );
+    };
 
     runtime.handleInternalMessageReceived({
       type: "message",
@@ -430,11 +413,9 @@ describe("MemoryPluginRuntime", () => {
       { sessionKey: "session-case" } as never,
     );
 
-    const records = (
-      runtime as never as {
-        listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
-      }
-    ).listRecentCaseTraces(10);
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       sessionKey: "session-case",
@@ -449,11 +430,7 @@ describe("MemoryPluginRuntime", () => {
         evidenceNotePreview: "上周主要在推进检索链路改造。",
       },
     });
-    expect(
-      (records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string }> } })?.trace?.steps?.map(
-        (step) => step.kind,
-      ),
-    ).toEqual([
+    expect((records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string }> } })?.trace?.steps?.map((step) => step.kind)).toEqual([
       "recall_start",
       "hop1_decision",
       "l2_candidates",
@@ -461,9 +438,7 @@ describe("MemoryPluginRuntime", () => {
       "l1_candidates",
       "hop3_decision",
     ]);
-    expect(
-      (records[0]?.toolEvents as Array<Record<string, unknown>>)?.map((event) => event.phase),
-    ).toEqual(["start", "result"]);
+    expect((records[0]?.toolEvents as Array<Record<string, unknown>>)?.map((event) => event.phase)).toEqual(["start", "result"]);
 
     runtime.stop();
   });
@@ -502,11 +477,9 @@ describe("MemoryPluginRuntime", () => {
       { sessionKey: "session-interrupt" } as never,
     );
 
-    const records = (
-      runtime as never as {
-        listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
-      }
-    ).listRecentCaseTraces(10);
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
     expect(records).toHaveLength(2);
     expect(records[0]).toMatchObject({ query: "第二个问题", status: "running" });
     expect(records[1]).toMatchObject({ query: "第一个问题", status: "interrupted" });
@@ -562,7 +535,7 @@ describe("MemoryPluginRuntime", () => {
         cacheHit: false,
       },
     });
-    setRuntimeRetriever(runtime, retrieve);
+    (runtime as { retriever: { retrieve: typeof retrieve } }).retriever = { retrieve };
 
     await runtime.handleBeforePromptBuild(
       {
@@ -570,8 +543,8 @@ describe("MemoryPluginRuntime", () => {
           "Sender (untrusted metadata):",
           "```json",
           "{",
-          '  "label": "openclaw-control-ui",',
-          '  "id": "openclaw-control-ui"',
+          "  \"label\": \"openclaw-control-ui\",",
+          "  \"id\": \"openclaw-control-ui\"",
           "}",
           "```",
           "",
@@ -603,11 +576,9 @@ describe("MemoryPluginRuntime", () => {
       { sessionKey: "session-merge" } as never,
     );
 
-    const records = (
-      runtime as never as {
-        listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
-      }
-    ).listRecentCaseTraces(10);
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
     expect(records).toHaveLength(1);
     expect(retrieve).toHaveBeenCalledWith(
       "我对于天津旅游的规划是什么",
@@ -623,11 +594,9 @@ describe("MemoryPluginRuntime", () => {
         injected: true,
       },
     });
-    expect(
-      (records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string }> } })?.trace?.steps?.map(
-        (step) => step.kind,
-      ),
-    ).toEqual(["recall_start"]);
+    expect((records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string }> } })?.trace?.steps?.map((step) => step.kind)).toEqual([
+      "recall_start",
+    ]);
 
     runtime.stop();
   });
@@ -668,11 +637,9 @@ describe("MemoryPluginRuntime", () => {
       { sessionKey: "session-write-only" } as never,
     );
 
-    const records = (
-      runtime as never as {
-        listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
-      }
-    ).listRecentCaseTraces(10);
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       sessionKey: "session-write-only",
@@ -684,11 +651,83 @@ describe("MemoryPluginRuntime", () => {
         injected: false,
       },
     });
-    expect(
-      (records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string }> } })?.trace?.steps?.map(
-        (step) => step.kind,
-      ),
-    ).toEqual(["recall_start", "recall_skipped"]);
+    expect((records[0]?.retrieval as { trace?: { steps?: Array<{ kind: string }> } })?.trace?.steps?.map((step) => step.kind)).toEqual([
+      "recall_start",
+      "recall_skipped",
+    ]);
+
+    runtime.stop();
+  });
+
+  it("normalizes contaminated inbound user turns before case tracing and L0 capture", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    const contaminatedUserTurn = [
+      "Project state maintained by ClawXContext.",
+      "Current git branch: main",
+      "Git status summary: clean working tree",
+      "",
+      "我昨天晚上lol手游上宗师了",
+    ].join("\n");
+
+    runtime.handleInternalMessageReceived({
+      type: "message",
+      action: "received",
+      sessionKey: "session-noise-filter",
+      context: {
+        content: contaminatedUserTurn,
+      },
+    } as never);
+
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "user",
+          content: contaminatedUserTurn,
+        },
+      } as never,
+      { sessionKey: "session-noise-filter" } as never,
+    );
+
+    await runtime.handleAgentEnd(
+      {
+        success: true,
+        messages: [
+          { role: "user", content: contaminatedUserTurn },
+          { role: "assistant", content: "这确实值得记下来，后面再复盘你的上分节奏。" },
+        ],
+      } as never,
+      { sessionKey: "session-noise-filter" } as never,
+    );
+
+    const records = (runtime as never as {
+      listRecentCaseTraces: (limit: number) => Array<Record<string, unknown>>;
+    }).listRecentCaseTraces(10);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      query: "我昨天晚上lol手游上宗师了",
+    });
+    expect(runtime.repository.listRecentL0(10)).toMatchObject([
+      {
+        sessionKey: "session-noise-filter",
+        messages: [
+          { role: "user", content: "我昨天晚上lol手游上宗师了" },
+          { role: "assistant", content: "这确实值得记下来，后面再复盘你的上分节奏。" },
+        ],
+      },
+    ]);
 
     runtime.stop();
   });
@@ -749,6 +788,226 @@ describe("MemoryPluginRuntime", () => {
     runtime.stop();
   });
 
+  it("drops assistant-only plugin status scaffolding during agent_end fallback capture", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    await runtime.handleAgentEnd(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "帮我记一下我昨晚上 lol 手游上宗师了",
+          },
+          {
+            role: "assistant",
+            content: [
+              "Project state maintained by ClawXContext.",
+              "Current git branch: main",
+              "Git status summary: clean working tree",
+            ].join("\n"),
+          },
+        ],
+      } as never,
+      {
+        sessionKey: "session-status-only-assistant",
+      } as never,
+    );
+
+    const record = runtime.repository.listRecentL0(1)[0];
+    expect(record?.messages).toEqual([
+      { role: "user", content: "帮我记一下我昨晚上 lol 手游上宗师了" },
+    ]);
+
+    runtime.stop();
+  });
+
+  it("starts only once even if the plugin service start hook is invoked repeatedly", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    const rescheduleBackgroundTasks = vi
+      .spyOn(runtime as never as { rescheduleBackgroundTasks: () => void }, "rescheduleBackgroundTasks")
+      .mockImplementation(() => {});
+    const runStartupInitialization = vi
+      .spyOn(runtime as never as { runStartupInitialization: () => Promise<void> }, "runStartupInitialization")
+      .mockResolvedValue(undefined);
+
+    runtime.start();
+    runtime.start();
+
+    expect(rescheduleBackgroundTasks).toHaveBeenCalledTimes(1);
+    expect(runStartupInitialization).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips command-only turns until the next real user turn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "user",
+          content: "/new",
+        },
+      } as never,
+      { sessionKey: "session-command-only" } as never,
+    );
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "assistant",
+          content: "Started a new session.",
+        },
+      } as never,
+      { sessionKey: "session-command-only" } as never,
+    );
+
+    expect(runtime.repository.listRecentL0(10)).toEqual([]);
+
+    runtime.handleBeforeMessageWrite(
+      {
+        message: {
+          role: "user",
+          content: "真正的问题",
+        },
+      } as never,
+      { sessionKey: "session-command-only" } as never,
+    );
+    await runtime.handleAgentEnd(
+      {
+        success: true,
+        messages: [
+          { role: "user", content: "真正的问题" },
+          { role: "assistant", content: "这是实际回答。" },
+        ],
+      } as never,
+      { sessionKey: "session-command-only" } as never,
+    );
+
+    expect(runtime.repository.listRecentL0(10)).toMatchObject([
+      {
+        sessionKey: "session-command-only",
+        messages: [
+          { role: "user", content: "真正的问题" },
+          { role: "assistant", content: "这是实际回答。" },
+        ],
+      },
+    ]);
+  });
+
+  it("rotates exactly one conversation window for /new and /reset startup markers", async () => {
+    for (const action of ["new", "reset"] as const) {
+      const dir = await mkdtemp(join(tmpdir(), `clawxmemory-runtime-${action}-`));
+      cleanupPaths.push(dir);
+
+      const runtime = new MemoryPluginRuntime({
+        apiConfig: {},
+        pluginRuntime: undefined,
+        pluginConfig: {
+          dbPath: join(dir, "memory.sqlite"),
+          uiEnabled: false,
+        },
+        logger: undefined,
+      });
+      runtimes.push(runtime);
+
+      runtime.handleInternalCommandEvent(
+        {
+          type: "command",
+          action,
+          sessionKey: `session-${action}`,
+        } as never,
+      );
+      const blocked = runtime.handleBeforeMessageWrite(
+        {
+          message: {
+            role: "user",
+            content: "A new session was started via /new or /reset.",
+          },
+        } as never,
+        { sessionKey: `session-${action}` } as never,
+      );
+
+      expect(blocked).toEqual({ block: true });
+      expect((runtime as never as {
+        getEffectiveSessionKey: (sessionKey: string) => string;
+      }).getEffectiveSessionKey(`session-${action}`)).toBe(`session-${action}#window:1`);
+      runtime.handleBeforeMessageWrite(
+        {
+          message: {
+            role: "assistant",
+            content: "",
+          },
+        } as never,
+        { sessionKey: `session-${action}` } as never,
+      );
+
+      runtime.handleBeforeMessageWrite(
+        {
+          message: {
+            role: "user",
+            content: `跟进${action}后的真实问题`,
+          },
+        } as never,
+        { sessionKey: `session-${action}` } as never,
+      );
+      await runtime.handleAgentEnd(
+        {
+          success: true,
+          messages: [
+            { role: "user", content: `跟进${action}后的真实问题` },
+            { role: "assistant", content: `这是${action}后的回答。` },
+          ],
+        } as never,
+        { sessionKey: `session-${action}` } as never,
+      );
+
+      expect(runtime.repository.listRecentL0(10)).toMatchObject([
+        {
+          sessionKey: `session-${action}#window:1`,
+          messages: [
+            { role: "user", content: `跟进${action}后的真实问题` },
+            { role: "assistant", content: `这是${action}后的回答。` },
+          ],
+        },
+      ]);
+    }
+  });
+
   it("repairs contaminated l0 records on startup and requeues rebuild", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
     cleanupPaths.push(dir);
@@ -775,6 +1034,10 @@ describe("MemoryPluginRuntime", () => {
         {
           role: "user",
           content: [
+            "Project state maintained by ClawXContext.",
+            "Current git branch: main",
+            "Git status summary: clean working tree",
+            "",
             "## ClawXMemory Recall",
             "",
             "Use the following retrieved ClawXMemory evidence for this turn.",
@@ -820,6 +1083,97 @@ describe("MemoryPluginRuntime", () => {
     });
 
     runtime.stop();
+  });
+
+  it("removes historical l0 rows that only contain plugin state scaffolding during startup repair", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    runtime.repository.insertL0Session({
+      l0IndexId: "l0-plugin-noise-only",
+      sessionKey: "session-noise-only",
+      timestamp: "2026-04-03T04:19:44.000Z",
+      source: "openclaw",
+      indexed: true,
+      createdAt: "2026-04-03T04:19:44.000Z",
+      messages: [
+        {
+          role: "user",
+          content: [
+            "Project state maintained by ClawXContext.",
+            "Current git branch: main",
+            "Git status summary: clean working tree",
+          ].join("\n"),
+        },
+        {
+          role: "assistant",
+          content: "📊 **Session Status** - **Agent:** main - **Host:** Ms's MacBook Air - **Workspace:** /Users/meisen/openclaw/workspace - **OS:** Darwin 25.4.0 - **Node:** v22.18.0",
+        },
+      ],
+    });
+
+    const runHeartbeat = vi.spyOn(runtime.indexer, "runHeartbeat").mockResolvedValue({
+      l0Captured: 0,
+      l1Created: 0,
+      l2TimeUpdated: 0,
+      l2ProjectUpdated: 0,
+      profileUpdated: 0,
+      failed: 0,
+    });
+
+    runtime.start();
+
+    await vi.waitFor(() => {
+      expect(runtime.repository.listRecentL0(10)).toEqual([]);
+      expect(runHeartbeat).toHaveBeenCalledWith({ reason: "repair" });
+    });
+
+    runtime.stop();
+  });
+
+  it("starts lazily from gateway hook activity and exposes a 4.2 memory runtime adapter", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clawxmemory-runtime-"));
+    cleanupPaths.push(dir);
+
+    const runtime = new MemoryPluginRuntime({
+      apiConfig: {},
+      pluginRuntime: undefined,
+      pluginConfig: {
+        dbPath: join(dir, "memory.sqlite"),
+        uiEnabled: false,
+      },
+      logger: undefined,
+    });
+    runtimes.push(runtime);
+
+    const startSpy = vi.spyOn(runtime, "start").mockImplementation(() => {});
+
+    runtime.handleInternalCommandEvent({
+      type: "command",
+      action: "status",
+      sessionKey: "session-command-bootstrap",
+    } as never);
+
+    expect(startSpy).toHaveBeenCalledTimes(1);
+
+    const adapter = runtime.getMemoryRuntimeAdapter();
+    expect(adapter.resolveMemoryBackendConfig()).toEqual({ backend: "builtin" });
+    await expect(adapter.getMemorySearchManager()).resolves.toEqual({
+      manager: null,
+      error: "ClawXMemory manages dynamic session memory and does not expose OpenClaw file-memory search managers.",
+    });
+    expect(startSpy).toHaveBeenCalledTimes(3);
   });
 
   it("writes managed config and requests a gateway restart on first startup when native memory is still enabled", async () => {
@@ -912,9 +1266,10 @@ describe("MemoryPluginRuntime", () => {
       expect(runCommandWithTimeout).toHaveBeenCalledTimes(1);
     });
 
-    expect(runCommandWithTimeout).toHaveBeenCalledWith(["openclaw", "gateway", "restart"], {
-      timeoutMs: expect.any(Number),
-    });
+    expect(runCommandWithTimeout).toHaveBeenCalledWith(
+      ["openclaw", "gateway", "restart"],
+      { timeoutMs: expect.any(Number) },
+    );
     expect(writeConfigFile.mock.calls[0]?.[0]).toMatchObject({
       plugins: {
         slots: {
@@ -962,11 +1317,9 @@ describe("MemoryPluginRuntime", () => {
       alsoAllow: ["custom_tool", "memory_overview", "memory_list", "memory_flush"],
     });
 
-    const overview = (
-      runtime as never as {
-        getRuntimeOverview: () => Record<string, unknown>;
-      }
-    ).getRuntimeOverview();
+    const overview = (runtime as never as {
+      getRuntimeOverview: () => Record<string, unknown>;
+    }).getRuntimeOverview();
     expect(overview).toMatchObject({
       slotOwner: "openbmb-clawxmemory",
       dynamicMemoryRuntime: "ClawXMemory",
@@ -1029,11 +1382,9 @@ describe("MemoryPluginRuntime", () => {
     expect(writeConfigFile).not.toHaveBeenCalled();
     expect(runCommandWithTimeout).not.toHaveBeenCalled();
 
-    const overview = (
-      runtime as never as {
-        getRuntimeOverview: () => Record<string, unknown>;
-      }
-    ).getRuntimeOverview();
+    const overview = (runtime as never as {
+      getRuntimeOverview: () => Record<string, unknown>;
+    }).getRuntimeOverview();
     expect(overview).toMatchObject({
       slotOwner: "openbmb-clawxmemory",
       memoryRuntimeHealthy: true,
@@ -1106,19 +1457,15 @@ describe("MemoryPluginRuntime", () => {
     runtime.start();
 
     await vi.waitFor(() => {
-      const overview = (
-        runtime as never as {
-          getRuntimeOverview: () => Record<string, unknown>;
-        }
-      ).getRuntimeOverview();
+      const overview = (runtime as never as {
+        getRuntimeOverview: () => Record<string, unknown>;
+      }).getRuntimeOverview();
       expect(overview.startupRepairStatus).toBe("failed");
     });
 
-    const overview = (
-      runtime as never as {
-        getRuntimeOverview: () => Record<string, unknown>;
-      }
-    ).getRuntimeOverview();
+    const overview = (runtime as never as {
+      getRuntimeOverview: () => Record<string, unknown>;
+    }).getRuntimeOverview();
     expect(overview.startupRepairMessage).toBe("config write denied");
     expect(runCommandWithTimeout).not.toHaveBeenCalled();
     expect(startBackgroundRepair).not.toHaveBeenCalled();
@@ -1193,19 +1540,15 @@ describe("MemoryPluginRuntime", () => {
     runtime.start();
 
     await vi.waitFor(() => {
-      const overview = (
-        runtime as never as {
-          getRuntimeOverview: () => Record<string, unknown>;
-        }
-      ).getRuntimeOverview();
+      const overview = (runtime as never as {
+        getRuntimeOverview: () => Record<string, unknown>;
+      }).getRuntimeOverview();
       expect(overview.startupRepairStatus).toBe("failed");
     });
 
-    const overview = (
-      runtime as never as {
-        getRuntimeOverview: () => Record<string, unknown>;
-      }
-    ).getRuntimeOverview();
+    const overview = (runtime as never as {
+      getRuntimeOverview: () => Record<string, unknown>;
+    }).getRuntimeOverview();
     expect(overview.startupRepairMessage).toBe("gateway restart failed");
     expect(writeConfigFile).toHaveBeenCalledTimes(1);
     expect(runCommandWithTimeout).toHaveBeenCalledTimes(1);
@@ -1245,17 +1588,9 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    const flushSpy = vi
-      .spyOn(
-        runtime as never as {
-          flushAllNow: (
-            reason: string,
-            options?: { allowWhileDream?: boolean },
-          ) => Promise<typeof prepFlush>;
-        },
-        "flushAllNow",
-      )
-      .mockResolvedValue(prepFlush);
+    const flushSpy = vi.spyOn(runtime as never as {
+      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
+    }, "flushAllNow").mockResolvedValue(prepFlush);
     const dreamOutcome = {
       reviewedL1: 3,
       rewrittenProjects: 1,
@@ -1267,22 +1602,13 @@ describe("MemoryPluginRuntime", () => {
       prunedProfileL1Refs: 1,
       summary: "ok",
     };
-    const dreamSpy = vi
-      .spyOn(
-        (
-          runtime as never as {
-            dreamRewriter: { run: () => Promise<typeof dreamOutcome> };
-          }
-        ).dreamRewriter,
-        "run",
-      )
-      .mockResolvedValue(dreamOutcome);
+    const dreamSpy = vi.spyOn((runtime as never as {
+      dreamRewriter: { run: () => Promise<typeof dreamOutcome> };
+    }).dreamRewriter, "run").mockResolvedValue(dreamOutcome);
 
-    const dreamPromise = (
-      runtime as never as {
-        runDreamNow: (trigger: "manual") => Promise<Record<string, unknown>>;
-      }
-    ).runDreamNow("manual");
+    const dreamPromise = (runtime as never as {
+      runDreamNow: (trigger: "manual") => Promise<Record<string, unknown>>;
+    }).runDreamNow("manual");
     expect(flushSpy).not.toHaveBeenCalled();
     expect(dreamSpy).not.toHaveBeenCalled();
 
@@ -1334,15 +1660,9 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    vi.spyOn(
-      runtime as never as {
-        flushAllNow: (
-          reason: string,
-          options?: { allowWhileDream?: boolean },
-        ) => Promise<typeof prepFlush>;
-      },
-      "flushAllNow",
-    ).mockResolvedValue(prepFlush);
+    vi.spyOn(runtime as never as {
+      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
+    }, "flushAllNow").mockResolvedValue(prepFlush);
 
     const dreamDeferred = deferred<{
       reviewedL1: number;
@@ -1355,46 +1675,28 @@ describe("MemoryPluginRuntime", () => {
       prunedProfileL1Refs: number;
       summary: string;
     }>();
-    vi.spyOn(
-      (
-        runtime as never as {
-          dreamRewriter: { run: () => Promise<unknown> };
-        }
-      ).dreamRewriter,
-      "run",
-    ).mockImplementation(() => dreamDeferred.promise);
+    vi.spyOn((runtime as never as {
+      dreamRewriter: { run: () => Promise<unknown> };
+    }).dreamRewriter, "run").mockImplementation(() => dreamDeferred.promise);
 
-    const drainSpy = vi
-      .spyOn(
-        runtime as never as {
-          drainIndexQueue: () => Promise<typeof prepFlush>;
-        },
-        "drainIndexQueue",
-      )
-      .mockResolvedValue(prepFlush);
+    const drainSpy = vi.spyOn(runtime as never as {
+      drainIndexQueue: () => Promise<typeof prepFlush>;
+    }, "drainIndexQueue").mockResolvedValue(prepFlush);
 
-    const dreamPromise = (
-      runtime as never as {
-        runDreamNow: (trigger: "manual") => Promise<unknown>;
-      }
-    ).runDreamNow("manual");
+    const dreamPromise = (runtime as never as {
+      runDreamNow: (trigger: "manual") => Promise<unknown>;
+    }).runDreamNow("manual");
     await vi.waitFor(() => {
       expect((runtime as never as { dreamRunLocked: boolean }).dreamRunLocked).toBe(true);
     });
 
-    await expect(
-      (
-        runtime as never as {
-          runDreamNow: (trigger: "manual") => Promise<unknown>;
-        }
-      ).runDreamNow("manual"),
-    ).rejects.toThrow("already running");
+    await expect((runtime as never as {
+      runDreamNow: (trigger: "manual") => Promise<unknown>;
+    }).runDreamNow("manual")).rejects.toThrow("already running");
 
-    const queuedIndexPromise = (
-      runtime as never as {
-        requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;
-      }
-    ).requestIndexRun("scheduled", ["session-a"]);
+    const queuedIndexPromise = (runtime as never as {
+      requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;
+    }).requestIndexRun("scheduled", ["session-a"]);
     expect(drainSpy).not.toHaveBeenCalled();
 
     dreamDeferred.resolve({
@@ -1428,61 +1730,42 @@ describe("MemoryPluginRuntime", () => {
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
         autoDreamMinNewL1: 10,
+        dreamProjectRebuildTimeoutMs: 180_000,
       },
       logger: undefined,
     });
     runtimes.push(runtime);
 
-    vi.spyOn(
-      runtime as never as {
-        runStartupInitialization: () => Promise<void>;
-      },
-      "runStartupInitialization",
-    ).mockResolvedValue(undefined);
-    const indexSpy = vi
-      .spyOn(
-        runtime as never as {
-          requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;
-        },
-        "requestIndexRun",
-      )
-      .mockResolvedValue({
-        l0Captured: 0,
-        l1Created: 0,
-        l2TimeUpdated: 0,
-        l2ProjectUpdated: 0,
-        profileUpdated: 0,
-        failed: 0,
-      });
-    const dreamSpy = vi
-      .spyOn(
-        runtime as never as {
-          runDreamNow: (trigger: "manual" | "scheduled") => Promise<unknown>;
-        },
-        "runDreamNow",
-      )
-      .mockResolvedValue({
-        prepFlush: {
-          l0Captured: 0,
-          l1Created: 0,
-          l2TimeUpdated: 0,
-          l2ProjectUpdated: 0,
-          profileUpdated: 0,
-          failed: 0,
-        },
-        reviewedL1: 0,
-        rewrittenProjects: 0,
-        deletedProjects: 0,
-        profileUpdated: false,
-        duplicateTopicCount: 0,
-        conflictTopicCount: 0,
-        prunedProjectL1Refs: 0,
-        prunedProfileL1Refs: 0,
-        summary: "noop",
-        status: "skipped",
-        trigger: "scheduled",
-        skipReason: "new_l1_below_threshold",
-      });
+    vi.spyOn(runtime as never as {
+      runStartupInitialization: () => Promise<void>;
+    }, "runStartupInitialization").mockResolvedValue(undefined);
+    const indexSpy = vi.spyOn(runtime as never as {
+      requestIndexRun: (reason: string, sessionKeys?: string[]) => Promise<unknown>;
+    }, "requestIndexRun").mockResolvedValue({
+      l0Captured: 0,
+      l1Created: 0,
+      l2TimeUpdated: 0,
+      l2ProjectUpdated: 0,
+      profileUpdated: 0,
+      failed: 0,
+    });
+    const dreamSpy = vi.spyOn(runtime as never as {
+      runDreamNow: (trigger: "manual" | "scheduled") => Promise<unknown>;
+    }, "runDreamNow").mockResolvedValue({
+      prepFlush: { l0Captured: 0, l1Created: 0, l2TimeUpdated: 0, l2ProjectUpdated: 0, profileUpdated: 0, failed: 0 },
+      reviewedL1: 0,
+      rewrittenProjects: 0,
+      deletedProjects: 0,
+      profileUpdated: false,
+      duplicateTopicCount: 0,
+      conflictTopicCount: 0,
+      prunedProjectL1Refs: 0,
+      prunedProfileL1Refs: 0,
+      summary: "noop",
+      status: "skipped",
+      trigger: "scheduled",
+      skipReason: "new_l1_below_threshold",
+    });
 
     runtime.start();
 
@@ -1496,11 +1779,9 @@ describe("MemoryPluginRuntime", () => {
     indexSpy.mockClear();
     dreamSpy.mockClear();
 
-    (
-      runtime as never as {
-        applyIndexingSettings: (partial: Record<string, unknown>) => unknown;
-      }
-    ).applyIndexingSettings({
+    (runtime as never as {
+      applyIndexingSettings: (partial: Record<string, unknown>) => unknown;
+    }).applyIndexingSettings({
       autoIndexIntervalMinutes: 120,
       autoDreamIntervalMinutes: 60,
     });
@@ -1536,41 +1817,26 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    vi.spyOn(
-      runtime as never as {
-        flushAllNow: (
-          reason: string,
-          options?: { allowWhileDream?: boolean },
-        ) => Promise<typeof prepFlush>;
-      },
-      "flushAllNow",
-    ).mockResolvedValue(prepFlush);
-    const dreamSpy = vi
-      .spyOn(
-        (
-          runtime as never as {
-            dreamRewriter: { run: () => Promise<unknown> };
-          }
-        ).dreamRewriter,
-        "run",
-      )
-      .mockResolvedValue({
-        reviewedL1: 1,
-        rewrittenProjects: 1,
-        deletedProjects: 0,
-        profileUpdated: true,
-        duplicateTopicCount: 0,
-        conflictTopicCount: 0,
-        prunedProjectL1Refs: 0,
-        prunedProfileL1Refs: 0,
-        summary: "should not run",
-      });
+    vi.spyOn(runtime as never as {
+      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
+    }, "flushAllNow").mockResolvedValue(prepFlush);
+    const dreamSpy = vi.spyOn((runtime as never as {
+      dreamRewriter: { run: () => Promise<unknown> };
+    }).dreamRewriter, "run").mockResolvedValue({
+      reviewedL1: 1,
+      rewrittenProjects: 1,
+      deletedProjects: 0,
+      profileUpdated: true,
+      duplicateTopicCount: 0,
+      conflictTopicCount: 0,
+      prunedProjectL1Refs: 0,
+      prunedProfileL1Refs: 0,
+      summary: "should not run",
+    });
 
-    const result = await (
-      runtime as never as {
-        runDreamNow: (trigger: "scheduled") => Promise<Record<string, unknown>>;
-      }
-    ).runDreamNow("scheduled");
+    const result = await (runtime as never as {
+      runDreamNow: (trigger: "scheduled") => Promise<Record<string, unknown>>;
+    }).runDreamNow("scheduled");
 
     expect(dreamSpy).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -1622,41 +1888,26 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    vi.spyOn(
-      runtime as never as {
-        flushAllNow: (
-          reason: string,
-          options?: { allowWhileDream?: boolean },
-        ) => Promise<typeof prepFlush>;
-      },
-      "flushAllNow",
-    ).mockResolvedValue(prepFlush);
-    const dreamSpy = vi
-      .spyOn(
-        (
-          runtime as never as {
-            dreamRewriter: { run: () => Promise<unknown> };
-          }
-        ).dreamRewriter,
-        "run",
-      )
-      .mockResolvedValue({
-        reviewedL1: 10,
-        rewrittenProjects: 2,
-        deletedProjects: 1,
-        profileUpdated: true,
-        duplicateTopicCount: 1,
-        conflictTopicCount: 0,
-        prunedProjectL1Refs: 3,
-        prunedProfileL1Refs: 1,
-        summary: "scheduled ok",
-      });
+    vi.spyOn(runtime as never as {
+      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
+    }, "flushAllNow").mockResolvedValue(prepFlush);
+    const dreamSpy = vi.spyOn((runtime as never as {
+      dreamRewriter: { run: () => Promise<unknown> };
+    }).dreamRewriter, "run").mockResolvedValue({
+      reviewedL1: 10,
+      rewrittenProjects: 2,
+      deletedProjects: 1,
+      profileUpdated: true,
+      duplicateTopicCount: 1,
+      conflictTopicCount: 0,
+      prunedProjectL1Refs: 3,
+      prunedProfileL1Refs: 1,
+      summary: "scheduled ok",
+    });
 
-    const result = await (
-      runtime as never as {
-        runDreamNow: (trigger: "scheduled") => Promise<Record<string, unknown>>;
-      }
-    ).runDreamNow("scheduled");
+    const result = await (runtime as never as {
+      runDreamNow: (trigger: "scheduled") => Promise<Record<string, unknown>>;
+    }).runDreamNow("scheduled");
 
     expect(dreamSpy).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
@@ -1666,9 +1917,7 @@ describe("MemoryPluginRuntime", () => {
       rewrittenProjects: 2,
     });
     expect(runtime.repository.getPipelineState("lastDreamStatus")).toBe("success");
-    expect(runtime.repository.getPipelineState("lastDreamL1EndedAt")).toBe(
-      "2026-04-01T00:09:30.000Z",
-    );
+    expect(runtime.repository.getPipelineState("lastDreamL1EndedAt")).toBe("2026-04-01T00:09:30.000Z");
   });
 
   it("does not apply the auto Dream threshold to manual Dream runs", async () => {
@@ -1709,41 +1958,26 @@ describe("MemoryPluginRuntime", () => {
       profileUpdated: 0,
       failed: 0,
     };
-    vi.spyOn(
-      runtime as never as {
-        flushAllNow: (
-          reason: string,
-          options?: { allowWhileDream?: boolean },
-        ) => Promise<typeof prepFlush>;
-      },
-      "flushAllNow",
-    ).mockResolvedValue(prepFlush);
-    const dreamSpy = vi
-      .spyOn(
-        (
-          runtime as never as {
-            dreamRewriter: { run: () => Promise<unknown> };
-          }
-        ).dreamRewriter,
-        "run",
-      )
-      .mockResolvedValue({
-        reviewedL1: 1,
-        rewrittenProjects: 1,
-        deletedProjects: 0,
-        profileUpdated: true,
-        duplicateTopicCount: 0,
-        conflictTopicCount: 0,
-        prunedProjectL1Refs: 0,
-        prunedProfileL1Refs: 0,
-        summary: "manual ok",
-      });
+    vi.spyOn(runtime as never as {
+      flushAllNow: (reason: string, options?: { allowWhileDream?: boolean }) => Promise<typeof prepFlush>;
+    }, "flushAllNow").mockResolvedValue(prepFlush);
+    const dreamSpy = vi.spyOn((runtime as never as {
+      dreamRewriter: { run: () => Promise<unknown> };
+    }).dreamRewriter, "run").mockResolvedValue({
+      reviewedL1: 1,
+      rewrittenProjects: 1,
+      deletedProjects: 0,
+      profileUpdated: true,
+      duplicateTopicCount: 0,
+      conflictTopicCount: 0,
+      prunedProjectL1Refs: 0,
+      prunedProfileL1Refs: 0,
+      summary: "manual ok",
+    });
 
-    const result = await (
-      runtime as never as {
-        runDreamNow: (trigger: "manual") => Promise<Record<string, unknown>>;
-      }
-    ).runDreamNow("manual");
+    const result = await (runtime as never as {
+      runDreamNow: (trigger: "manual") => Promise<Record<string, unknown>>;
+    }).runDreamNow("manual");
 
     expect(dreamSpy).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({

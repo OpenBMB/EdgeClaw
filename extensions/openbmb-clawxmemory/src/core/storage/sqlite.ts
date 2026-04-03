@@ -76,26 +76,18 @@ function parseCaseTraceRecord(value: unknown): CaseTraceRecord | null {
   if (typeof value.sessionKey !== "string") return null;
   if (typeof value.query !== "string") return null;
   if (typeof value.startedAt !== "string" || !value.startedAt.trim()) return null;
-  const status = (
-    typeof value.status === "string" ? value.status : "running"
-  ) as CaseTraceRecord["status"];
+  const status = (typeof value.status === "string" ? value.status : "running") as CaseTraceRecord["status"];
   if (!["running", "completed", "interrupted", "error"].includes(status)) return null;
   let retrieval: CaseTraceRecord["retrieval"];
   if (isRecord(value.retrieval)) {
     const next: NonNullable<CaseTraceRecord["retrieval"]> = {
       injected: Boolean(value.retrieval.injected),
-      contextPreview:
-        typeof value.retrieval.contextPreview === "string" ? value.retrieval.contextPreview : "",
-      evidenceNotePreview:
-        typeof value.retrieval.evidenceNotePreview === "string"
-          ? value.retrieval.evidenceNotePreview
-          : "",
-      pathSummary:
-        typeof value.retrieval.pathSummary === "string" ? value.retrieval.pathSummary : "",
-      trace:
-        value.retrieval.trace && typeof value.retrieval.trace === "object"
-          ? (value.retrieval.trace as NonNullable<CaseTraceRecord["retrieval"]>["trace"])
-          : null,
+      contextPreview: typeof value.retrieval.contextPreview === "string" ? value.retrieval.contextPreview : "",
+      evidenceNotePreview: typeof value.retrieval.evidenceNotePreview === "string" ? value.retrieval.evidenceNotePreview : "",
+      pathSummary: typeof value.retrieval.pathSummary === "string" ? value.retrieval.pathSummary : "",
+      trace: value.retrieval.trace && typeof value.retrieval.trace === "object"
+        ? value.retrieval.trace as NonNullable<CaseTraceRecord["retrieval"]>["trace"]
+        : null,
     };
     if (typeof value.retrieval.intent === "string") {
       next.intent = value.retrieval.intent as "time" | "project" | "fact" | "general";
@@ -110,14 +102,10 @@ function parseCaseTraceRecord(value: unknown): CaseTraceRecord | null {
     sessionKey: value.sessionKey,
     query: value.query,
     startedAt: value.startedAt,
-    ...(typeof value.finishedAt === "string" && value.finishedAt.trim()
-      ? { finishedAt: value.finishedAt }
-      : {}),
+    ...(typeof value.finishedAt === "string" && value.finishedAt.trim() ? { finishedAt: value.finishedAt } : {}),
     status,
     ...(retrieval ? { retrieval } : {}),
-    toolEvents: Array.isArray(value.toolEvents)
-      ? (value.toolEvents as CaseTraceRecord["toolEvents"])
-      : [],
+    toolEvents: Array.isArray(value.toolEvents) ? value.toolEvents as CaseTraceRecord["toolEvents"] : [],
     assistantReply: typeof value.assistantReply === "string" ? value.assistantReply : "",
   };
 }
@@ -170,10 +158,9 @@ function normalizeL0Record(value: unknown, index: number): L0SessionRecord {
 
 function normalizeFactCandidate(value: unknown, field: string): FactCandidate {
   if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid ${field}`);
-  const confidence =
-    typeof value.confidence === "number" && Number.isFinite(value.confidence)
-      ? value.confidence
-      : 0;
+  const confidence = typeof value.confidence === "number" && Number.isFinite(value.confidence)
+    ? value.confidence
+    : 0;
   return {
     factKey: requireString(value.factKey, `${field}.factKey`),
     factValue: readString(value.factValue, `${field}.factValue`),
@@ -186,23 +173,17 @@ function normalizeStoredProjectStatus(value: unknown): ProjectStatus {
   const normalized = value.trim().toLowerCase();
   if (normalized === "planned") return "planned";
   if (normalized === "in_progress" || normalized === "in progress") return "in_progress";
-  if (normalized === "blocked" || normalized === "on_hold" || normalized === "on hold")
-    return "in_progress";
+  if (normalized === "blocked" || normalized === "on_hold" || normalized === "on hold") return "in_progress";
   if (normalized === "unknown") return "planned";
-  if (normalized === "done" || normalized === "completed" || normalized === "complete")
-    return "done";
+  if (normalized === "done" || normalized === "completed" || normalized === "complete") return "done";
   return "planned";
 }
 
-function normalizeProjectDetail(
-  value: unknown,
-  field: string,
-): L1WindowRecord["projectDetails"][number] {
+function normalizeProjectDetail(value: unknown, field: string): L1WindowRecord["projectDetails"][number] {
   if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid ${field}`);
-  const confidence =
-    typeof value.confidence === "number" && Number.isFinite(value.confidence)
-      ? value.confidence
-      : 0;
+  const confidence = typeof value.confidence === "number" && Number.isFinite(value.confidence)
+    ? value.confidence
+    : 0;
   return {
     key: requireString(value.key, `${field}.key`),
     name: readString(value.name, `${field}.name`),
@@ -223,21 +204,13 @@ function normalizeL1Record(value: unknown, index: number): L1WindowRecord {
     endedAt: requireString(value.endedAt, `l1Windows[${index}].endedAt`),
     summary: readString(value.summary, `l1Windows[${index}].summary`),
     facts: Array.isArray(value.facts)
-      ? value.facts.map((item, factIndex) =>
-          normalizeFactCandidate(item, `l1Windows[${index}].facts[${factIndex}]`),
-        )
-      : (() => {
-          throw new MemoryBundleValidationError(`Invalid l1Windows[${index}].facts`);
-        })(),
+      ? value.facts.map((item, factIndex) => normalizeFactCandidate(item, `l1Windows[${index}].facts[${factIndex}]`))
+      : (() => { throw new MemoryBundleValidationError(`Invalid l1Windows[${index}].facts`); })(),
     situationTimeInfo: readString(value.situationTimeInfo, `l1Windows[${index}].situationTimeInfo`),
     projectTags: normalizeStringArray(value.projectTags, `l1Windows[${index}].projectTags`),
     projectDetails: Array.isArray(value.projectDetails)
-      ? value.projectDetails.map((item, projectIndex) =>
-          normalizeProjectDetail(item, `l1Windows[${index}].projectDetails[${projectIndex}]`),
-        )
-      : (() => {
-          throw new MemoryBundleValidationError(`Invalid l1Windows[${index}].projectDetails`);
-        })(),
+      ? value.projectDetails.map((item, projectIndex) => normalizeProjectDetail(item, `l1Windows[${index}].projectDetails[${projectIndex}]`))
+      : (() => { throw new MemoryBundleValidationError(`Invalid l1Windows[${index}].projectDetails`); })(),
     l0Source: normalizeStringArray(value.l0Source, `l1Windows[${index}].l0Source`),
     createdAt: requireString(value.createdAt, `l1Windows[${index}].createdAt`),
   };
@@ -262,9 +235,7 @@ function normalizeL2ProjectRecord(value: unknown, index: number): L2ProjectIndex
     projectKey: requireString(value.projectKey, `l2ProjectIndexes[${index}].projectKey`),
     projectName: readString(value.projectName, `l2ProjectIndexes[${index}].projectName`),
     summary: readString(value.summary, `l2ProjectIndexes[${index}].summary`),
-    currentStatus: normalizeStoredProjectStatus(
-      requireString(value.currentStatus, `l2ProjectIndexes[${index}].currentStatus`),
-    ),
+    currentStatus: normalizeStoredProjectStatus(requireString(value.currentStatus, `l2ProjectIndexes[${index}].currentStatus`)),
     latestProgress: readString(value.latestProgress, `l2ProjectIndexes[${index}].latestProgress`),
     l1Source: normalizeStringArray(value.l1Source, `l2ProjectIndexes[${index}].l1Source`),
     createdAt: requireString(value.createdAt, `l2ProjectIndexes[${index}].createdAt`),
@@ -291,15 +262,9 @@ function normalizeIndexLink(value: unknown, index: number): IndexLinkRecord {
   if (!isRecord(value)) throw new MemoryBundleValidationError(`Invalid indexLinks[${index}]`);
   return {
     linkId: requireString(value.linkId, `indexLinks[${index}].linkId`),
-    fromLevel: requireString(
-      value.fromLevel,
-      `indexLinks[${index}].fromLevel`,
-    ) as IndexLinkRecord["fromLevel"],
+    fromLevel: requireString(value.fromLevel, `indexLinks[${index}].fromLevel`) as IndexLinkRecord["fromLevel"],
     fromId: requireString(value.fromId, `indexLinks[${index}].fromId`),
-    toLevel: requireString(
-      value.toLevel,
-      `indexLinks[${index}].toLevel`,
-    ) as IndexLinkRecord["toLevel"],
+    toLevel: requireString(value.toLevel, `indexLinks[${index}].toLevel`) as IndexLinkRecord["toLevel"],
     toId: requireString(value.toId, `indexLinks[${index}].toId`),
     createdAt: requireString(value.createdAt, `indexLinks[${index}].createdAt`),
   };
@@ -310,27 +275,18 @@ function normalizeMemoryExportBundle(value: unknown): MemoryExportBundle {
   if (value.formatVersion !== MEMORY_EXPORT_FORMAT_VERSION) {
     throw new MemoryBundleValidationError("Unsupported memory bundle formatVersion");
   }
-  if (
-    !Array.isArray(value.l0Sessions) ||
-    !Array.isArray(value.l1Windows) ||
-    !Array.isArray(value.l2TimeIndexes) ||
-    !Array.isArray(value.l2ProjectIndexes) ||
-    !Array.isArray(value.indexLinks)
-  ) {
+  if (!Array.isArray(value.l0Sessions) || !Array.isArray(value.l1Windows) || !Array.isArray(value.l2TimeIndexes)
+    || !Array.isArray(value.l2ProjectIndexes) || !Array.isArray(value.indexLinks)) {
     throw new MemoryBundleValidationError("Invalid memory bundle collections");
   }
   return {
     formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
     exportedAt: requireString(value.exportedAt, "exportedAt"),
-    ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim()
-      ? { lastIndexedAt: value.lastIndexedAt }
-      : {}),
+    ...(typeof value.lastIndexedAt === "string" && value.lastIndexedAt.trim() ? { lastIndexedAt: value.lastIndexedAt } : {}),
     l0Sessions: value.l0Sessions.map((item, index) => normalizeL0Record(item, index)),
     l1Windows: value.l1Windows.map((item, index) => normalizeL1Record(item, index)),
     l2TimeIndexes: value.l2TimeIndexes.map((item, index) => normalizeL2TimeRecord(item, index)),
-    l2ProjectIndexes: value.l2ProjectIndexes.map((item, index) =>
-      normalizeL2ProjectRecord(item, index),
-    ),
+    l2ProjectIndexes: value.l2ProjectIndexes.map((item, index) => normalizeL2ProjectRecord(item, index)),
     globalProfile: normalizeGlobalProfile(value.globalProfile),
     indexLinks: value.indexLinks.map((item, index) => normalizeIndexLink(item, index)),
   };
@@ -374,9 +330,7 @@ function parseL1Row(row: DbRow): L1WindowRecord {
     situationTimeInfo: String(row.situation_time_info ?? ""),
     projectTags: safeJsonParse(String(row.project_tags_json ?? "[]"), []),
     projectDetails: Array.isArray(rawProjectDetails)
-      ? rawProjectDetails.map((item, index) =>
-          normalizeProjectDetail(item, `l1.projectDetails[${index}]`),
-        )
+      ? rawProjectDetails.map((item, index) => normalizeProjectDetail(item, `l1.projectDetails[${index}]`))
       : [],
     l0Source: safeJsonParse(String(row.l0_source_json ?? "[]"), []),
     createdAt: String(row.created_at),
@@ -458,7 +412,9 @@ function computeTokenScore(query: string, candidates: string[]): number {
 }
 
 function buildSearchableMessageText(messages: MemoryMessage[]): string {
-  return messages.map((message) => `${message.role}: ${message.content}`).join("\n");
+  return messages
+    .map((message) => `${message.role}: ${message.content}`)
+    .join("\n");
 }
 
 function normalizeIndexingSettings(
@@ -466,57 +422,62 @@ function normalizeIndexingSettings(
   defaults: IndexingSettings,
 ): IndexingSettings {
   const legacy = input as Record<string, unknown> | undefined;
-  const reasoningMode =
-    input?.reasoningMode === "accuracy_first" ? "accuracy_first" : "answer_first";
-  const rawTopK =
-    typeof input?.recallTopK === "number" && Number.isFinite(input.recallTopK)
-      ? input.recallTopK
-      : typeof legacy?.recallTopK === "number" && Number.isFinite(legacy.recallTopK)
-        ? legacy.recallTopK
-        : typeof legacy?.recallTopK === "string" && legacy.recallTopK.trim()
-          ? Number.parseInt(legacy.recallTopK, 10)
-          : typeof legacy?.maxAutoReplyLatencyMs === "number" &&
-              Number.isFinite(legacy.maxAutoReplyLatencyMs)
-            ? Math.max(1, Math.min(50, Math.round(legacy.maxAutoReplyLatencyMs / 180)))
-            : typeof legacy?.recallBudgetMs === "number" && Number.isFinite(legacy.recallBudgetMs)
-              ? Math.max(1, Math.min(50, Math.round(legacy.recallBudgetMs / 180)))
-              : defaults.recallTopK;
-  const rawAutoIndexIntervalMinutes =
-    typeof input?.autoIndexIntervalMinutes === "number" &&
-    Number.isFinite(input.autoIndexIntervalMinutes)
-      ? input.autoIndexIntervalMinutes
-      : typeof legacy?.autoIndexIntervalMinutes === "number" &&
-          Number.isFinite(legacy.autoIndexIntervalMinutes)
-        ? legacy.autoIndexIntervalMinutes
-        : typeof legacy?.autoIndexIntervalMinutes === "string" &&
-            legacy.autoIndexIntervalMinutes.trim()
-          ? Number.parseInt(legacy.autoIndexIntervalMinutes, 10)
-          : defaults.autoIndexIntervalMinutes;
-  const rawAutoDreamIntervalMinutes =
-    typeof input?.autoDreamIntervalMinutes === "number" &&
-    Number.isFinite(input.autoDreamIntervalMinutes)
-      ? input.autoDreamIntervalMinutes
-      : typeof legacy?.autoDreamIntervalMinutes === "number" &&
-          Number.isFinite(legacy.autoDreamIntervalMinutes)
-        ? legacy.autoDreamIntervalMinutes
-        : typeof legacy?.autoDreamIntervalMinutes === "string" &&
-            legacy.autoDreamIntervalMinutes.trim()
-          ? Number.parseInt(legacy.autoDreamIntervalMinutes, 10)
-          : defaults.autoDreamIntervalMinutes;
-  const rawAutoDreamMinNewL1 =
-    typeof input?.autoDreamMinNewL1 === "number" && Number.isFinite(input.autoDreamMinNewL1)
-      ? input.autoDreamMinNewL1
-      : typeof legacy?.autoDreamMinNewL1 === "number" && Number.isFinite(legacy.autoDreamMinNewL1)
-        ? legacy.autoDreamMinNewL1
-        : typeof legacy?.autoDreamMinNewL1 === "string" && legacy.autoDreamMinNewL1.trim()
-          ? Number.parseInt(legacy.autoDreamMinNewL1, 10)
-          : defaults.autoDreamMinNewL1;
+  const resolveNonNegativeIntOrDefault = (value: unknown, fallback: number): number => {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.floor(value);
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number.parseInt(value, 10);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    return fallback;
+  };
+  const reasoningMode = input?.reasoningMode === "accuracy_first" ? "accuracy_first" : "answer_first";
+  const rawTopK = typeof input?.recallTopK === "number" && Number.isFinite(input.recallTopK)
+    ? input.recallTopK
+    : typeof legacy?.recallTopK === "number" && Number.isFinite(legacy.recallTopK)
+      ? legacy.recallTopK
+      : typeof legacy?.recallTopK === "string" && legacy.recallTopK.trim()
+        ? Number.parseInt(legacy.recallTopK, 10)
+        : typeof legacy?.maxAutoReplyLatencyMs === "number" && Number.isFinite(legacy.maxAutoReplyLatencyMs)
+          ? Math.max(1, Math.min(50, Math.round(legacy.maxAutoReplyLatencyMs / 180)))
+          : typeof legacy?.recallBudgetMs === "number" && Number.isFinite(legacy.recallBudgetMs)
+            ? Math.max(1, Math.min(50, Math.round(legacy.recallBudgetMs / 180)))
+            : defaults.recallTopK;
+  const rawAutoIndexIntervalMinutes = typeof input?.autoIndexIntervalMinutes === "number"
+    && Number.isFinite(input.autoIndexIntervalMinutes)
+    ? input.autoIndexIntervalMinutes
+    : typeof legacy?.autoIndexIntervalMinutes === "number" && Number.isFinite(legacy.autoIndexIntervalMinutes)
+      ? legacy.autoIndexIntervalMinutes
+      : typeof legacy?.autoIndexIntervalMinutes === "string" && legacy.autoIndexIntervalMinutes.trim()
+        ? Number.parseInt(legacy.autoIndexIntervalMinutes, 10)
+        : defaults.autoIndexIntervalMinutes;
+  const rawAutoDreamIntervalMinutes = typeof input?.autoDreamIntervalMinutes === "number"
+    && Number.isFinite(input.autoDreamIntervalMinutes)
+    ? input.autoDreamIntervalMinutes
+    : typeof legacy?.autoDreamIntervalMinutes === "number" && Number.isFinite(legacy.autoDreamIntervalMinutes)
+      ? legacy.autoDreamIntervalMinutes
+      : typeof legacy?.autoDreamIntervalMinutes === "string" && legacy.autoDreamIntervalMinutes.trim()
+        ? Number.parseInt(legacy.autoDreamIntervalMinutes, 10)
+        : defaults.autoDreamIntervalMinutes;
+  const rawAutoDreamMinNewL1 = typeof input?.autoDreamMinNewL1 === "number"
+    && Number.isFinite(input.autoDreamMinNewL1)
+    ? input.autoDreamMinNewL1
+    : typeof legacy?.autoDreamMinNewL1 === "number" && Number.isFinite(legacy.autoDreamMinNewL1)
+      ? legacy.autoDreamMinNewL1
+      : typeof legacy?.autoDreamMinNewL1 === "string" && legacy.autoDreamMinNewL1.trim()
+        ? Number.parseInt(legacy.autoDreamMinNewL1, 10)
+        : defaults.autoDreamMinNewL1;
+  const rawDreamProjectRebuildTimeoutMs = input?.dreamProjectRebuildTimeoutMs;
   return {
     reasoningMode,
     recallTopK: Math.max(1, Math.min(50, Math.floor(rawTopK))),
     autoIndexIntervalMinutes: Math.max(0, Math.floor(rawAutoIndexIntervalMinutes)),
     autoDreamIntervalMinutes: Math.max(0, Math.floor(rawAutoDreamIntervalMinutes)),
     autoDreamMinNewL1: Math.max(0, Math.floor(rawAutoDreamMinNewL1)),
+    dreamProjectRebuildTimeoutMs: resolveNonNegativeIntOrDefault(
+      rawDreamProjectRebuildTimeoutMs
+        ?? legacy?.dreamProjectRebuildTimeoutMs,
+      defaults.dreamProjectRebuildTimeoutMs,
+    ),
   };
 }
 
@@ -594,17 +555,10 @@ export class MemoryRepository {
     }
   }
 
-  private upsertFtsDocument(
-    tableName: string,
-    idColumn: string,
-    id: string,
-    content: string,
-  ): void {
+  private upsertFtsDocument(tableName: string, idColumn: string, id: string, content: string): void {
     if (!this.ftsEnabled || !id.trim()) return;
     const deleteStmt = this.db.prepare(`DELETE FROM ${tableName} WHERE ${idColumn} = ?`);
-    const insertStmt = this.db.prepare(
-      `INSERT INTO ${tableName} (${idColumn}, content) VALUES (?, ?)`,
-    );
+    const insertStmt = this.db.prepare(`INSERT INTO ${tableName} (${idColumn}, content) VALUES (?, ?)`);
     deleteStmt.run(id);
     insertStmt.run(id, content.trim());
   }
@@ -618,15 +572,12 @@ export class MemoryRepository {
   private buildFtsQuery(query: string): string {
     const tokens = tokenizeQuery(query).slice(0, 8);
     if (tokens.length === 0) return "";
-    return tokens.map((token) => `"${token.replace(/"/g, '""')}"`).join(" OR ");
+    return tokens
+      .map((token) => `"${token.replace(/"/g, "\"\"")}"`)
+      .join(" OR ");
   }
 
-  private searchFts(
-    tableName: string,
-    idColumn: string,
-    query: string,
-    limit: number,
-  ): SearchIdHit[] {
+  private searchFts(tableName: string, idColumn: string, query: string, limit: number): SearchIdHit[] {
     if (!this.ftsEnabled) return [];
     const ftsQuery = this.buildFtsQuery(query);
     if (!ftsQuery) return [];
@@ -665,15 +616,14 @@ export class MemoryRepository {
     return rightRecency.localeCompare(leftRecency);
   }
 
-  private searchRankedL2TimeIndexes(
-    query: string,
-    limit: number,
-  ): Array<Extract<L2SearchResult, { level: "l2_time" }>> {
+  private searchRankedL2TimeIndexes(query: string, limit: number): Array<Extract<L2SearchResult, { level: "l2_time" }>> {
     if (limit <= 0) return [];
     const recent = this.listRecentL2Time(Math.max(50, limit * 8));
     const recentById = new Map(recent.map((item) => [item.l2IndexId, item]));
     const ftsHits = this.searchFts("l2_time_fts", "l2_index_id", query, Math.max(limit * 2, 8));
-    const missingFtsIds = ftsHits.map((hit) => hit.id).filter((id) => !recentById.has(id));
+    const missingFtsIds = ftsHits
+      .map((hit) => hit.id)
+      .filter((id) => !recentById.has(id));
     for (const item of this.getL2TimeByIds(missingFtsIds)) {
       recentById.set(item.l2IndexId, item);
     }
@@ -709,15 +659,14 @@ export class MemoryRepository {
     return [...ordered, ...fallback];
   }
 
-  private searchRankedL2ProjectIndexes(
-    query: string,
-    limit: number,
-  ): Array<Extract<L2SearchResult, { level: "l2_project" }>> {
+  private searchRankedL2ProjectIndexes(query: string, limit: number): Array<Extract<L2SearchResult, { level: "l2_project" }>> {
     if (limit <= 0) return [];
     const recent = this.listRecentL2Projects(Math.max(50, limit * 8));
     const recentById = new Map(recent.map((item) => [item.l2IndexId, item]));
     const ftsHits = this.searchFts("l2_project_fts", "l2_index_id", query, Math.max(limit * 2, 8));
-    const missingFtsIds = ftsHits.map((hit) => hit.id).filter((id) => !recentById.has(id));
+    const missingFtsIds = ftsHits
+      .map((hit) => hit.id)
+      .filter((id) => !recentById.has(id));
     for (const item of this.getL2ProjectByIds(missingFtsIds)) {
       recentById.set(item.l2IndexId, item);
     }
@@ -736,13 +685,7 @@ export class MemoryRepository {
       .filter((item) => !seen.has(item.l2IndexId))
       .map((item) => ({
         item,
-        score: computeTokenScore(query, [
-          item.projectKey,
-          item.projectName,
-          item.summary,
-          item.currentStatus,
-          item.latestProgress,
-        ]),
+        score: computeTokenScore(query, [item.projectKey, item.projectName, item.summary, item.currentStatus, item.latestProgress]),
       }))
       .filter((hit) => hit.score > 0.12)
       .sort((left, right) => {
@@ -779,13 +722,9 @@ export class MemoryRepository {
         window.summary,
         window.situationTimeInfo,
         window.projectTags.join(" "),
-        window.projectDetails
-          .map((project) => `${project.name} ${project.summary} ${project.latestProgress}`)
-          .join(" "),
+        window.projectDetails.map((project) => `${project.name} ${project.summary} ${project.latestProgress}`).join(" "),
         window.facts.map((fact) => `${fact.factKey} ${fact.factValue}`).join(" "),
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      ].filter(Boolean).join("\n"),
     );
   }
 
@@ -810,9 +749,7 @@ export class MemoryRepository {
         index.latestProgress,
         index.currentStatus,
         index.l1Source.join(" "),
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      ].filter(Boolean).join("\n"),
     );
   }
 
@@ -973,18 +910,14 @@ export class MemoryRepository {
   markL0Indexed(ids: string[]): void {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(
-      `UPDATE l0_sessions SET indexed = 1 WHERE l0_index_id IN (${placeholders})`,
-    );
+    const stmt = this.db.prepare(`UPDATE l0_sessions SET indexed = 1 WHERE l0_index_id IN (${placeholders})`);
     stmt.run(...ids);
   }
 
   getL0ByIds(ids: string[]): L0SessionRecord[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(
-      `SELECT * FROM l0_sessions WHERE l0_index_id IN (${placeholders}) ORDER BY timestamp ASC`,
-    );
+    const stmt = this.db.prepare(`SELECT * FROM l0_sessions WHERE l0_index_id IN (${placeholders}) ORDER BY timestamp ASC`);
     const rows = stmt.all(...ids) as DbRow[];
     return rows.map(parseL0Row);
   }
@@ -1010,9 +943,7 @@ export class MemoryRepository {
   }
 
   listRecentL0(limit = 20, offset = 0): L0SessionRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM l0_sessions ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-    );
+    const stmt = this.db.prepare("SELECT * FROM l0_sessions ORDER BY timestamp DESC LIMIT ? OFFSET ?");
     const rows = stmt.all(limit, offset) as DbRow[];
     return rows.map(parseL0Row);
   }
@@ -1101,9 +1032,7 @@ export class MemoryRepository {
   getL1ByIds(ids: string[]): L1WindowRecord[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(
-      `SELECT * FROM l1_windows WHERE l1_index_id IN (${placeholders}) ORDER BY created_at DESC`,
-    );
+    const stmt = this.db.prepare(`SELECT * FROM l1_windows WHERE l1_index_id IN (${placeholders}) ORDER BY created_at DESC`);
     const rows = stmt.all(...ids) as DbRow[];
     return rows.map(parseL1Row);
   }
@@ -1113,9 +1042,7 @@ export class MemoryRepository {
   }
 
   listRecentL1(limit = 20, offset = 0): L1WindowRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM l1_windows ORDER BY ended_at DESC, created_at DESC LIMIT ? OFFSET ?",
-    );
+    const stmt = this.db.prepare("SELECT * FROM l1_windows ORDER BY ended_at DESC, created_at DESC LIMIT ? OFFSET ?");
     const rows = stmt.all(limit, offset) as DbRow[];
     return rows.map(parseL1Row);
   }
@@ -1130,7 +1057,9 @@ export class MemoryRepository {
     const recent = this.listRecentL1(Math.max(60, limit * 10));
     const recentById = new Map(recent.map((item) => [item.l1IndexId, item]));
     const ftsHits = this.searchFts("l1_window_fts", "l1_index_id", query, Math.max(limit * 2, 8));
-    const missingFtsIds = ftsHits.map((hit) => hit.id).filter((id) => !recentById.has(id));
+    const missingFtsIds = ftsHits
+      .map((hit) => hit.id)
+      .filter((id) => !recentById.has(id));
     for (const item of this.getL1ByIds(missingFtsIds)) {
       recentById.set(item.l1IndexId, item);
     }
@@ -1155,9 +1084,7 @@ export class MemoryRepository {
           item.summary,
           item.situationTimeInfo,
           item.projectTags.join(" "),
-          item.projectDetails
-            .map((project) => `${project.name} ${project.summary} ${project.latestProgress}`)
-            .join(" "),
+          item.projectDetails.map((project) => `${project.name} ${project.summary} ${project.latestProgress}`).join(" "),
           JSON.stringify(item.facts),
         ]),
       }))
@@ -1165,9 +1092,7 @@ export class MemoryRepository {
       .sort((left, right) => {
         if (right.score !== left.score) return right.score - left.score;
         const endedCompare = right.item.endedAt.localeCompare(left.item.endedAt);
-        return endedCompare !== 0
-          ? endedCompare
-          : right.item.createdAt.localeCompare(left.item.createdAt);
+        return endedCompare !== 0 ? endedCompare : right.item.createdAt.localeCompare(left.item.createdAt);
       })
       .slice(0, Math.max(0, limit - ordered.length))
       .map((hit) => ({
@@ -1187,9 +1112,7 @@ export class MemoryRepository {
   getL2TimeByIds(ids: string[]): L2TimeIndexRecord[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(
-      `SELECT * FROM l2_time_indexes WHERE l2_index_id IN (${placeholders}) ORDER BY updated_at DESC`,
-    );
+    const stmt = this.db.prepare(`SELECT * FROM l2_time_indexes WHERE l2_index_id IN (${placeholders}) ORDER BY updated_at DESC`);
     const rows = stmt.all(...ids) as DbRow[];
     return rows.map(parseL2TimeRow);
   }
@@ -1239,17 +1162,13 @@ export class MemoryRepository {
   }
 
   listRecentL2Time(limit = 20, offset = 0): L2TimeIndexRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM l2_time_indexes ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-    );
+    const stmt = this.db.prepare("SELECT * FROM l2_time_indexes ORDER BY updated_at DESC LIMIT ? OFFSET ?");
     const rows = stmt.all(limit, offset) as DbRow[];
     return rows.map(parseL2TimeRow);
   }
 
   listAllL2Time(): L2TimeIndexRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM l2_time_indexes ORDER BY date_key ASC, created_at ASC",
-    );
+    const stmt = this.db.prepare("SELECT * FROM l2_time_indexes ORDER BY date_key ASC, created_at ASC");
     const rows = stmt.all() as DbRow[];
     return rows.map(parseL2TimeRow);
   }
@@ -1263,9 +1182,7 @@ export class MemoryRepository {
   getL2ProjectByIds(ids: string[]): L2ProjectIndexRecord[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => "?").join(", ");
-    const stmt = this.db.prepare(
-      `SELECT * FROM l2_project_indexes WHERE l2_index_id IN (${placeholders}) ORDER BY updated_at DESC`,
-    );
+    const stmt = this.db.prepare(`SELECT * FROM l2_project_indexes WHERE l2_index_id IN (${placeholders}) ORDER BY updated_at DESC`);
     const rows = stmt.all(...ids) as DbRow[];
     return rows.map(parseL2ProjectRow);
   }
@@ -1329,17 +1246,13 @@ export class MemoryRepository {
   }
 
   listRecentL2Projects(limit = 20, offset = 0): L2ProjectIndexRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM l2_project_indexes ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-    );
+    const stmt = this.db.prepare("SELECT * FROM l2_project_indexes ORDER BY updated_at DESC LIMIT ? OFFSET ?");
     const rows = stmt.all(limit, offset) as DbRow[];
     return rows.map(parseL2ProjectRow);
   }
 
   listAllL2Projects(): L2ProjectIndexRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM l2_project_indexes ORDER BY updated_at ASC, created_at ASC",
-    );
+    const stmt = this.db.prepare("SELECT * FROM l2_project_indexes ORDER BY updated_at ASC, created_at ASC");
     const rows = stmt.all() as DbRow[];
     return rows.map(parseL2ProjectRow);
   }
@@ -1390,14 +1303,13 @@ export class MemoryRepository {
     const currentProfile = this.getGlobalProfileRecord();
     const currentProjects = this.listAllL2Projects();
     const currentProjectIds = currentProjects.map((project) => project.l2IndexId).filter(Boolean);
-    const deleteProjectLinksStmt =
-      currentProjectIds.length > 0
-        ? this.db.prepare(`
+    const deleteProjectLinksStmt = currentProjectIds.length > 0
+      ? this.db.prepare(`
           DELETE FROM index_links
           WHERE from_level = 'l2'
             AND from_id IN (${currentProjectIds.map(() => "?").join(", ")})
         `)
-        : null;
+      : null;
     const deleteProjectRowsStmt = this.db.prepare("DELETE FROM l2_project_indexes");
     const insertProjectStmt = this.db.prepare(`
       INSERT INTO l2_project_indexes (
@@ -1472,10 +1384,7 @@ export class MemoryRepository {
     const profile = this.getGlobalProfileRecord();
     if (!profile.profileText.trim()) return null;
     const ftsScore = this.searchFts("global_profile_fts", "record_id", query, 1)[0]?.score ?? 0;
-    const tokenScore = computeTokenScore(query, [
-      profile.profileText,
-      profile.sourceL1Ids.join(" "),
-    ]);
+    const tokenScore = computeTokenScore(query, [profile.profileText, profile.sourceL1Ids.join(" ")]);
     const score = ftsScore > 0 ? ftsScore : tokenScore;
     if (query.trim() && score <= 0.1) return null;
     return { item: profile, score: Math.max(score, query.trim() ? score : 0.2) };
@@ -1492,12 +1401,7 @@ export class MemoryRepository {
     });
   }
 
-  insertLink(
-    fromLevel: "l2" | "l1" | "l0",
-    fromId: string,
-    toLevel: "l2" | "l1" | "l0",
-    toId: string,
-  ): void {
+  insertLink(fromLevel: "l2" | "l1" | "l0", fromId: string, toLevel: "l2" | "l1" | "l0", toId: string): void {
     const linkId = buildLinkId(fromLevel, fromId, toLevel, toId);
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO index_links (link_id, from_level, from_id, to_level, to_id, created_at)
@@ -1521,9 +1425,7 @@ export class MemoryRepository {
     const stateStmt = this.db.prepare("SELECT state_value FROM pipeline_state WHERE state_key = ?");
     const readState = (key: string): string | undefined => {
       const row = stateStmt.get(key) as { state_value?: string } | undefined;
-      return typeof row?.state_value === "string" && row.state_value.trim()
-        ? row.state_value
-        : undefined;
+      return typeof row?.state_value === "string" && row.state_value.trim() ? row.state_value : undefined;
     };
     const profile = this.getGlobalProfileRecord();
     const overview: DashboardOverview = {
@@ -1550,10 +1452,7 @@ export class MemoryRepository {
     const lastDreamL1EndedAt = readState(LAST_DREAM_L1_ENDED_AT_STATE_KEY);
     if (lastIndexedAt) overview.lastIndexedAt = lastIndexedAt;
     if (lastDreamAt) overview.lastDreamAt = lastDreamAt;
-    if (lastDreamStatus)
-      overview.lastDreamStatus = lastDreamStatus as NonNullable<
-        DashboardOverview["lastDreamStatus"]
-      >;
+    if (lastDreamStatus) overview.lastDreamStatus = lastDreamStatus as NonNullable<DashboardOverview["lastDreamStatus"]>;
     if (lastDreamSummary) overview.lastDreamSummary = lastDreamSummary;
     if (lastDreamL1EndedAt) overview.lastDreamL1EndedAt = lastDreamL1EndedAt;
     return overview;
@@ -1601,9 +1500,8 @@ export class MemoryRepository {
   saveCaseTrace(record: CaseTraceRecord, maxRecords = 30): void {
     const normalized = parseCaseTraceRecord(record);
     if (!normalized) return;
-    const next = this.listRecentCaseTraces(Math.max(1, Math.min(200, maxRecords + 20))).filter(
-      (item) => item.caseId !== normalized.caseId,
-    );
+    const next = this.listRecentCaseTraces(Math.max(1, Math.min(200, maxRecords + 20)))
+      .filter((item) => item.caseId !== normalized.caseId);
     next.unshift(normalized);
     this.setPipelineState(
       RECENT_CASE_TRACES_STATE_KEY,
@@ -1618,10 +1516,7 @@ export class MemoryRepository {
     return normalizeIndexingSettings(parsed, defaults);
   }
 
-  saveIndexingSettings(
-    input: Partial<IndexingSettings>,
-    defaults: IndexingSettings,
-  ): IndexingSettings {
+  saveIndexingSettings(input: Partial<IndexingSettings>, defaults: IndexingSettings): IndexingSettings {
     const next = normalizeIndexingSettings(input, defaults);
     this.setPipelineState(INDEXING_SETTINGS_STATE_KEY, JSON.stringify(next));
     return next;
@@ -1748,14 +1643,7 @@ export class MemoryRepository {
       this.saveGlobalProfileRecord(bundle.globalProfile);
 
       for (const link of bundle.indexLinks) {
-        insertLinkStmt.run(
-          link.linkId,
-          link.fromLevel,
-          link.fromId,
-          link.toLevel,
-          link.toId,
-          link.createdAt,
-        );
+        insertLinkStmt.run(link.linkId, link.fromLevel, link.fromId, link.toLevel, link.toId, link.createdAt);
       }
 
       if (bundle.lastIndexedAt) {
@@ -1811,7 +1699,9 @@ export class MemoryRepository {
     }
   }
 
-  repairL0Sessions(cleaner: (record: L0SessionRecord) => MemoryMessage[]): RepairMemoryResult {
+  repairL0Sessions(
+    cleaner: (record: L0SessionRecord) => MemoryMessage[],
+  ): RepairMemoryResult {
     const rows = this.listAllL0();
     const stats: RepairMemoryResult = {
       inspected: rows.length,
@@ -1935,6 +1825,7 @@ export class MemoryRepository {
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
         autoDreamMinNewL1: 10,
+        dreamProjectRebuildTimeoutMs: 180_000,
       }),
       recentTimeIndexes: this.listRecentL2Time(limit),
       recentProjectIndexes: this.listRecentL2Projects(limit),

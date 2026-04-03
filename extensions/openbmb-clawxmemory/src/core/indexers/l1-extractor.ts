@@ -1,6 +1,6 @@
-import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
 import type { L0SessionRecord, L1WindowRecord, MemoryMessage } from "../types.js";
 import { buildL1IndexId, nowIso } from "../utils/id.js";
+import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
 
 function sameMessage(left: MemoryMessage | undefined, right: MemoryMessage | undefined): boolean {
   if (!left || !right) return false;
@@ -50,10 +50,7 @@ function mergeMessageStream(existing: MemoryMessage[], incoming: MemoryMessage[]
 }
 
 function mergeWindowMessages(records: L0SessionRecord[]): MemoryMessage[] {
-  return records.reduce<MemoryMessage[]>(
-    (combined, record) => mergeMessageStream(combined, record.messages),
-    [],
-  );
+  return records.reduce<MemoryMessage[]>((combined, record) => mergeMessageStream(combined, record.messages), []);
 }
 
 function buildTimePeriod(startedAt: string, endedAt: string): string {

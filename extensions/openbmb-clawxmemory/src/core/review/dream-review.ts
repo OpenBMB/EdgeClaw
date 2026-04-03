@@ -1,5 +1,3 @@
-import type { HeartbeatStats } from "../pipeline/heartbeat.js";
-import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
 import type {
   DreamEvidenceRef,
   DreamReviewFinding,
@@ -11,6 +9,8 @@ import type {
   L2ProjectIndexRecord,
   ProjectStatus,
 } from "../types.js";
+import type { HeartbeatStats } from "../pipeline/heartbeat.js";
+import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
 import { buildL2ProjectIndexId, nowIso } from "../utils/id.js";
 
 type LoggerLike = {
@@ -21,6 +21,7 @@ type LoggerLike = {
 
 interface DreamReviewRunnerOptions {
   logger?: LoggerLike;
+  getDreamProjectRebuildTimeoutMs?: () => number;
 }
 
 interface DreamEvidencePack {
@@ -162,11 +163,7 @@ function clampConfidence(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-function emptyDreamReview(
-  summary: string,
-  evidenceRefs: DreamEvidenceRef[] = [],
-  timeLayerNotes: DreamReviewFinding[] = [],
-): DreamReviewResult {
+function emptyDreamReview(summary: string, evidenceRefs: DreamEvidenceRef[] = [], timeLayerNotes: DreamReviewFinding[] = []): DreamReviewResult {
   return {
     summary,
     projectRebuild: [],
@@ -216,10 +213,7 @@ function countProjectSourceRefs(projects: readonly L2ProjectIndexRecord[]): numb
   return projects.reduce((total, project) => total + project.l1Source.length, 0);
 }
 
-function sortL1IdsByEndedAt(
-  ids: string[],
-  windowsById: ReadonlyMap<string, L1WindowRecord>,
-): string[] {
+function sortL1IdsByEndedAt(ids: string[], windowsById: ReadonlyMap<string, L1WindowRecord>): string[] {
   return Array.from(new Set(ids))
     .filter((id) => windowsById.has(id))
     .sort((left, right) => {
@@ -240,9 +234,7 @@ export class DreamReviewRunner {
       getL2ProjectByKey(projectKey: string): L2ProjectIndexRecord | undefined;
       getGlobalProfileRecord(): GlobalProfileRecord;
       getL0ByL1Ids(l1Ids: string[], limit?: number): L0SessionRecord[];
-      getL2TimeByDate(
-        dateKey: string,
-      ): { l2IndexId: string; dateKey: string; summary: string; l1Source: string[] } | undefined;
+      getL2TimeByDate(dateKey: string): { l2IndexId: string; dateKey: string; summary: string; l1Source: string[] } | undefined;
     },
     private readonly extractor: LlmMemoryExtractor,
     private readonly options: DreamReviewRunnerOptions = {},
@@ -251,15 +243,12 @@ export class DreamReviewRunner {
   async review(focus: DreamReviewFocus): Promise<DreamReviewResult> {
     const evidence = this.buildEvidencePack(focus);
     if (
-      evidence.l1Windows.length === 0 &&
-      evidence.l2Projects.length === 0 &&
-      !evidence.profile?.profileText.trim() &&
-      evidence.timeLayerNotes.length === 0
+      evidence.l1Windows.length === 0
+      && evidence.l2Projects.length === 0
+      && !evidence.profile?.profileText.trim()
+      && evidence.timeLayerNotes.length === 0
     ) {
-      return emptyDreamReview(
-        "Not enough indexed memory evidence to run Dream review yet.",
-        evidence.evidenceRefs,
-      );
+      return emptyDreamReview("Not enough indexed memory evidence to run Dream review yet.", evidence.evidenceRefs);
     }
 
     const llmResult = await this.extractor.reviewDream({
@@ -281,23 +270,21 @@ export class DreamReviewRunner {
 
   private buildEvidencePack(focus: DreamReviewFocus): DreamEvidencePack {
     const rawRecentL1 = this.repository.listRecentL1(DREAM_RECENT_L1_LIMIT, 0);
-    const l1Windows =
-      focus === "profile"
-        ? rawRecentL1
-        : (() => {
-            const projectWindows = rawRecentL1.filter((window) => window.projectDetails.length > 0);
-            return projectWindows.length > 0 ? projectWindows : rawRecentL1;
-          })();
+    const l1Windows = focus === "profile"
+      ? rawRecentL1
+      : (() => {
+          const projectWindows = rawRecentL1.filter((window) => window.projectDetails.length > 0);
+          return projectWindows.length > 0 ? projectWindows : rawRecentL1;
+        })();
 
     const profileRecord = this.repository.getGlobalProfileRecord();
-    const profile =
-      focus === "projects" ? null : profileRecord.profileText.trim() ? profileRecord : null;
+    const profile = focus === "projects"
+      ? null
+      : (profileRecord.profileText.trim() ? profileRecord : null);
 
     const projectKeys = Array.from(
       new Set(
-        l1Windows
-          .flatMap((window) => window.projectDetails.map((project) => project.key))
-          .filter(Boolean),
+        l1Windows.flatMap((window) => window.projectDetails.map((project) => project.key)).filter(Boolean),
       ),
     ).slice(0, DREAM_MAX_PROJECTS);
     const l2Projects = projectKeys
@@ -305,20 +292,17 @@ export class DreamReviewRunner {
       .filter((item): item is L2ProjectIndexRecord => Boolean(item));
 
     const suspiciousL1Ids = l1Windows
-      .filter(
-        (window) =>
-          window.projectDetails.length > 1 ||
-          window.projectDetails.some(
-            (project) =>
-              project.confidence < 0.6 || !project.summary.trim() || !project.latestProgress.trim(),
-          ),
-      )
+      .filter((window) => (
+        window.projectDetails.length > 1
+        || window.projectDetails.some((project) =>
+          project.confidence < 0.6 || !project.summary.trim() || !project.latestProgress.trim()
+        )
+      ))
       .map((window) => window.l1IndexId)
       .slice(0, DREAM_MAX_L0_SPOTCHECK);
-    const l0Previews =
-      suspiciousL1Ids.length > 0
-        ? this.repository.getL0ByL1Ids(suspiciousL1Ids, DREAM_MAX_L0_SPOTCHECK)
-        : [];
+    const l0Previews = suspiciousL1Ids.length > 0
+      ? this.repository.getL0ByL1Ids(suspiciousL1Ids, DREAM_MAX_L0_SPOTCHECK)
+      : [];
 
     const evidenceRefs: DreamEvidenceRef[] = [];
     const addRef = (ref: DreamEvidenceRef): void => {
@@ -497,9 +481,7 @@ export class DreamRewriteRunner {
     const plan = await this.buildProjectPlan(evidence);
     const profileRewrite = await this.buildProfileRewrite(evidence, plan);
 
-    const currentProjectsByKey = new Map(
-      evidence.currentProjects.map((project) => [project.projectKey, project]),
-    );
+    const currentProjectsByKey = new Map(evidence.currentProjects.map((project) => [project.projectKey, project]));
     const finalProjects = plan.projects.map((item) => {
       const existing = currentProjectsByKey.get(item.projectKey);
       const timestamp = nowIso();
@@ -510,10 +492,7 @@ export class DreamRewriteRunner {
         summary: item.summary,
         currentStatus: item.currentStatus,
         latestProgress: item.latestProgress,
-        l1Source: sortL1IdsByEndedAt(
-          item.retainedL1Ids,
-          new Map(evidence.allL1Windows.map((window) => [window.l1IndexId, window])),
-        ),
+        l1Source: sortL1IdsByEndedAt(item.retainedL1Ids, new Map(evidence.allL1Windows.map((window) => [window.l1IndexId, window]))),
         createdAt: existing?.createdAt ?? timestamp,
         updatedAt: timestamp,
       } satisfies L2ProjectIndexRecord;
@@ -522,20 +501,18 @@ export class DreamRewriteRunner {
     const currentProjectSourceRefs = countProjectSourceRefs(evidence.currentProjects);
     const nextProjectSourceRefs = countProjectSourceRefs(finalProjects);
     const prunedProjectL1Refs = Math.max(0, currentProjectSourceRefs - nextProjectSourceRefs);
-    const profileUpdated =
-      profileRewrite.profileText !== evidence.currentProfile.profileText ||
-      !arraysEqual(profileRewrite.sourceL1Ids, evidence.currentProfile.sourceL1Ids);
-    const prunedProfileL1Refs = Math.max(
-      0,
-      evidence.currentProfile.sourceL1Ids.length - profileRewrite.sourceL1Ids.length,
-    );
+    const profileUpdated = profileRewrite.profileText !== evidence.currentProfile.profileText
+      || !arraysEqual(profileRewrite.sourceL1Ids, evidence.currentProfile.sourceL1Ids);
+    const prunedProfileL1Refs = Math.max(0, evidence.currentProfile.sourceL1Ids.length - profileRewrite.sourceL1Ids.length);
     const deletedProjectKeys = Array.from(
-      new Set([
-        ...plan.deletedProjectKeys,
-        ...evidence.currentProjects
-          .map((project) => project.projectKey)
-          .filter((projectKey) => !finalProjects.some((item) => item.projectKey === projectKey)),
-      ]),
+      new Set(
+        [
+          ...plan.deletedProjectKeys,
+          ...evidence.currentProjects
+            .map((project) => project.projectKey)
+            .filter((projectKey) => !finalProjects.some((item) => item.projectKey === projectKey)),
+        ],
+      ),
     );
 
     this.repository.applyDreamRewrite({
@@ -566,10 +543,9 @@ export class DreamRewriteRunner {
       .filter((cluster) => cluster.issueHints.length > 0 || cluster.currentProjectKeys.length !== 1)
       .flatMap((cluster) => cluster.l1Ids)
       .slice(0, DREAM_MAX_REWRITE_L0_SPOTCHECK);
-    const l0Previews =
-      suspiciousL1Ids.length > 0
-        ? this.repository.getL0ByL1Ids(suspiciousL1Ids, DREAM_MAX_REWRITE_L0_SPOTCHECK)
-        : [];
+    const l0Previews = suspiciousL1Ids.length > 0
+      ? this.repository.getL0ByL1Ids(suspiciousL1Ids, DREAM_MAX_REWRITE_L0_SPOTCHECK)
+      : [];
     return {
       currentProjects,
       currentProfile,
@@ -603,13 +579,9 @@ export class DreamRewriteRunner {
       const identity = normalizeProjectIdentity(candidate.projectKey || candidate.projectName);
       const text = `${candidate.projectName} ${candidate.summary} ${candidate.latestProgress}`;
       const cluster = clusters.find((item) => {
-        const sameIdentity =
-          item.candidateKeys.includes(candidate.projectKey) ||
-          item.candidateNames.some(
-            (name) =>
-              normalizeProjectIdentity(name) === normalizeProjectIdentity(candidate.projectName),
-          ) ||
-          identity === normalizeProjectIdentity(item.label);
+        const sameIdentity = item.candidateKeys.includes(candidate.projectKey)
+          || item.candidateNames.some((name) => normalizeProjectIdentity(name) === normalizeProjectIdentity(candidate.projectName))
+          || identity === normalizeProjectIdentity(item.label);
         if (sameIdentity) return true;
         return similarityScore(item.anchorText, text) >= 0.45;
       });
@@ -643,13 +615,11 @@ export class DreamRewriteRunner {
         summaries: [candidate.summary],
         latestProgresses: [candidate.latestProgress],
         issueHints: [],
-        representativeWindows: [
-          {
-            l1IndexId: candidate.l1IndexId,
-            endedAt: candidate.endedAt,
-            summary: truncate(candidate.summary || candidate.latestProgress, 180),
-          },
-        ],
+        representativeWindows: [{
+          l1IndexId: candidate.l1IndexId,
+          endedAt: candidate.endedAt,
+          summary: truncate(candidate.summary || candidate.latestProgress, 180),
+        }],
         anchorText: text,
       });
     }
@@ -658,29 +628,18 @@ export class DreamRewriteRunner {
       const candidateKeySet = Array.from(new Set(cluster.candidateKeys.filter(Boolean)));
       const candidateNameSet = Array.from(new Set(cluster.candidateNames.filter(Boolean)));
       const statusSet = Array.from(new Set(cluster.statuses));
-      const currentProjectKeys = Array.from(
-        new Set([
-          ...cluster.currentProjectKeys,
-          ...currentProjects
-            .filter(
-              (project) =>
-                candidateKeySet.includes(project.projectKey) ||
-                candidateNameSet.some(
-                  (name) =>
-                    normalizeProjectIdentity(name) ===
-                    normalizeProjectIdentity(project.projectName),
-                ) ||
-                project.l1Source.some((id) => cluster.l1Ids.includes(id)),
-            )
-            .map((project) => project.projectKey),
-        ]),
-      );
+      const currentProjectKeys = Array.from(new Set([
+        ...cluster.currentProjectKeys,
+        ...currentProjects
+          .filter((project) =>
+            candidateKeySet.includes(project.projectKey)
+            || candidateNameSet.some((name) => normalizeProjectIdentity(name) === normalizeProjectIdentity(project.projectName))
+            || project.l1Source.some((id) => cluster.l1Ids.includes(id)),
+          )
+          .map((project) => project.projectKey),
+      ]));
       const issueHints: DreamL1Issue["issueType"][] = [];
-      if (
-        currentProjectKeys.length > 1 ||
-        candidateKeySet.length > 1 ||
-        candidateNameSet.length > 1
-      ) {
+      if (currentProjectKeys.length > 1 || candidateKeySet.length > 1 || candidateNameSet.length > 1) {
         issueHints.push("duplicate");
       }
       if (statusSet.includes("done") && statusSet.includes("in_progress")) {
@@ -698,9 +657,7 @@ export class DreamRewriteRunner {
         l1Ids: Array.from(new Set(cluster.l1Ids)),
         statuses: cluster.statuses,
         summaries: cluster.summaries.map((summary) => truncate(summary, 180)).filter(Boolean),
-        latestProgresses: cluster.latestProgresses
-          .map((value) => truncate(value, 140))
-          .filter(Boolean),
+        latestProgresses: cluster.latestProgresses.map((value) => truncate(value, 140)).filter(Boolean),
         issueHints,
         representativeWindows: cluster.representativeWindows
           .sort((left, right) => right.endedAt.localeCompare(left.endedAt))
@@ -715,38 +672,29 @@ export class DreamRewriteRunner {
       .filter((cluster) => cluster.l1Ids.length > 0)
       .map((cluster) => {
         const retainedL1Ids = sortL1IdsByEndedAt(cluster.l1Ids, windowsById);
-        const mostRecentWindow =
-          retainedL1Ids.length > 0 ? windowsById.get(retainedL1Ids[0]!) : undefined;
-        const mostRecentProject = mostRecentWindow?.projectDetails.find(
-          (project) =>
-            cluster.candidateKeys.includes(project.key) ||
-            cluster.candidateNames.includes(project.name),
+        const mostRecentWindow = retainedL1Ids.length > 0 ? windowsById.get(retainedL1Ids[0]!) : undefined;
+        const mostRecentProject = mostRecentWindow?.projectDetails.find((project) =>
+          cluster.candidateKeys.includes(project.key)
+          || cluster.candidateNames.includes(project.name),
         );
         return {
-          projectKey:
-            (cluster.currentProjectKeys[0] ??
-              cluster.candidateKeys[0] ??
-              normalizeProjectIdentity(cluster.candidateNames[0] ?? cluster.label).replace(
-                /\s+/g,
-                "-",
-              )) ||
-            `dream-project-${cluster.clusterId}`,
+          projectKey: (
+            cluster.currentProjectKeys[0]
+            ?? cluster.candidateKeys[0]
+            ?? normalizeProjectIdentity(cluster.candidateNames[0] ?? cluster.label).replace(/\s+/g, "-")
+          ) || `dream-project-${cluster.clusterId}`,
           projectName: cluster.currentProjectKeys[0]
-            ? (evidence.currentProjects.find(
-                (project) => project.projectKey === cluster.currentProjectKeys[0],
-              )?.projectName ?? cluster.label)
+            ? (evidence.currentProjects.find((project) => project.projectKey === cluster.currentProjectKeys[0])?.projectName ?? cluster.label)
             : (cluster.candidateNames[0] ?? cluster.label),
           currentStatus: mostRecentProject?.status ?? resolveProjectStatus(cluster.statuses),
-          summary:
-            mostRecentProject?.summary ||
-            cluster.summaries.find(Boolean) ||
-            mostRecentWindow?.summary ||
-            cluster.label,
-          latestProgress:
-            mostRecentProject?.latestProgress ||
-            cluster.latestProgresses.find(Boolean) ||
-            mostRecentWindow?.situationTimeInfo ||
-            cluster.label,
+          summary: mostRecentProject?.summary
+            || cluster.summaries.find(Boolean)
+            || mostRecentWindow?.summary
+            || cluster.label,
+          latestProgress: mostRecentProject?.latestProgress
+            || cluster.latestProgresses.find(Boolean)
+            || mostRecentWindow?.situationTimeInfo
+            || cluster.label,
           retainedL1Ids,
         } satisfies DreamProjectRebuildItem;
       });
@@ -755,12 +703,8 @@ export class DreamRewriteRunner {
     const finalKeys = new Set(fallbackProjects.map((project) => project.projectKey));
     return {
       summary: "Dream fallback rebuilt project memory from current L1 clusters.",
-      duplicateTopicCount: evidence.projectClusters.filter((cluster) =>
-        cluster.issueHints.includes("duplicate"),
-      ).length,
-      conflictTopicCount: evidence.projectClusters.filter((cluster) =>
-        cluster.issueHints.includes("conflict"),
-      ).length,
+      duplicateTopicCount: evidence.projectClusters.filter((cluster) => cluster.issueHints.includes("duplicate")).length,
+      conflictTopicCount: evidence.projectClusters.filter((cluster) => cluster.issueHints.includes("conflict")).length,
       projects: fallbackProjects,
       deletedProjectKeys: Array.from(existingKeys).filter((key) => !finalKeys.has(key)),
       l1Issues: evidence.projectClusters.flatMap((cluster) =>
@@ -768,22 +712,24 @@ export class DreamRewriteRunner {
           issueType,
           title: `${cluster.label} ${issueType}`,
           l1Ids: cluster.l1Ids,
-          relatedProjectKeys:
-            cluster.currentProjectKeys.length > 0
-              ? cluster.currentProjectKeys
-              : cluster.candidateKeys,
+          relatedProjectKeys: cluster.currentProjectKeys.length > 0 ? cluster.currentProjectKeys : cluster.candidateKeys,
         })),
       ),
     };
   }
 
-  private async buildProjectPlan(evidence: DreamRewriteEvidence): Promise<DreamProjectRebuildPlan> {
+  private async buildProjectPlan(
+    evidence: DreamRewriteEvidence,
+  ): Promise<DreamProjectRebuildPlan> {
     const planned = await this.extractor.planDreamProjectRebuild({
       currentProjects: evidence.currentProjects,
       profile: evidence.currentProfile,
       l1Windows: evidence.allL1Windows,
       l0Sessions: evidence.l0Previews,
       clusters: evidence.projectClusters,
+      ...(this.options.getDreamProjectRebuildTimeoutMs
+        ? { timeoutMs: this.options.getDreamProjectRebuildTimeoutMs() }
+        : {}),
     });
     if (planned.projects.length === 0) {
       throw new Error("Dream project rebuild returned no valid projects.");
@@ -796,9 +742,7 @@ export class DreamRewriteRunner {
       .map((project) => project.projectKey)
       .filter((projectKey) => !explainedCurrentKeys.has(projectKey));
     if (unexplainedCurrentKeys.length > 0) {
-      throw new Error(
-        `Dream project rebuild did not explain current projects: ${unexplainedCurrentKeys.join(", ")}`,
-      );
+      throw new Error(`Dream project rebuild did not explain current projects: ${unexplainedCurrentKeys.join(", ")}`);
     }
     return planned;
   }
@@ -818,9 +762,7 @@ export class DreamRewriteRunner {
       rewritten.sourceL1Ids,
       new Map(evidence.allL1Windows.map((window) => [window.l1IndexId, window])),
     );
-    if (
-      !(normalizedIds.length >= 2 || (rewritten.conflictWithExisting && normalizedIds.length >= 1))
-    ) {
+    if (!(normalizedIds.length >= 2 || (rewritten.conflictWithExisting && normalizedIds.length >= 1))) {
       throw new Error("Dream global profile rewrite did not satisfy the source support gate.");
     }
     return {

@@ -29,11 +29,6 @@ export function buildFactId(factKey: string): string {
   return `fact_${hashText(factKey.toLowerCase())}`;
 }
 
-export function buildLinkId(
-  fromLevel: string,
-  fromId: string,
-  toLevel: string,
-  toId: string,
-): string {
+export function buildLinkId(fromLevel: string, fromId: string, toLevel: string, toId: string): string {
   return `link_${hashText(`${fromLevel}:${fromId}->${toLevel}:${toId}`)}`;
 }

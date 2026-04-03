@@ -19,6 +19,7 @@ Edge-Cloud Collaborative AI Agent
 
 **What's New** 🔥
 
+- **[2026.04.02]** 🚀 Released three Claude Code-liked features optimized for OpenClaw — 🤖 [ClawXKairos](./extensions/clawxkairos/) (Self-Driven Agent Loop), 🛡️ [ClawXGovernor](./extensions/clawxgovernor/) (Tool Governance), and 📦 [ClawXSandbox](./extensions/ClawXSandbox/) (Claude Code-Style Sandbox)
 - **[2026.04.01]** 🎉 EdgeClaw 2.0 is officially open-sourced, featuring a brand-new memory engine and cost-saving router — bringing the Claude Code experience to OpenClaw!
 - **[2026.04.01]** 🎉 [ClawXMemory](https://github.com/OpenBMB/ClawXMemory) released — inspired by Claude Code's memory mechanism, it delivers a smoother experience for OpenClaw scenarios with multi-layered structured long-term memory and proactive reasoning!
 - **[2026.03.25]** 🎉 [ClawXRouter](https://github.com/OpenBMB/clawxrouter) released — 5-tier cost-saving routing + three-tier privacy collaboration + visual Dashboard
@@ -42,9 +43,21 @@ EdgeClaw is an **Edge-Cloud Collaborative AI Agent** jointly developed by [THUNL
 | Continuous memory consolidation  |    ✗     | Auto-Dream (backend) | **Auto-consolidation on idle & topic switch** |
 | Cost-aware routing               |    ✗     |          ✗           |             **58% cost savings**              |
 | Three-tier privacy collaboration |    ✗     |          ✗           |                 **S1/S2/S3**                  |
+| Context working set management   |    ✗     |          ✓           |                     **✓**                     |
+| Tool risk governance & audit     |    ✗     |          ✓           |                     **✓**                     |
+| Self-driven agent loop           |    ✗     |          ✓           |                     **✓**                     |
+| Sandboxed execution              |    ✗     |          ✓           |                     **✓**                     |
 | Visual Dashboard                 |    ✗     |          ✗           |                     **✓**                     |
 
 ### ✨ Highlights at a Glance
+
+**🌟 Claude Code-Liked Features**
+
+- **🤖 Self-Driven Loop** — [ClawXKairos](./extensions/clawxkairos/): Tick scheduling + Sleep tool + background command automation + async sub-agents, enabling the agent to work autonomously and continuously
+- **🛡️ Tool Governance** — [ClawXGovernor](./extensions/clawxgovernor/): Three hook middlewares — context tail-window trimming, tool call risk interception & audit, session note incremental append. Deeply optimized for OpenClaw scenarios, **saving 85% tokens over 30 rounds of calls**
+- **📦 Sandbox Execution** — [ClawXSandbox](./extensions/ClawXSandbox/): Fully isolated local execution environment based on system-level sandboxing (bwrap / sandbox-exec). Focused on being **lightweight, fast, and zero-dependency**, completely eliminating all Docker overhead.
+
+**🔥 Other Core Features**
 
 - **🧠 Memory Engine** — [ClawXMemory](https://github.com/OpenBMB/ClawXMemory): A structured long-term memory engine built for OpenClaw. Building on the ideas behind Claude Code's memory mechanism, it further introduces multi-layered structured memory and model-driven memory retrieval.
 - **💰 Cost-Saving Router** — [ClawXRouter](https://github.com/openbmb/clawxrouter): LLM-as-Judge automatically determines complexity, routing 60–80% of requests to cheaper models. Real-world PinchBench testing shows **58% cost savings** with scores **6.3% higher**.
@@ -57,7 +70,7 @@ EdgeClaw is an **Edge-Cloud Collaborative AI Agent** jointly developed by [THUNL
 ## 🎬 Demo
 
 <div align="center">
-  <video src="https://github.com/user-attachments/assets/ae4a70a2-ac74-4a07-8537-c370f13c8739" width="70%" controls></video>
+  <video src="https://github.com/user-attachments/assets/39487ce8-fc8e-4dd8-8182-27b130ba15f3" width="70%" controls></video>
 </div>
 
 ---
@@ -245,32 +258,7 @@ Security first — the security router runs first with high weight. If sensitive
 
 > For detailed documentation, see [ClawXRouter README](https://github.com/openbmb/clawxrouter).
 
-### Usage Modes
 
-**Mode 1: Token-Saver Cost-Saving Mode (Default)** — Fill in your API Key and it's ready to use. ClawXRouter automatically routes requests to the most economical model. Tiers can be customized in `openclaw.json` or via the Dashboard.
-
-**Mode 2: Privacy + Cost-Saving Dual Routing** — Enable the privacy router in `~/.edgeclaw/clawxrouter.json`; requires a local LLM backend (Ollama / vLLM):
-
-```json
-{
-  "privacy": {
-    "routers": {
-      "privacy": { "enabled": true, "type": "builtin", "weight": 90 },
-      "token-saver": { "enabled": true, "type": "builtin", "weight": 40 }
-    },
-    "pipeline": {
-      "onUserMessage": ["privacy", "token-saver"],
-      "onToolCallProposed": ["privacy"],
-      "onToolCallExecuted": ["privacy"]
-    },
-    "localModel": {
-      "enabled": true,
-      "endpoint": "http://localhost:11434",
-      "model": "openbmb/minicpm4.1"
-    }
-  }
-}
-```
 
 ---
 
@@ -410,13 +398,51 @@ EdgeClaw/
 │   │   │   └── tools.ts                 # memory_overview / memory_list / memory_flush
 │   │   └── ui-source/                   # Dashboard frontend
 │   │
-│   └── guardclaw/                       # [Optional] Privacy guard (excluded from build by default)
+│   ├── clawxkairos/                     # [Built-in] ClawXKairos self-driven loop
+│   │   ├── index.ts                     # Plugin entry point
+│   │   └── src/
+│   │       ├── tick-scheduler.ts        # Tick scheduling (agent_end → requestHeartbeatNow)
+│   │       ├── sleep-tool.ts            # Sleep tool (controlled hibernation)
+│   │       ├── background-commands.ts   # Long command auto-backgrounding
+│   │       ├── async-subagent.ts        # Async sub-agents
+│   │       ├── kairos-prompt.ts         # Autonomous mode system prompt injection
+│   │       └── heartbeat-ack-guard.ts   # HEARTBEAT_OK interception → forced Sleep
+│   │
+│   ├── ClawXSandbox/                    # [Built-in] ClawXSandbox system-level sandbox
+│   │   ├── src/
+│   │   │   ├── index.ts                # Plugin entry point
+│   │   │   ├── bwrap-backend.ts        # bwrap/sandbox-exec sandbox backend
+│   │   │   ├── fs-bridge.ts            # File system bridge
+│   │   │   └── config.ts              # Sandbox configuration
+│   │   └── tests/                      # Unit tests
+│   │
+# Plugin entry point
+│   │   └── src/
+│   │       ├── backend.ts              # SSH sandbox backend
+│   │       ├── mirror.ts              # Local-remote workspace mirroring
+│   │       ├── fs-bridge.ts           # File system bridge
+│   │       └── config.ts             # Sandbox configuration
+│   │
+│   ├── guardclaw/                       # [Optional] Privacy guard (excluded from build by default)
+│   │
+│   └── clawxgovernor/                   # [Built-in] ClawXGovernor tool governance
+│       ├── index.ts                     # Unified entry (3 hook middlewares)
+│       ├── src/
+│       │   ├── assembler.ts             # Context trimmer (tail-window / compact / reinjection)
+│       │   ├── tool-governor.ts         # Tool call interceptor (risk classification / block / loop detection / audit)
+│       │   └── session-memory.ts        # Session note appender (delta note / lightweight hint injection)
+│       ├── mcp-server/                  # State query interfaces (9 debug tools)
+│       └── skills/                      # 4 Agent Skills
 │
 └── ~/.edgeclaw/                         # Runtime state directory (auto-generated)
     ├── openclaw.json                    # Main config (auto-seeded on first launch)
     ├── clawxrouter.json                 # ClawXRouter config (auto-generated)
     ├── clawxrouter-stats.json           # Token statistics
     ├── clawxmemory/                     # ClawXMemory SQLite data
+    ├── clawxgovernor/
+    │   ├── context-state.json           # Context engine state
+    │   ├── audit.jsonl                  # Tool audit logs
+    │   └── notes/                       # Session notes
     └── workspace-main/                  # Agent workspace
 ```
 
@@ -454,6 +480,9 @@ If this project is helpful to your research or work, please give us a ⭐!
 
 - [ClawXRouter](https://github.com/openbmb/clawxrouter) — Edge-Cloud collaborative routing plugin (privacy routing + cost-aware routing + Dashboard)
 - [ClawXMemory](https://github.com/OpenBMB/ClawXMemory) — Multi-layered memory system for long-term context
+- [ClawXGovernor](./extensions/clawxgovernor/) — Tool governance (context trimming + tool call interception & audit + session notes), EdgeClaw built-in extension
+- [ClawXKairos](./extensions/clawxkairos/) — Self-driven agent loop (tick scheduling + sleep + background commands + async sub-agents)
+- [ClawXSandbox](./extensions/ClawXSandbox/) — Lightweight, zero-dependency isolated execution environment based on system-level sandboxing (bwrap / sandbox-exec)
 
 ### License
 

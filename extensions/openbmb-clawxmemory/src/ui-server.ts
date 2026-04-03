@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -69,7 +69,10 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 const CURRENT_DIR = fileURLToPath(new URL(".", import.meta.url));
-const UI_ASSET_DIRS = [join(CURRENT_DIR, "ui"), join(CURRENT_DIR, "../ui-source")];
+const UI_ASSET_DIRS = [
+  join(CURRENT_DIR, "ui"),
+  join(CURRENT_DIR, "../ui-source"),
+];
 const DEFAULT_OPENCLAW_CONFIG_PATH_HINT = "~/.openclaw/openclaw.json";
 
 function withSlashPrefix(prefix: string): string {
@@ -169,7 +172,7 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
   const raw = Buffer.concat(chunks).toString("utf-8").trim();
   if (!raw) return {};
   const parsed = JSON.parse(raw);
-  return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  return typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
 }
 
 function buildServerErrorMessage(error: unknown, options: UiServerOptions): string {
@@ -265,10 +268,8 @@ export class LocalUiServer {
     const query = url.searchParams.get("q") ?? "";
     const limit = parseLimit(url.searchParams.get("limit"), 20);
     const offset = Math.max(0, parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
-    const runtimeOverview = (): ReturnType<UiServerControls["getRuntimeOverview"]> =>
-      this.controls.getRuntimeOverview();
-    const cachedSnapshot = (): MemoryUiSnapshot | undefined =>
-      this.controls.getStartupRepairSnapshot(limit);
+    const runtimeOverview = (): ReturnType<UiServerControls["getRuntimeOverview"]> => this.controls.getRuntimeOverview();
+    const cachedSnapshot = (): MemoryUiSnapshot | undefined => this.controls.getStartupRepairSnapshot(limit);
     const overview = (): DashboardOverview => {
       const runtime = runtimeOverview();
       const cached = cachedSnapshot();
@@ -292,10 +293,7 @@ export class LocalUiServer {
         return sendBadRequest(res, error instanceof Error ? error.message : "Invalid JSON body");
       }
       try {
-        return sendJson(
-          res,
-          await this.controls.importMemoryBundle(body as unknown as MemoryExportBundle),
-        );
+        return sendJson(res, await this.controls.importMemoryBundle(body as unknown as MemoryExportBundle));
       } catch (error) {
         if (error instanceof MemoryBundleValidationError) {
           return sendBadRequest(res, error.message);
@@ -366,10 +364,7 @@ export class LocalUiServer {
     }
     if (relativePath === "/api/cases") {
       if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");
-      return sendJson(
-        res,
-        this.controls.listCaseTraces(parseLimit(url.searchParams.get("limit"), 5)),
-      );
+      return sendJson(res, this.controls.listCaseTraces(parseLimit(url.searchParams.get("limit"), 5)));
     }
     if (relativePath.startsWith("/api/cases/")) {
       if (upperMethod !== "GET") return sendMethodNotAllowed(res, "GET");

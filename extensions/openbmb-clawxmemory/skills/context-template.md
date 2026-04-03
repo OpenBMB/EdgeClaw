@@ -1,5 +1,4 @@
 ## ClawXMemory Retrieved Evidence
-
 intent={{intent}}
 enoughAt={{enoughAt}}
 

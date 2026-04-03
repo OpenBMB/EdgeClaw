@@ -4,18 +4,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const packageDir = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
-const packageJson = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf-8")) as Record<
-  string,
-  any
->;
-const pluginManifest = JSON.parse(
-  readFileSync(join(packageDir, "openclaw.plugin.json"), "utf-8"),
-) as Record<string, any>;
+const packageJson = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf-8")) as Record<string, any>;
+const pluginManifest = JSON.parse(readFileSync(join(packageDir, "openclaw.plugin.json"), "utf-8")) as Record<string, any>;
 
 describe("package metadata", () => {
-  it("targets OpenClaw 2026.3.22+ and public npm packaging", () => {
+  it("targets OpenClaw 2026.4.2+ and public npm packaging", () => {
     expect(packageJson.name).toBe("openbmb-clawxmemory");
-    expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.3.22");
+    expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.4.2");
     expect(packageJson.publishConfig?.access).toBe("public");
     expect(packageJson.files).toEqual(
       expect.arrayContaining([
@@ -33,11 +28,11 @@ describe("package metadata", () => {
   it("declares ClawHub compatibility metadata for code-plugin publishing", () => {
     expect(packageJson.openclaw?.extensions).toEqual(["./src/index.ts"]);
     expect(packageJson.openclaw?.compat).toEqual({
-      pluginApi: ">=2026.3.22",
-      minGatewayVersion: "2026.3.22",
+      pluginApi: ">=2026.4.2",
+      minGatewayVersion: "2026.4.2",
     });
     expect(packageJson.openclaw?.build).toEqual({
-      openclawVersion: "2026.3.28",
+      openclawVersion: "2026.4.2",
     });
   });
 

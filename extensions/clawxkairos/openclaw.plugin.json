@@ -1,0 +1,77 @@
+{
+  "id": "clawxkairos",
+  "name": "ClawXKairos",
+  "description": "Self-driving agent loop: tick scheduling, Sleep tool, kairos system prompt, background commands, and async sub-agents. Rides on existing heartbeat-wake infrastructure with zero source code changes.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "maxTurnsPerSession": {
+        "type": "number",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 500
+      },
+      "minSleepMs": {
+        "type": "number",
+        "default": 5000,
+        "minimum": 1000
+      },
+      "maxSleepMs": {
+        "type": "number",
+        "default": 300000,
+        "maximum": 600000
+      },
+      "tickDelayMs": {
+        "type": "number",
+        "default": 100,
+        "minimum": 0,
+        "maximum": 5000
+      },
+      "autoBackgroundAfterMs": {
+        "type": "number",
+        "default": 30000,
+        "minimum": 5000
+      },
+      "startMode": {
+        "type": "string",
+        "enum": ["on-message", "on-heartbeat", "on-gateway-start"],
+        "default": "on-message"
+      },
+      "asyncSubagents": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "uiHints": {
+    "maxTurnsPerSession": {
+      "label": "Max turns per session",
+      "help": "Safety limit: stop the kairos loop after this many consecutive turns (default: 50)"
+    },
+    "minSleepMs": {
+      "label": "Minimum sleep (ms)",
+      "help": "Shortest allowed sleep duration to prevent runaway loops (default: 5000)"
+    },
+    "maxSleepMs": {
+      "label": "Maximum sleep (ms)",
+      "help": "Longest allowed sleep duration to prevent the agent appearing dead (default: 300000)"
+    },
+    "tickDelayMs": {
+      "label": "Tick delay (ms)",
+      "help": "Delay before injecting the next tick, gives user messages a chance to preempt (default: 100)"
+    },
+    "autoBackgroundAfterMs": {
+      "label": "Auto-background after (ms)",
+      "help": "Shell commands running longer than this are automatically backgrounded (default: 30000)"
+    },
+    "startMode": {
+      "label": "Start mode",
+      "help": "How the kairos loop is first triggered: on-message (wait for user), on-heartbeat (wait for first heartbeat interval), on-gateway-start (immediate cold start)"
+    },
+    "asyncSubagents": {
+      "label": "Async sub-agents",
+      "help": "When true, sub-agent spawns are non-blocking (default: true)"
+    }
+  }
+}

@@ -32,7 +32,7 @@ import {
 } from "./server-restart-sentinel.js";
 import { startGatewayMemoryBackend } from "./server-startup-memory.js";
 
-const SESSION_LOCK_STALE_MS = 30 * 60 * 1000;
+const SESSION_LOCK_STALE_MS = 5 * 60 * 1000;
 
 async function prewarmConfiguredPrimaryModel(params: {
   cfg: ReturnType<typeof loadConfig>;

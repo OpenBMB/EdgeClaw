@@ -1,17 +1,13 @@
 import type { MemoryPromptSectionBuilder } from "openclaw/plugin-sdk/memory-core";
 
-export const buildMemoryPromptSection: MemoryPromptSectionBuilder = ({
-  availableTools,
-  citationsMode,
-}) => {
+export const buildMemoryPromptSection: MemoryPromptSectionBuilder = ({ availableTools, citationsMode }) => {
   const hasMemoryOverview = availableTools.has("memory_overview");
   const hasMemoryList = availableTools.has("memory_list");
   const hasMemorySearch = availableTools.has("memory_search");
   const hasMemoryGet = availableTools.has("memory_get");
   const hasMemoryFlush = availableTools.has("memory_flush");
 
-  if (!hasMemoryOverview && !hasMemoryList && !hasMemorySearch && !hasMemoryGet && !hasMemoryFlush)
-    return [];
+  if (!hasMemoryOverview && !hasMemoryList && !hasMemorySearch && !hasMemoryGet && !hasMemoryFlush) return [];
 
   const lines = [
     "## ClawXMemory",
@@ -24,10 +20,10 @@ export const buildMemoryPromptSection: MemoryPromptSectionBuilder = ({
     hasMemorySearch && hasMemoryGet
       ? "For prior chats, project progress, timelines, preferences, or historical recommendations: run memory_search first, then use memory_get only for the exact ids you need to verify."
       : hasMemorySearch
-        ? "For prior chats, project progress, timelines, preferences, or historical recommendations: run memory_search before answering."
-        : hasMemoryGet
-          ? "Use memory_get only when the user already gave you specific memory ids to inspect."
-          : undefined,
+      ? "For prior chats, project progress, timelines, preferences, or historical recommendations: run memory_search before answering."
+      : hasMemoryGet
+      ? "Use memory_get only when the user already gave you specific memory ids to inspect."
+      : undefined,
     hasMemoryFlush
       ? "If the user wants memory refreshed now or asks why recent turns are not visible yet, run memory_flush."
       : undefined,
@@ -36,9 +32,7 @@ export const buildMemoryPromptSection: MemoryPromptSectionBuilder = ({
   ].filter((line): line is string => Boolean(line));
 
   if (citationsMode === "off") {
-    lines.push(
-      "Citations are disabled: do not mention file paths or line numbers unless the user explicitly asks.",
-    );
+    lines.push("Citations are disabled: do not mention file paths or line numbers unless the user explicitly asks.");
   } else {
     lines.push("When verification matters, cite the exact ClawXMemory records you used.");
   }

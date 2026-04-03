@@ -2,14 +2,7 @@
 name: memory-orchestrator
 description: Orchestrate ClawXMemory retrieval using memory_search first and memory_get for exact record reads. Use when the user asks for historical context, project progress, timeline, or profile facts.
 homepage: https://github.com/OpenBMB/ClawXMemory/tree/main/clawxmemory
-metadata:
-  {
-    "openclaw":
-      {
-        "skillKey": "openbmb-clawxmemory",
-        "requires": { "config": ["plugins.entries.openbmb-clawxmemory.enabled"] },
-      },
-  }
+metadata: {"openclaw":{"skillKey":"openbmb-clawxmemory","requires":{"config":["plugins.entries.openbmb-clawxmemory.enabled"]}}}
 ---
 
 # Memory Orchestrator

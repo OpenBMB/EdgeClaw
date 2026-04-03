@@ -32,10 +32,7 @@ export function extractProjectTags(messages: MemoryMessage[], skills: SkillsRunt
   return Array.from(tags).slice(0, skills.extractionRules.maxProjectTags);
 }
 
-export function extractFactCandidates(
-  messages: MemoryMessage[],
-  skills: SkillsRuntime,
-): FactCandidate[] {
+export function extractFactCandidates(messages: MemoryMessage[], skills: SkillsRuntime): FactCandidate[] {
   const facts = new Map<string, FactCandidate>();
   const userText = messages
     .filter((msg) => msg.role === "user")
@@ -66,9 +63,7 @@ export function extractFactCandidates(
 }
 
 export function buildSessionSummary(messages: MemoryMessage[], skills: SkillsRuntime): string {
-  const userMessages = messages
-    .filter((msg) => msg.role === "user")
-    .map((msg) => normalizeText(msg.content));
+  const userMessages = messages.filter((msg) => msg.role === "user").map((msg) => normalizeText(msg.content));
   const assistantMessages = messages
     .filter((msg) => msg.role === "assistant")
     .map((msg) => normalizeText(msg.content));

@@ -1,22 +1,34 @@
 {
   "name": "openbmb-clawxmemory",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "OpenClaw memory-slot plugin with L0/L1/L2 local indexes and a minimal dashboard UI.",
   "keywords": [
-    "ai-agent",
-    "memory",
     "openclaw",
     "plugin",
-    "sqlite"
+    "memory",
+    "sqlite",
+    "ai-agent"
   ],
-  "homepage": "https://github.com/OpenBMB/ClawXMemory#readme",
-  "bugs": {
-    "url": "https://github.com/OpenBMB/ClawXMemory/issues"
-  },
-  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/OpenBMB/ClawXMemory.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/OpenBMB/ClawXMemory/issues"
+  },
+  "homepage": "https://github.com/OpenBMB/ClawXMemory#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
@@ -27,55 +39,43 @@
     "openclaw.plugin.json",
     "LICENSE"
   ],
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -b --force && node ./scripts/copy-ui.mjs",
-    "debug:retrieve": "node ./scripts/debug-retrieve.mjs",
     "dev": "tsc -b --watch",
-    "lint": "node -e \"console.log('lint skipped for plugin')\"",
-    "pack:check": "npm pack --dry-run",
-    "prepack": "npm run build",
+    "typecheck": "tsc -b --pretty false",
+    "debug:retrieve": "node ./scripts/debug-retrieve.mjs",
     "relink": "node ./scripts/relink.mjs",
     "reload": "node ./scripts/reload.mjs",
+    "uninstall": "node ./scripts/uninstall.mjs",
+    "lint": "node -e \"console.log('lint skipped for plugin')\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --pretty false",
-    "uninstall": "node ./scripts/uninstall.mjs"
+    "pack:check": "npm pack --dry-run",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.16.0"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.41"
   },
-  "devDependencies": {
-    "openclaw": "^2026.3.28",
-    "vitest": "^4.0.5"
-  },
   "peerDependencies": {
-    "openclaw": ">=2026.3.22"
+    "openclaw": ">=2026.4.2"
   },
-  "engines": {
-    "node": ">=22.16.0"
+  "devDependencies": {
+    "openclaw": "^2026.4.2",
+    "vitest": "^4.0.5"
   },
   "openclaw": {
     "extensions": [
       "./src/index.ts"
     ],
     "compat": {
-      "pluginApi": ">=2026.3.22",
-      "minGatewayVersion": "2026.3.22"
+      "pluginApi": ">=2026.4.2",
+      "minGatewayVersion": "2026.4.2"
     },
     "build": {
-      "openclawVersion": "2026.3.28"
+      "openclawVersion": "2026.4.2"
     }
   }
 }

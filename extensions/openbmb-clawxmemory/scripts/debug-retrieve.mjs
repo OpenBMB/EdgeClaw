@@ -2,12 +2,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  LlmMemoryExtractor,
-  MemoryRepository,
-  ReasoningRetriever,
-  loadSkillsRuntime,
-} from "../dist/core/index.js";
+import { LlmMemoryExtractor, MemoryRepository, ReasoningRetriever, loadSkillsRuntime } from "../dist/core/index.js";
 
 function parseArg(name, fallback = "") {
   const idx = process.argv.indexOf(name);
@@ -21,16 +16,12 @@ function toLimit(value, fallback) {
   return parsed;
 }
 
-const dbPath = resolve(
-  parseArg("--db", join(homedir(), ".openclaw", "clawxmemory", "memory.sqlite")),
-);
+const dbPath = resolve(parseArg("--db", join(homedir(), ".openclaw", "clawxmemory", "memory.sqlite")));
 const query = parseArg("--query", "");
 const limit = toLimit(parseArg("--limit", "6"), 6);
 const skillsDirRaw = parseArg("--skills-dir", "");
 const includeFacts = parseArg("--include-facts", "true").toLowerCase() !== "false";
-const openclawConfigPath = resolve(
-  parseArg("--openclaw-config", join(homedir(), ".openclaw", "openclaw.json")),
-);
+const openclawConfigPath = resolve(parseArg("--openclaw-config", join(homedir(), ".openclaw", "openclaw.json")));
 
 if (!query.trim()) {
   console.error(JSON.stringify({ ok: false, error: "query is required" }, null, 2));

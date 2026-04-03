@@ -2,14 +2,7 @@
 name: memory-browser
 description: Browse ClawXMemory status and recent indexes using memory_overview first, then memory_list, and memory_get only for exact detail reads.
 homepage: https://github.com/OpenBMB/ClawXMemory/tree/main/clawxmemory
-metadata:
-  {
-    "openclaw":
-      {
-        "skillKey": "openbmb-clawxmemory",
-        "requires": { "config": ["plugins.entries.openbmb-clawxmemory.enabled"] },
-      },
-  }
+metadata: {"openclaw":{"skillKey":"openbmb-clawxmemory","requires":{"config":["plugins.entries.openbmb-clawxmemory.enabled"]}}}
 ---
 
 # Memory Browser

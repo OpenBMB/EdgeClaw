@@ -16,6 +16,7 @@ async function startUiServer(controls: Record<string, unknown> = {}): Promise<st
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
         autoDreamMinNewL1: 10,
+        dreamProjectRebuildTimeoutMs: 180_000,
       }),
       saveSettings: () => ({
         reasoningMode: "answer_first",
@@ -23,24 +24,11 @@ async function startUiServer(controls: Record<string, unknown> = {}): Promise<st
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
         autoDreamMinNewL1: 10,
+        dreamProjectRebuildTimeoutMs: 180_000,
       }),
-      runIndexNow: async () => ({
-        l0Captured: 0,
-        l1Created: 0,
-        l2TimeUpdated: 0,
-        l2ProjectUpdated: 0,
-        profileUpdated: 0,
-        failed: 0,
-      }),
+      runIndexNow: async () => ({ l0Captured: 0, l1Created: 0, l2TimeUpdated: 0, l2ProjectUpdated: 0, profileUpdated: 0, failed: 0 }),
       runDreamNow: async () => ({
-        prepFlush: {
-          l0Captured: 0,
-          l1Created: 0,
-          l2TimeUpdated: 0,
-          l2ProjectUpdated: 0,
-          profileUpdated: 0,
-          failed: 0,
-        },
+        prepFlush: { l0Captured: 0, l1Created: 0, l2TimeUpdated: 0, l2ProjectUpdated: 0, profileUpdated: 0, failed: 0 },
         reviewedL1: 0,
         rewrittenProjects: 0,
         deletedProjects: 0,
@@ -53,13 +41,7 @@ async function startUiServer(controls: Record<string, unknown> = {}): Promise<st
       }),
       exportMemoryBundle: () => ({ exportedAt: "2026-04-01T00:00:00.000Z" }),
       importMemoryBundle: async () => ({ imported: {} }),
-      getRuntimeOverview: () => ({
-        queuedSessions: 0,
-        lastRecallMs: 0,
-        recallTimeouts: 0,
-        lastRecallMode: "none",
-        currentReasoningMode: "answer_first",
-      }),
+      getRuntimeOverview: () => ({ queuedSessions: 0, lastRecallMs: 0, recallTimeouts: 0, lastRecallMode: "none", currentReasoningMode: "answer_first" }),
       getStartupRepairSnapshot: () => undefined,
       listCaseTraces: () => [],
       getCaseTrace: () => undefined,
@@ -120,12 +102,9 @@ describe("LocalUiServer static assets", () => {
     expect(html).toContain('id="autoIndexIntervalHoursInput"');
     expect(html).toContain('id="autoDreamIntervalHoursInput"');
     expect(html).toContain('id="autoDreamMinL1Input"');
-    expect(html.indexOf('data-board="profile"')).toBeLessThan(
-      html.indexOf('data-board="memory_trace"'),
-    );
-    expect(html.indexOf('data-level="profile"')).toBeLessThan(
-      html.indexOf('data-level="memory_trace"'),
-    );
+    expect(html).toContain('id="dreamRebuildTimeoutSecondsInput"');
+    expect(html.indexOf('data-board="profile"')).toBeLessThan(html.indexOf('data-board="memory_trace"'));
+    expect(html.indexOf('data-level="profile"')).toBeLessThan(html.indexOf('data-level="memory_trace"'));
     expect(html).not.toContain('id="retrievePanel"');
     expect(html).not.toContain(">CX<");
     expect(html).not.toContain(">Memory<");
@@ -159,13 +138,9 @@ describe("LocalUiServer static assets", () => {
     conflictingServer.start();
 
     await vi.waitFor(() => {
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(`port ${occupiedPort} is already in use`),
-      );
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`port ${occupiedPort} is already in use`));
     });
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("plugins.entries.openbmb-clawxmemory.config.uiPort"),
-    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("plugins.entries.openbmb-clawxmemory.config.uiPort"));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("~/.openclaw/openclaw.json"));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("OPENCLAW_CONFIG_PATH"));
   });
@@ -216,14 +191,7 @@ describe("LocalUiServer static assets", () => {
 
   it("routes manual Dream runs through POST /api/dream/run", async () => {
     const runDreamNow = vi.fn().mockResolvedValue({
-      prepFlush: {
-        l0Captured: 1,
-        l1Created: 1,
-        l2TimeUpdated: 0,
-        l2ProjectUpdated: 1,
-        profileUpdated: 1,
-        failed: 0,
-      },
+      prepFlush: { l0Captured: 1, l1Created: 1, l2TimeUpdated: 0, l2ProjectUpdated: 1, profileUpdated: 1, failed: 0 },
       reviewedL1: 12,
       rewrittenProjects: 3,
       deletedProjects: 1,
@@ -257,6 +225,7 @@ describe("LocalUiServer static assets", () => {
       autoIndexIntervalMinutes: partial.autoIndexIntervalMinutes ?? 120,
       autoDreamIntervalMinutes: partial.autoDreamIntervalMinutes ?? 360,
       autoDreamMinNewL1: partial.autoDreamMinNewL1 ?? 10,
+      dreamProjectRebuildTimeoutMs: partial.dreamProjectRebuildTimeoutMs ?? 240_000,
     }));
     const baseUrl = await startUiServer({
       getSettings: () => ({
@@ -265,6 +234,7 @@ describe("LocalUiServer static assets", () => {
         autoIndexIntervalMinutes: 60,
         autoDreamIntervalMinutes: 360,
         autoDreamMinNewL1: 10,
+        dreamProjectRebuildTimeoutMs: 180_000,
       }),
       saveSettings,
     });
@@ -277,6 +247,7 @@ describe("LocalUiServer static assets", () => {
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
       autoDreamMinNewL1: 10,
+      dreamProjectRebuildTimeoutMs: 180_000,
     });
 
     const postResponse = await fetch(`${baseUrl}/api/settings`, {
@@ -288,6 +259,7 @@ describe("LocalUiServer static assets", () => {
         autoIndexIntervalMinutes: 120,
         autoDreamIntervalMinutes: 180,
         autoDreamMinNewL1: 15,
+        dreamProjectRebuildTimeoutMs: 0,
       }),
     });
     expect(postResponse.status).toBe(200);
@@ -297,15 +269,15 @@ describe("LocalUiServer static assets", () => {
       autoIndexIntervalMinutes: 120,
       autoDreamIntervalMinutes: 180,
       autoDreamMinNewL1: 15,
+      dreamProjectRebuildTimeoutMs: 0,
     });
-    expect(saveSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reasoningMode: "accuracy_first",
-        recallTopK: 12,
-        autoIndexIntervalMinutes: 120,
-        autoDreamIntervalMinutes: 180,
-        autoDreamMinNewL1: 15,
-      }),
-    );
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      reasoningMode: "accuracy_first",
+      recallTopK: 12,
+      autoIndexIntervalMinutes: 120,
+      autoDreamIntervalMinutes: 180,
+      autoDreamMinNewL1: 15,
+      dreamProjectRebuildTimeoutMs: 0,
+    }));
   });
 });

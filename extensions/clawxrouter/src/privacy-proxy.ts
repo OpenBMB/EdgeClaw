@@ -352,7 +352,7 @@ export function buildUpstreamUrl(
 
 // ── Streaming with timeout fallback ──
 
-const STREAM_FIRST_CHUNK_TIMEOUT_MS = 30_000;
+const STREAM_FIRST_CHUNK_TIMEOUT_MS = 120_000;
 
 /**
  * Attempt to forward a streaming request to the upstream.

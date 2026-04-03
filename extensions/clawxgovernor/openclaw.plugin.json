@@ -1,0 +1,56 @@
+{
+  "id": "clawxgovernor",
+  "name": "ClawXGovernor",
+  "description": "工具治理 — 上下文工作集管理、工具风险分级与审计、会话级增量记忆，为 OpenClaw 补齐 Claude Code 的治理闭环。",
+  "version": "0.2.0",
+  "kind": "context-engine",
+  "skills": ["skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "recentTailTurns": {
+        "type": "integer",
+        "default": 6,
+        "description": "Number of recent user turns to keep in the context window."
+      },
+      "compactThresholdRatio": {
+        "type": "number",
+        "default": 0.75,
+        "description": "Token budget usage ratio that triggers compaction warning."
+      },
+      "contextStateDir": {
+        "type": "string",
+        "description": "Custom directory for context engine state files."
+      },
+      "governorStateDir": {
+        "type": "string",
+        "description": "Custom directory for tool governor audit/state files."
+      },
+      "memoryStateDir": {
+        "type": "string",
+        "description": "Custom directory for session memory note files."
+      },
+      "summarizeThreshold": {
+        "type": "integer",
+        "default": 4000,
+        "description": "Character length threshold above which tool results are auto-summarized."
+      },
+      "loopWindowSize": {
+        "type": "integer",
+        "default": 10,
+        "description": "Number of recent tool calls to inspect for loop detection."
+      },
+      "loopMaxRepeats": {
+        "type": "integer",
+        "default": 3,
+        "description": "Max consecutive identical calls before loop is detected."
+      },
+      "maxHintLines": {
+        "type": "integer",
+        "default": 5,
+        "description": "Max lines of session memory hint injected into prompt."
+      }
+    }
+  }
+}

@@ -8,10 +8,6 @@ import type {
 } from "../src/core/index.js";
 import { buildPluginTools } from "../src/tools.js";
 
-function readDetails<T>(result: { details?: unknown }): T {
-  return result.details as T;
-}
-
 const retrievalResult: RetrievalResult = {
   query: "project status",
   intent: "project",
@@ -169,12 +165,12 @@ function createRepository() {
       { level: "l2_time" as const, score: 0.9, item: l2Time },
       { level: "l2_project" as const, score: 0.8, item: l2Project },
     ]),
-    searchL2ProjectIndexes: vi
-      .fn()
-      .mockReturnValue([{ level: "l2_project" as const, score: 0.8, item: l2Project }]),
-    searchL2TimeIndexes: vi
-      .fn()
-      .mockReturnValue([{ level: "l2_time" as const, score: 0.9, item: l2Time }]),
+    searchL2ProjectIndexes: vi.fn().mockReturnValue([
+      { level: "l2_project" as const, score: 0.8, item: l2Project },
+    ]),
+    searchL2TimeIndexes: vi.fn().mockReturnValue([
+      { level: "l2_time" as const, score: 0.9, item: l2Time },
+    ]),
     listRecentL1: vi.fn().mockReturnValue([l1]),
     searchL1: vi.fn().mockReturnValue([l1]),
     listRecentL0: vi.fn().mockReturnValue([l0Second, l0First]),
@@ -230,10 +226,7 @@ describe("buildPluginTools", () => {
     });
 
     const getTool = tools.find((tool) => tool.name === "memory_get");
-    const getResult = await getTool!.execute("call-3", {
-      level: "l2_project",
-      ids: ["l2-project-1"],
-    });
+    const getResult = await getTool!.execute("call-3", { level: "l2_project", ids: ["l2-project-1"] });
     expect(getResult.details).toMatchObject({
       ok: true,
       level: "l2_project",
@@ -241,6 +234,7 @@ describe("buildPluginTools", () => {
       missingIds: [],
       count: 1,
     });
+
   });
 
   it("lists compact browse items and validates inputs", async () => {
@@ -268,11 +262,7 @@ describe("buildPluginTools", () => {
       offset: 0,
       count: 2,
     });
-    expect(
-      readDetails<{
-        items: Array<Record<string, unknown>>;
-      }>(defaultList).items,
-    ).toEqual([
+    expect(defaultList.details.items).toEqual([
       {
         level: "l2_time",
         id: "l2-time-1",

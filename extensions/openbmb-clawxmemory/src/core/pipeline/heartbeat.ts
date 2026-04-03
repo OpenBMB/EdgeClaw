@@ -1,7 +1,3 @@
-import { extractL1FromWindow } from "../indexers/l1-extractor.js";
-import { buildL2ProjectFromDetail, buildL2TimeFromL1 } from "../indexers/l2-builder.js";
-import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
-import { MemoryRepository } from "../storage/sqlite.js";
 import type {
   ActiveTopicBufferRecord,
   IndexingSettings,
@@ -12,6 +8,10 @@ import type {
   ProjectDetail,
 } from "../types.js";
 import { buildL0IndexId, nowIso } from "../utils/id.js";
+import { extractL1FromWindow } from "../indexers/l1-extractor.js";
+import { buildL2ProjectFromDetail, buildL2TimeFromL1 } from "../indexers/l2-builder.js";
+import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
+import { MemoryRepository } from "../storage/sqlite.js";
 
 export interface HeartbeatOptions {
   batchSize?: number;
@@ -79,10 +79,7 @@ function findTurnOverlap(existing: string[], incoming: string[]): number {
   return 0;
 }
 
-function extractIncomingUserTurns(
-  record: L0SessionRecord,
-  buffer?: ActiveTopicBufferRecord,
-): string[] {
+function extractIncomingUserTurns(record: L0SessionRecord, buffer?: ActiveTopicBufferRecord): string[] {
   const turns = userTurnsFromRecord(record);
   if (!buffer || buffer.userTurns.length === 0) return turns;
   const overlap = findTurnOverlap(buffer.userTurns, turns);
@@ -142,10 +139,7 @@ function normalizeComparableProjectText(value: string): string {
     .replace(/[，。；;、,:：!?！？"'`~\-_/\\()[\]{}]/g, "");
 }
 
-function preferProjectStatus(
-  existing: ProjectDetail["status"],
-  incoming: ProjectDetail["status"],
-): ProjectDetail["status"] {
+function preferProjectStatus(existing: ProjectDetail["status"], incoming: ProjectDetail["status"]): ProjectDetail["status"] {
   return PROJECT_STATUS_RANK[incoming] >= PROJECT_STATUS_RANK[existing] ? incoming : existing;
 }
 
@@ -153,46 +147,25 @@ function chooseProjectName(existingName: string, incomingName: string): string {
   return incomingName.length >= existingName.length ? incomingName : existingName;
 }
 
-function isWeakProjectSummary(
-  summary: string,
-  projectName: string,
-  latestProgress: string,
-): boolean {
+function isWeakProjectSummary(summary: string, projectName: string, latestProgress: string): boolean {
   const normalized = normalizeComparableProjectText(summary);
   if (!normalized) return true;
 
   const normalizedName = normalizeComparableProjectText(projectName);
   const normalizedLatest = normalizeComparableProjectText(latestProgress);
   if (normalized.length <= Math.max(10, normalizedName.length + 4)) return true;
-  if (
-    normalizedLatest &&
-    (normalized === normalizedLatest || normalized.endsWith(normalizedLatest))
-  )
-    return true;
-  if (
-    GENERIC_PROJECT_SUMMARY_PATTERNS.some((pattern) => pattern.test(summary)) &&
-    !summary.includes(projectName)
-  )
-    return true;
+  if (normalizedLatest && (normalized === normalizedLatest || normalized.endsWith(normalizedLatest))) return true;
+  if (GENERIC_PROJECT_SUMMARY_PATTERNS.some((pattern) => pattern.test(summary)) && !summary.includes(projectName)) return true;
   return false;
 }
 
-function chooseRicherProjectSummary(
-  existingSummary: string,
-  incomingSummary: string,
-  projectName: string,
-  latestProgress: string,
-): string {
+function chooseRicherProjectSummary(existingSummary: string, incomingSummary: string, projectName: string, latestProgress: string): string {
   const normalizedExisting = truncateProjectText(existingSummary, 360);
   const normalizedIncoming = truncateProjectText(incomingSummary, 360);
   const existingWeak = isWeakProjectSummary(normalizedExisting, projectName, latestProgress);
   const incomingWeak = isWeakProjectSummary(normalizedIncoming, projectName, latestProgress);
 
-  if (
-    normalizedExisting &&
-    !existingWeak &&
-    (incomingWeak || normalizedExisting.length >= normalizedIncoming.length)
-  ) {
+  if (normalizedExisting && !existingWeak && (incomingWeak || normalizedExisting.length >= normalizedIncoming.length)) {
     return normalizedExisting;
   }
   if (normalizedIncoming && !incomingWeak) return normalizedIncoming;
@@ -207,11 +180,7 @@ function mergeDistinctProjectText(base: string, addition: string, maxLength = 36
 
   const comparableBase = normalizeComparableProjectText(normalizedBase);
   const comparableAddition = normalizeComparableProjectText(normalizedAddition);
-  if (
-    !comparableAddition ||
-    comparableBase.includes(comparableAddition) ||
-    comparableAddition.includes(comparableBase)
-  ) {
+  if (!comparableAddition || comparableBase.includes(comparableAddition) || comparableAddition.includes(comparableBase)) {
     return normalizedBase;
   }
 
@@ -219,22 +188,11 @@ function mergeDistinctProjectText(base: string, addition: string, maxLength = 36
   return truncateProjectText(`${normalizedBase}${separator}${normalizedAddition}`, maxLength);
 }
 
-function chooseLatestProgress(
-  existingProgress: string,
-  incomingProgress: string,
-  l1: L1WindowRecord,
-): string {
-  return truncateProjectText(
-    incomingProgress || existingProgress || l1.situationTimeInfo || l1.summary,
-    220,
-  );
+function chooseLatestProgress(existingProgress: string, incomingProgress: string, l1: L1WindowRecord): string {
+  return truncateProjectText(incomingProgress || existingProgress || l1.situationTimeInfo || l1.summary, 220);
 }
 
-function fallbackRewriteProjectDetail(
-  context: ProjectRewriteContext,
-  l1: L1WindowRecord,
-  rewritten?: ProjectDetail,
-): ProjectDetail {
+function fallbackRewriteProjectDetail(context: ProjectRewriteContext, l1: L1WindowRecord, rewritten?: ProjectDetail): ProjectDetail {
   const { incomingProject, existingProject } = context;
   const latestProgress = chooseLatestProgress(
     existingProject?.latestProgress ?? "",
@@ -252,19 +210,12 @@ function fallbackRewriteProjectDetail(
   if (isWeakProjectSummary(summary, incomingProject.name, latestProgress)) {
     summary = mergeDistinctProjectText(summary, l1.summary, 360);
   }
-  summary = truncateProjectText(
-    summary || incomingProject.summary || existingProject?.summary || incomingProject.name,
-    360,
-  );
+  summary = truncateProjectText(summary || incomingProject.summary || existingProject?.summary || incomingProject.name, 360);
 
   return {
     ...incomingProject,
-    name: chooseProjectName(
-      existingProject?.projectName ?? "",
-      rewritten?.name || incomingProject.name,
-    ),
-    status:
-      rewritten?.status ?? incomingProject.status ?? existingProject?.currentStatus ?? "planned",
+    name: chooseProjectName(existingProject?.projectName ?? "", rewritten?.name || incomingProject.name),
+    status: rewritten?.status ?? incomingProject.status ?? existingProject?.currentStatus ?? "planned",
     summary,
     latestProgress,
     confidence: Math.max(incomingProject.confidence, rewritten?.confidence ?? 0),
@@ -277,12 +228,7 @@ function mergeProjectDetail(existing: ProjectDetail, incoming: ProjectDetail): P
     ...existing,
     name: chooseProjectName(existing.name, incoming.name),
     status: preferredStatus,
-    summary: chooseRicherProjectSummary(
-      existing.summary,
-      incoming.summary,
-      incoming.name,
-      incoming.latestProgress,
-    ),
+    summary: chooseRicherProjectSummary(existing.summary, incoming.summary, incoming.name, incoming.latestProgress),
     latestProgress: incoming.latestProgress || existing.latestProgress,
     confidence: Math.max(existing.confidence, incoming.confidence),
   };
@@ -294,16 +240,13 @@ async function canonicalizeL1Projects(
   extractor: LlmMemoryExtractor,
 ): Promise<Awaited<ReturnType<typeof extractL1FromWindow>>["projectDetails"]> {
   if (projects.length === 0) return projects;
-  const catalog = new Map<
-    string,
-    {
-      projectKey: string;
-      projectName: string;
-      summary: string;
-      currentStatus: ProjectDetail["status"];
-      latestProgress: string;
-    }
-  >();
+  const catalog = new Map<string, {
+    projectKey: string;
+    projectName: string;
+    summary: string;
+    currentStatus: ProjectDetail["status"];
+    latestProgress: string;
+  }>();
   for (const item of repository.listRecentL2Projects(60)) {
     catalog.set(item.projectKey, {
       projectKey: item.projectKey,
@@ -358,8 +301,7 @@ async function rewriteRollingProjectMemories(
   const contexts: ProjectRewriteContext[] = projects.map((incomingProject) => {
     const existingProject = repository.getL2ProjectByKey(incomingProject.key) ?? null;
     const recentWindowIds = existingProject?.l1Source.slice(-4) ?? [];
-    const recentWindows =
-      recentWindowIds.length > 0 ? repository.getL1ByIds(recentWindowIds).slice(0, 4) : [];
+    const recentWindows = recentWindowIds.length > 0 ? repository.getL1ByIds(recentWindowIds).slice(0, 4) : [];
     return {
       incomingProject,
       existingProject,
@@ -420,13 +362,8 @@ export class HeartbeatIndexer {
   }): L0SessionRecord | undefined {
     const timestamp = input.timestamp ?? nowIso();
     const recent = this.repository.listRecentL0(1)[0];
-    if (
-      recent?.sessionKey === input.sessionKey &&
-      !hasNewContent(recent.messages, input.messages)
-    ) {
-      this.logger?.info?.(
-        `[clawxmemory] skip duplicate l0 capture for session=${input.sessionKey}`,
-      );
+    if (recent?.sessionKey === input.sessionKey && !hasNewContent(recent.messages, input.messages)) {
+      this.logger?.info?.(`[clawxmemory] skip duplicate l0 capture for session=${input.sessionKey}`);
       return undefined;
     }
     const payload = JSON.stringify(input.messages);
@@ -444,13 +381,8 @@ export class HeartbeatIndexer {
     return record;
   }
 
-  private createTopicBuffer(
-    record: L0SessionRecord,
-    incomingUserTurns: string[],
-    topicSummary?: string,
-  ): ActiveTopicBufferRecord {
-    const seedTurns =
-      incomingUserTurns.length > 0 ? incomingUserTurns : userTurnsFromRecord(record);
+  private createTopicBuffer(record: L0SessionRecord, incomingUserTurns: string[], topicSummary?: string): ActiveTopicBufferRecord {
+    const seedTurns = incomingUserTurns.length > 0 ? incomingUserTurns : userTurnsFromRecord(record);
     const now = nowIso();
     return {
       sessionKey: record.sessionKey,
@@ -471,10 +403,9 @@ export class HeartbeatIndexer {
   ): ActiveTopicBufferRecord {
     const first = records[0]!;
     const last = records[records.length - 1]!;
-    const seedTurns =
-      incomingUserTurns.length > 0
-        ? incomingUserTurns
-        : records.flatMap((record) => userTurnsFromRecord(record));
+    const seedTurns = incomingUserTurns.length > 0
+      ? incomingUserTurns
+      : records.flatMap((record) => userTurnsFromRecord(record));
     return {
       sessionKey: first.sessionKey,
       startedAt: first.timestamp,
@@ -496,19 +427,14 @@ export class HeartbeatIndexer {
     return {
       ...buffer,
       updatedAt: record.timestamp,
-      topicSummary:
-        topicSummary?.trim() || buffer.topicSummary || summarizeTopicSeed(buffer.userTurns),
+      topicSummary: topicSummary?.trim() || buffer.topicSummary || summarizeTopicSeed(buffer.userTurns),
       userTurns: mergeUniqueStrings(buffer.userTurns, incomingUserTurns),
       l0Ids: mergeUniqueStrings(buffer.l0Ids, [record.l0IndexId]),
       lastL0Id: record.l0IndexId,
     };
   }
 
-  private async closeTopicBuffer(
-    sessionKey: string,
-    stats: HeartbeatStats,
-    reason: string,
-  ): Promise<void> {
+  private async closeTopicBuffer(sessionKey: string, stats: HeartbeatStats, reason: string): Promise<void> {
     const buffer = this.repository.getActiveTopicBuffer(sessionKey);
     if (!buffer || buffer.l0Ids.length === 0) {
       if (buffer) this.repository.deleteActiveTopicBuffer(sessionKey);
@@ -522,11 +448,7 @@ export class HeartbeatIndexer {
     }
 
     const extracted = await extractL1FromWindow(records, this.extractor);
-    const canonicalProjects = await canonicalizeL1Projects(
-      extracted.projectDetails,
-      this.repository,
-      this.extractor,
-    );
+    const canonicalProjects = await canonicalizeL1Projects(extracted.projectDetails, this.repository, this.extractor);
     const l1 = {
       ...extracted,
       projectDetails: canonicalProjects,
@@ -550,15 +472,8 @@ export class HeartbeatIndexer {
     this.repository.insertLink("l2", l2Time.l2IndexId, "l1", l1.l1IndexId);
     stats.l2TimeUpdated += 1;
 
-    const rollingProjects = await rewriteRollingProjectMemories(
-      l1.projectDetails,
-      l1,
-      this.repository,
-      this.extractor,
-    );
-    const projectIndexes = rollingProjects.map((project) =>
-      buildL2ProjectFromDetail(project, l1.l1IndexId),
-    );
+    const rollingProjects = await rewriteRollingProjectMemories(l1.projectDetails, l1, this.repository, this.extractor);
+    const projectIndexes = rollingProjects.map((project) => buildL2ProjectFromDetail(project, l1.l1IndexId));
     for (const l2Project of projectIndexes) {
       this.repository.upsertL2ProjectIndex(l2Project);
       this.repository.insertLink("l2", l2Project.l2IndexId, "l1", l1.l1IndexId);
@@ -579,11 +494,7 @@ export class HeartbeatIndexer {
     );
   }
 
-  private async closeOtherSessionBuffers(
-    currentSessionKey: string,
-    stats: HeartbeatStats,
-    reason: string,
-  ): Promise<void> {
+  private async closeOtherSessionBuffers(currentSessionKey: string, stats: HeartbeatStats, reason: string): Promise<void> {
     const openBuffers = this.repository.listActiveTopicBuffers();
     for (const buffer of openBuffers) {
       if (buffer.sessionKey === currentSessionKey) continue;
@@ -591,11 +502,7 @@ export class HeartbeatIndexer {
     }
   }
 
-  private async processPendingRecord(
-    record: L0SessionRecord,
-    stats: HeartbeatStats,
-    reason: string,
-  ): Promise<void> {
+  private async processPendingRecord(record: L0SessionRecord, stats: HeartbeatStats, reason: string): Promise<void> {
     await this.closeOtherSessionBuffers(record.sessionKey, stats, reason);
 
     const buffer = this.repository.getActiveTopicBuffer(record.sessionKey);
@@ -606,9 +513,7 @@ export class HeartbeatIndexer {
     }
 
     if (incomingUserTurns.length === 0) {
-      this.repository.upsertActiveTopicBuffer(
-        this.extendTopicBuffer(buffer, record, incomingUserTurns),
-      );
+      this.repository.upsertActiveTopicBuffer(this.extendTopicBuffer(buffer, record, incomingUserTurns));
       return;
     }
 
@@ -620,9 +525,7 @@ export class HeartbeatIndexer {
 
     if (decision.topicChanged) {
       await this.closeTopicBuffer(record.sessionKey, stats, `${reason}:topic_shift`);
-      this.repository.upsertActiveTopicBuffer(
-        this.createTopicBuffer(record, incomingUserTurns, decision.topicSummary),
-      );
+      this.repository.upsertActiveTopicBuffer(this.createTopicBuffer(record, incomingUserTurns, decision.topicSummary));
       return;
     }
 
@@ -631,11 +534,7 @@ export class HeartbeatIndexer {
     );
   }
 
-  private async processPendingSession(
-    records: L0SessionRecord[],
-    stats: HeartbeatStats,
-    reason: string,
-  ): Promise<void> {
+  private async processPendingSession(records: L0SessionRecord[], stats: HeartbeatStats, reason: string): Promise<void> {
     if (records.length === 0) return;
     const sessionKey = records[0]!.sessionKey;
     await this.closeOtherSessionBuffers(sessionKey, stats, reason);
@@ -643,9 +542,7 @@ export class HeartbeatIndexer {
     const buffer = this.repository.getActiveTopicBuffer(sessionKey);
     if (!buffer) {
       const mergedTurns = records.flatMap((record) => userTurnsFromRecord(record));
-      this.repository.upsertActiveTopicBuffer(
-        this.createTopicBufferFromBatch(records, mergedTurns),
-      );
+      this.repository.upsertActiveTopicBuffer(this.createTopicBufferFromBatch(records, mergedTurns));
       return;
     }
 
@@ -695,10 +592,9 @@ export class HeartbeatIndexer {
     };
 
     const batchSize = options.batchSize ?? this.batchSize;
-    const sessionKeys =
-      Array.isArray(options.sessionKeys) && options.sessionKeys.length > 0
-        ? Array.from(new Set(options.sessionKeys))
-        : undefined;
+    const sessionKeys = Array.isArray(options.sessionKeys) && options.sessionKeys.length > 0
+      ? Array.from(new Set(options.sessionKeys))
+      : undefined;
     const reason = options.reason ?? "heartbeat";
 
     while (true) {
@@ -756,12 +652,7 @@ export class HeartbeatIndexer {
       }
     }
 
-    if (
-      stats.l1Created > 0 ||
-      stats.l2TimeUpdated > 0 ||
-      stats.l2ProjectUpdated > 0 ||
-      stats.profileUpdated > 0
-    ) {
+    if (stats.l1Created > 0 || stats.l2TimeUpdated > 0 || stats.l2ProjectUpdated > 0 || stats.profileUpdated > 0) {
       this.repository.setPipelineState("lastIndexedAt", nowIso());
     }
     return stats;
