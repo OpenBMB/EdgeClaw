@@ -286,6 +286,12 @@ importers:
 
   extensions/chutes: {}
 
+  extensions/clawx-always-on:
+    dependencies:
+      '@sinclair/typebox':
+        specifier: 0.34.49
+        version: 0.34.49
+
   extensions/clawxgovernor:
     dependencies:
       '@modelcontextprotocol/sdk':
