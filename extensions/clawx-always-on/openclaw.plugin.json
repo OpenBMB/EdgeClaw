@@ -1,0 +1,60 @@
+{
+  "id": "clawx-always-on",
+  "name": "ClawXAlwaysOn",
+  "description": "Persistent background tasks via isolated sub-agent sessions with per-task budget constraints.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultMaxLoops": {
+        "type": "number",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 1000
+      },
+      "defaultMaxCostUsd": {
+        "type": "number",
+        "default": 1.0,
+        "minimum": 0.01,
+        "maximum": 100
+      },
+      "logLevel": {
+        "type": "string",
+        "enum": ["debug", "info", "warn", "error"],
+        "default": "info"
+      },
+      "logRetentionDays": {
+        "type": "number",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 365
+      },
+      "dataDir": {
+        "type": "string",
+        "description": "Override the default data directory for task storage."
+      }
+    }
+  },
+  "uiHints": {
+    "defaultMaxLoops": {
+      "label": "Default Max Loops",
+      "help": "Maximum number of LLM interaction loops per task run (default: 50)"
+    },
+    "defaultMaxCostUsd": {
+      "label": "Default Max Cost (USD)",
+      "help": "Maximum estimated USD cost per task run (default: 1.0)"
+    },
+    "logLevel": {
+      "label": "Log Level",
+      "help": "Minimum log level for task execution logs (default: info)"
+    },
+    "logRetentionDays": {
+      "label": "Log Retention (days)",
+      "help": "Number of days to retain task logs before automatic cleanup (default: 30)"
+    },
+    "dataDir": {
+      "label": "Data Directory",
+      "placeholder": "~/.openclaw/clawx-always-on"
+    }
+  }
+}

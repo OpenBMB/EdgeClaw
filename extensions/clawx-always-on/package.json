@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw/clawx-always-on",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Always-on background task plugin for OpenClaw — persistent tasks via sub-agent isolation",
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.49"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
