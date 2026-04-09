@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { MaxCostUsdBudget } from "../budget/max-cost-usd.js";
 import { MaxLoopsBudget } from "../budget/max-loops.js";
 import { TaskSourceRegistry } from "./registry.js";
-import { UserCommandTaskSource } from "./user-command-source.js";
+import {
+  parseUserCommandSourceMetadata,
+  serializeUserCommandSourceMetadata,
+  UserCommandTaskSource,
+} from "./user-command-source.js";
 
 describe("UserCommandTaskSource", () => {
   it("creates a task with correct defaults", () => {
@@ -36,6 +40,27 @@ describe("UserCommandTaskSource", () => {
     const t1 = source.createTask({ title: "A", budgetConstraints: constraints });
     const t2 = source.createTask({ title: "B", budgetConstraints: constraints });
     expect(t1.id).not.toBe(t2.id);
+  });
+
+  it("persists structured source metadata when provided", () => {
+    const source = new UserCommandTaskSource();
+    const task = source.createTask({
+      title: "Research topic",
+      budgetConstraints: [new MaxLoopsBudget(50)],
+      sourceMetadata: serializeUserCommandSourceMetadata({
+        mode: "plan",
+        prompt: "Do the full research task",
+        planId: "plan-1",
+      }),
+    });
+
+    expect(parseUserCommandSourceMetadata(task.sourceMetadata)).toEqual({
+      mode: "plan",
+      prompt: "Do the full research task",
+      planId: "plan-1",
+      originConversationKey: undefined,
+      originSessionKey: undefined,
+    });
   });
 });
 

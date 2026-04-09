@@ -52,6 +52,7 @@ export interface TaskSource {
 export type TaskSourceInput = {
   title: string;
   budgetConstraints: BudgetConstraint[];
+  sourceMetadata?: string;
 };
 
 export type TaskUpdatePatch = {

@@ -3,9 +3,14 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { canonicalAlwaysOnSessionKey } from "../core/constants.js";
 import type { AlwaysOnTask, BudgetUsage, TaskFilter, TaskUpdatePatch } from "../core/types.js";
+import type { AlwaysOnPlan, AlwaysOnPlanTurn, AlwaysOnPlanUpdatePatch } from "../plan/types.js";
 
 function parseBudgetUsage(raw: string): BudgetUsage {
   return JSON.parse(raw) as BudgetUsage;
+}
+
+function parsePlanTurns(raw: string): AlwaysOnPlanTurn[] {
+  return JSON.parse(raw) as AlwaysOnPlanTurn[];
 }
 
 export function openDatabase(dbPath: string): DatabaseSync {
@@ -55,6 +60,30 @@ export class TaskStore {
         CREATE INDEX IF NOT EXISTS idx_tasks_session ON always_on_tasks(sessionKey);
       `);
       this.setSchemaVersion(1);
+    }
+
+    if (version < 2) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS always_on_plans (
+          id              TEXT PRIMARY KEY,
+          conversationKey TEXT NOT NULL,
+          status          TEXT NOT NULL DEFAULT 'active',
+          initialPrompt   TEXT NOT NULL,
+          turnsJson       TEXT NOT NULL DEFAULT '[]',
+          roundCount      INTEGER NOT NULL DEFAULT 0,
+          originSessionKey TEXT,
+          finalPrompt     TEXT,
+          createdTaskId   TEXT,
+          failureReason   TEXT,
+          createdAt       INTEGER NOT NULL,
+          updatedAt       INTEGER NOT NULL,
+          completedAt     INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_plans_status ON always_on_plans(status);
+        CREATE INDEX IF NOT EXISTS idx_plans_conversation ON always_on_plans(conversationKey);
+        CREATE INDEX IF NOT EXISTS idx_plans_origin_session ON always_on_plans(originSessionKey);
+      `);
+      this.setSchemaVersion(2);
     }
   }
 
@@ -234,6 +263,91 @@ export class TaskStore {
     this.db.prepare(`UPDATE always_on_tasks SET ${sets.join(", ")} WHERE id = ?`).run(...values);
   }
 
+  createPlan(plan: AlwaysOnPlan): void {
+    this.db
+      .prepare(`
+      INSERT INTO always_on_plans
+        (id, conversationKey, status, initialPrompt, turnsJson, roundCount,
+         originSessionKey, finalPrompt, createdTaskId, failureReason,
+         createdAt, updatedAt, completedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+      .run(
+        plan.id,
+        plan.conversationKey,
+        plan.status,
+        plan.initialPrompt,
+        plan.turnsJson,
+        plan.roundCount,
+        plan.originSessionKey ?? null,
+        plan.finalPrompt ?? null,
+        plan.createdTaskId ?? null,
+        plan.failureReason ?? null,
+        plan.createdAt,
+        plan.updatedAt,
+        plan.completedAt ?? null,
+      );
+  }
+
+  getPlan(id: string): AlwaysOnPlan | undefined {
+    const row = this.db.prepare("SELECT * FROM always_on_plans WHERE id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? this.rowToPlan(row) : undefined;
+  }
+
+  getActivePlanByConversationKey(conversationKey: string): AlwaysOnPlan | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM always_on_plans WHERE conversationKey = ? AND status = 'active' ORDER BY updatedAt DESC LIMIT 1",
+      )
+      .get(conversationKey) as Record<string, unknown> | undefined;
+    return row ? this.rowToPlan(row) : undefined;
+  }
+
+  getActivePlanBySessionKey(sessionKey: string): AlwaysOnPlan | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM always_on_plans WHERE originSessionKey = ? AND status = 'active' ORDER BY updatedAt DESC LIMIT 1",
+      )
+      .get(sessionKey) as Record<string, unknown> | undefined;
+    return row ? this.rowToPlan(row) : undefined;
+  }
+
+  updatePlan(id: string, patch: AlwaysOnPlanUpdatePatch): void {
+    const sets: string[] = [];
+    const values: Array<string | number | null> = [];
+
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined) {
+        sets.push(`${key} = ?`);
+        values.push(value ?? null);
+      }
+    }
+
+    if (sets.length === 0) return;
+
+    values.push(id);
+    this.db.prepare(`UPDATE always_on_plans SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+  }
+
+  appendPlanTurn(id: string, turn: AlwaysOnPlanTurn): AlwaysOnPlan | undefined {
+    const row = this.db.prepare("SELECT turnsJson FROM always_on_plans WHERE id = ?").get(id) as
+      | { turnsJson?: unknown }
+      | undefined;
+    if (!row || typeof row.turnsJson !== "string") {
+      return undefined;
+    }
+
+    const turns = parsePlanTurns(row.turnsJson);
+    turns.push(turn);
+    this.updatePlan(id, {
+      turnsJson: JSON.stringify(turns),
+      updatedAt: turn.timestamp,
+    });
+    return this.getPlan(id);
+  }
+
   close(): void {
     this.db.close();
   }
@@ -255,6 +369,24 @@ export class TaskStore {
       suspendedAt: (row.suspendedAt as number) ?? undefined,
       completedAt: (row.completedAt as number) ?? undefined,
       runCount: row.runCount as number,
+    };
+  }
+
+  private rowToPlan(row: Record<string, unknown>): AlwaysOnPlan {
+    return {
+      id: row.id as string,
+      conversationKey: row.conversationKey as string,
+      status: row.status as AlwaysOnPlan["status"],
+      initialPrompt: row.initialPrompt as string,
+      turnsJson: row.turnsJson as string,
+      roundCount: row.roundCount as number,
+      originSessionKey: (row.originSessionKey as string) ?? undefined,
+      finalPrompt: (row.finalPrompt as string) ?? undefined,
+      createdTaskId: (row.createdTaskId as string) ?? undefined,
+      failureReason: (row.failureReason as string) ?? undefined,
+      createdAt: row.createdAt as number,
+      updatedAt: row.updatedAt as number,
+      completedAt: (row.completedAt as number) ?? undefined,
     };
   }
 }

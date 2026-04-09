@@ -6,8 +6,10 @@ import { PLUGIN_ID, PROGRESS_TOOL_NAME, COMPLETE_TOOL_NAME } from "./src/core/co
 import { resolveAlwaysOnToolSupport } from "./src/core/tool-compat.js";
 import { SubagentExecutor } from "./src/executor/executor.js";
 import { registerLifecycleHooks } from "./src/hooks/lifecycle-hook.js";
+import { registerPlanHook } from "./src/hooks/plan-hook.js";
 import { registerPromptHook } from "./src/hooks/prompt-hook.js";
 import { createAlwaysOnHttpHandler } from "./src/http.js";
+import { AlwaysOnPlanService } from "./src/plan/service.js";
 import { TaskLogger } from "./src/storage/logger.js";
 import { openDatabase, TaskStore } from "./src/storage/store.js";
 import { createCompleteToolFactory } from "./src/tools/complete-tool.js";
@@ -33,6 +35,7 @@ export default definePluginEntry({
     const store = new TaskStore(db);
     const logger = new TaskLogger(db, config, api.logger);
     const toolSupport = resolveAlwaysOnToolSupport(api.config);
+    const planService = new AlwaysOnPlanService(api, store, logger, config, toolSupport);
 
     const executor = new SubagentExecutor(api.runtime.subagent, store, logger, toolSupport);
     const worker = new AlwaysOnWorker(
@@ -51,7 +54,7 @@ export default definePluginEntry({
     api.registerTool(progressFactory, { name: PROGRESS_TOOL_NAME });
     api.registerTool(completeFactory, { name: COMPLETE_TOOL_NAME });
 
-    registerCommands(api, store, logger, config, toolSupport);
+    registerCommands(api, store, logger, config, toolSupport, planService);
     api.registerHttpRoute({
       path: `/plugins/${PLUGIN_ID}`,
       auth: "plugin",
@@ -73,6 +76,7 @@ export default definePluginEntry({
       },
     });
     registerPromptHook(api, store, toolSupport);
+    registerPlanHook(api, planService);
     registerLifecycleHooks(api, store, logger);
 
     // Periodic log cleanup

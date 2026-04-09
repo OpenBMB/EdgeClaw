@@ -1,17 +1,20 @@
-import type { OpenClawPluginApi } from "../../api.js";
-import { MaxCostUsdBudget } from "../budget/max-cost-usd.js";
-import { MaxLoopsBudget } from "../budget/max-loops.js";
+import type { OpenClawPluginApi, PluginCommandContext } from "../../api.js";
 import { deserializeBudgetConstraints } from "../budget/registry.js";
 import type { AlwaysOnConfig } from "../core/config.js";
+import { createAlwaysOnTaskFromUserInput } from "../core/task-factory.js";
 import {
   buildAlwaysOnCommandNote,
   resolveAlwaysOnToolSupport,
   type AlwaysOnToolSupport,
 } from "../core/tool-compat.js";
 import type { AlwaysOnTask, BudgetUsage } from "../core/types.js";
-import { UserCommandTaskSource } from "../source/user-command-source.js";
 import type { TaskLogger } from "../storage/logger.js";
 import type { TaskStore } from "../storage/store.js";
+
+export type AlwaysOnPlanCommandHandler = {
+  startPlan: (ctx: PluginCommandContext, prompt: string) => Promise<{ text: string }>;
+  cancelPlan: (ctx: PluginCommandContext) => { text: string };
+};
 
 export function registerCommands(
   api: OpenClawPluginApi,
@@ -19,8 +22,8 @@ export function registerCommands(
   logger: TaskLogger,
   config: AlwaysOnConfig,
   toolSupport: AlwaysOnToolSupport = resolveAlwaysOnToolSupport(api.config),
+  planHandler?: AlwaysOnPlanCommandHandler,
 ): void {
-  const source = new UserCommandTaskSource();
   const commandNote = buildAlwaysOnCommandNote(toolSupport);
 
   api.registerCommand({
@@ -44,6 +47,8 @@ export function registerCommands(
           return handleResume(args);
         case "cancel":
           return handleCancel(args);
+        case "plan":
+          return handlePlan(ctx, args);
         case "logs":
           return handleLogs(args);
         case "status":
@@ -58,16 +63,12 @@ export function registerCommands(
     if (!title) {
       return { text: "Usage: `/always-on create <task description>`" };
     }
-
-    const constraints = [
-      new MaxLoopsBudget(config.defaultMaxLoops),
-      new MaxCostUsdBudget(config.defaultMaxCostUsd),
-    ];
-
-    const task = source.createTask({ title, budgetConstraints: constraints });
-    store.createTask(task);
-    logger.info(task.id, `Task created: ${title}`);
-    logger.info(task.id, "Task queued for background launch");
+    const task = createAlwaysOnTaskFromUserInput({
+      input: { title },
+      store,
+      logger,
+      config,
+    });
 
     return {
       text:
@@ -78,6 +79,20 @@ export function registerCommands(
         `Your main session is not affected — keep chatting normally.` +
         (commandNote ? `\n\n${commandNote}` : ""),
     };
+  }
+
+  async function handlePlan(ctx: PluginCommandContext, args: string) {
+    if (!planHandler) {
+      return { text: "Planning mode is currently unavailable." };
+    }
+    const trimmedArgs = args.trim();
+    if (!trimmedArgs) {
+      return { text: "Usage: `/always-on plan <task description>` or `/always-on plan cancel`" };
+    }
+    if (trimmedArgs.toLowerCase() === "cancel") {
+      return planHandler.cancelPlan(ctx);
+    }
+    return planHandler.startPlan(ctx, trimmedArgs);
   }
 
   function handleList() {
@@ -235,5 +250,7 @@ const HELP_TEXT = `## /always-on — Background Task Manager
 - \`/always-on show <id>\` — Show task details
 - \`/always-on resume <id>\` — Re-queue a suspended task
 - \`/always-on cancel <id>\` — Cancel a task
+- \`/always-on plan <description>\` — Refine a task before creating it
+- \`/always-on plan cancel\` — Cancel the active planning flow
 - \`/always-on logs <id>\` — View task logs
 - \`/always-on status\` — System status overview`;

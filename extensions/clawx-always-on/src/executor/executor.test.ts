@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AlwaysOnConfig } from "../core/config.js";
 import type { AlwaysOnTask } from "../core/types.js";
+import { serializeUserCommandSourceMetadata } from "../source/user-command-source.js";
 import { TaskLogger } from "../storage/logger.js";
 import { openDatabase, TaskStore } from "../storage/store.js";
 import { SubagentExecutor } from "./executor.js";
@@ -114,5 +115,29 @@ describe("SubagentExecutor", () => {
     expect(callArgs.message).toContain("Explicit always-on tools are unavailable");
     expect(callArgs.message).toContain("ALWAYS_ON_STATUS: completed");
     expect(callArgs.message).not.toContain("call `always_on_complete`");
+  });
+
+  it("prefers the stored planned prompt over the display title", async () => {
+    const mockSubagent = {
+      run: vi.fn().mockResolvedValue({ runId: "run-999" }),
+    };
+    const executor = new SubagentExecutor(mockSubagent, store, logger);
+
+    const task = makeTask({
+      title: "Short display title",
+      sourceMetadata: serializeUserCommandSourceMetadata({
+        mode: "plan",
+        prompt: "Expanded autonomous research prompt with steps and deliverables.",
+      }),
+    });
+    store.createTask(task);
+
+    await executor.launch(task);
+
+    const callArgs = mockSubagent.run.mock.calls[0][0];
+    expect(callArgs.message).toContain("Short display title");
+    expect(callArgs.message).toContain(
+      "Expanded autonomous research prompt with steps and deliverables.",
+    );
   });
 });

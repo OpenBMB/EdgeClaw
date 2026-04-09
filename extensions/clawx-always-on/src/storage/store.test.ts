@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { AlwaysOnTask } from "../core/types.js";
+import type { AlwaysOnPlan } from "../plan/types.js";
 import { openDatabase, TaskStore } from "./store.js";
 
 function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
@@ -15,6 +16,20 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
     budgetUsage: '{"loopsUsed":0,"costUsedUsd":0}',
     createdAt: Date.now(),
     runCount: 0,
+    ...overrides,
+  };
+}
+
+function makePlan(overrides: Partial<AlwaysOnPlan> = {}): AlwaysOnPlan {
+  return {
+    id: "plan-001",
+    conversationKey: "webchat:default:user-123",
+    status: "active",
+    initialPrompt: "Plan a better task",
+    turnsJson: "[]",
+    roundCount: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
     ...overrides,
   };
 }
@@ -179,5 +194,40 @@ describe("TaskStore", () => {
     expect(task!.startedAt).toBeUndefined();
     expect(task!.suspendedAt).toBeUndefined();
     expect(task!.completedAt).toBeUndefined();
+  });
+
+  it("creates and retrieves active plans by conversation key", () => {
+    store.createPlan(makePlan());
+
+    const plan = store.getActivePlanByConversationKey("webchat:default:user-123");
+    expect(plan).toBeDefined();
+    expect(plan!.id).toBe("plan-001");
+  });
+
+  it("retrieves active plans by bound session key", () => {
+    store.createPlan(makePlan({ originSessionKey: "agent:main:webchat:dm:user-123" }));
+
+    const plan = store.getActivePlanBySessionKey("agent:main:webchat:dm:user-123");
+    expect(plan?.id).toBe("plan-001");
+  });
+
+  it("appends turns and updates timestamps for plans", () => {
+    store.createPlan(makePlan());
+
+    const updated = store.appendPlanTurn("plan-001", {
+      role: "assistant",
+      content: "Need one more detail",
+      timestamp: 456,
+    });
+
+    expect(updated).toBeDefined();
+    expect(updated!.updatedAt).toBe(456);
+    expect(JSON.parse(updated!.turnsJson)).toEqual([
+      {
+        role: "assistant",
+        content: "Need one more detail",
+        timestamp: 456,
+      },
+    ]);
   });
 });

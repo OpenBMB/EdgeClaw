@@ -35,7 +35,14 @@ describe("commands", () => {
   let db: DatabaseSync;
   let store: TaskStore;
   let logger: TaskLogger;
-  let commandHandler: (ctx: { args?: string }) => Promise<{ text: string }> | { text: string };
+  let commandHandler: (ctx: {
+    args?: string;
+    channel?: string;
+    from?: string;
+    to?: string;
+    accountId?: string;
+    messageThreadId?: string | number;
+  }) => Promise<{ text: string }> | { text: string };
 
   beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "commands-test-"));
@@ -74,6 +81,73 @@ describe("commands", () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0].title).toBe("Research AI trends");
     expect(tasks[0].status).toBe("queued");
+  });
+
+  it("delegates planning requests to the plan handler", async () => {
+    const startPlan = vi.fn().mockResolvedValue({ text: "planning started" });
+    const cancelPlan = vi.fn().mockReturnValue({ text: "planning cancelled" });
+    const mockApi = {
+      config: {},
+      registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
+        commandHandler = cmd.handler;
+      }),
+    };
+
+    const { registerCommands } = await import("./commands.js");
+    registerCommands(mockApi as never, store, logger, defaultConfig, undefined, {
+      startPlan,
+      cancelPlan,
+    });
+
+    const result = await commandHandler({
+      args: "plan Research an always-on market scan",
+      channel: "webchat",
+      from: "webchat:user-123",
+      to: "webchat:user-123",
+    });
+
+    expect(result.text).toBe("planning started");
+    expect(startPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "webchat",
+        from: "webchat:user-123",
+      }),
+      "Research an always-on market scan",
+    );
+    expect(cancelPlan).not.toHaveBeenCalled();
+  });
+
+  it("delegates plan cancellation to the plan handler", async () => {
+    const startPlan = vi.fn().mockResolvedValue({ text: "planning started" });
+    const cancelPlan = vi.fn().mockReturnValue({ text: "planning cancelled" });
+    const mockApi = {
+      config: {},
+      registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
+        commandHandler = cmd.handler;
+      }),
+    };
+
+    const { registerCommands } = await import("./commands.js");
+    registerCommands(mockApi as never, store, logger, defaultConfig, undefined, {
+      startPlan,
+      cancelPlan,
+    });
+
+    const result = await commandHandler({
+      args: "plan cancel",
+      channel: "webchat",
+      from: "webchat:user-123",
+      to: "webchat:user-123",
+    });
+
+    expect(result.text).toBe("planning cancelled");
+    expect(cancelPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "webchat",
+        from: "webchat:user-123",
+      }),
+    );
+    expect(startPlan).not.toHaveBeenCalled();
   });
 
   it("adds degraded-mode note when explicit tools are unavailable", async () => {

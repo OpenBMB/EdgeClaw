@@ -2,6 +2,7 @@ import { ALWAYS_ON_LANE, taskIdempotencyKey, taskSessionKey } from "../core/cons
 import type { AlwaysOnToolSupport } from "../core/tool-compat.js";
 import { buildAlwaysOnExecutionInstructions } from "../core/tool-compat.js";
 import type { AlwaysOnTask } from "../core/types.js";
+import { parseUserCommandSourceMetadata } from "../source/user-command-source.js";
 import type { TaskLogger } from "../storage/logger.js";
 import type { TaskStore } from "../storage/store.js";
 
@@ -55,13 +56,22 @@ export class SubagentExecutor {
   }
 
   private buildTaskMessage(task: AlwaysOnTask): string {
+    const sourceMetadata = parseUserCommandSourceMetadata(task.sourceMetadata);
+    const taskPrompt = sourceMetadata?.prompt?.trim() || task.title;
     const parts: string[] = [`## Always-On Task`, `**Title:** ${task.title}`];
 
     if (task.runCount > 0 && task.progressSummary) {
       parts.push("", `## Previous Progress (run #${task.runCount})`, task.progressSummary);
     }
 
-    parts.push("", "Execute this task.", ...buildAlwaysOnExecutionInstructions(this.toolSupport));
+    parts.push(
+      "",
+      "## Task Prompt",
+      taskPrompt,
+      "",
+      "Execute this task.",
+      ...buildAlwaysOnExecutionInstructions(this.toolSupport),
+    );
 
     return parts.join("\n");
   }

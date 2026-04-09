@@ -83,6 +83,7 @@ describe("clawx-always-on plugin entry", () => {
     expect(registeredServices).toEqual([{ id: "clawx-always-on-worker" }]);
 
     expect(registeredHooks).toContain("before_prompt_build");
+    expect(registeredHooks).toContain("before_dispatch");
     expect(registeredHooks).toContain("before_message_write");
     expect(registeredHooks).toContain("llm_output");
     expect(registeredHooks).toContain("agent_end");
