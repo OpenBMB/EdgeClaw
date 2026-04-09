@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi } from "../api.js";
+import { AlwaysOnConfigController } from "./core/config-controller.js";
 import type { AlwaysOnConfig } from "./core/config.js";
 import type { AlwaysOnTask } from "./core/types.js";
 import { createAlwaysOnHttpHandler } from "./http.js";
@@ -69,6 +70,8 @@ describe("createAlwaysOnHttpHandler", () => {
   let logger: TaskLogger;
   let runEmbeddedPiAgent: ReturnType<typeof vi.fn>;
   let planService: AlwaysOnWebPlanService;
+  let configController: AlwaysOnConfigController;
+  let configFileSnapshot: Record<string, unknown>;
   let server: ReturnType<typeof createServer>;
   let baseUrl: string;
 
@@ -78,6 +81,15 @@ describe("createAlwaysOnHttpHandler", () => {
     store = new TaskStore(db);
     logger = new TaskLogger(db, defaultConfig);
     runEmbeddedPiAgent = vi.fn();
+    configFileSnapshot = {
+      plugins: {
+        entries: {
+          "clawx-always-on": {
+            config: { ...defaultConfig },
+          },
+        },
+      },
+    };
     const api = {
       config: {},
       runtime: {
@@ -86,14 +98,24 @@ describe("createAlwaysOnHttpHandler", () => {
           resolveAgentWorkspaceDir: () => tmpDir,
           resolveAgentTimeoutMs: () => 30_000,
         },
+        config: {
+          loadConfig: () => structuredClone(configFileSnapshot),
+          writeConfigFile: vi.fn(async (nextConfig: Record<string, unknown>) => {
+            configFileSnapshot = structuredClone(nextConfig);
+          }),
+        },
       },
     } as never as OpenClawPluginApi;
-    planService = new AlwaysOnWebPlanService(api, store, logger, defaultConfig);
+    configController = new AlwaysOnConfigController(api, defaultConfig);
+    planService = new AlwaysOnWebPlanService(api, store, logger, () =>
+      configController.getConfig(),
+    );
 
     const handler = createAlwaysOnHttpHandler({
       store,
       logger,
-      config: defaultConfig,
+      getConfig: () => configController.getConfig(),
+      configController,
       planService,
     });
 
@@ -344,6 +366,86 @@ describe("createAlwaysOnHttpHandler", () => {
     });
   });
 
+  describe("config api", () => {
+    it("returns config fields and restart metadata", async () => {
+      const response = await fetch(`${baseUrl}/plugins/clawx-always-on/api/config`);
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.values.defaultMaxLoops).toBe(defaultConfig.defaultMaxLoops);
+      expect(payload.restartRequiredFields).toContain("dataDir");
+      expect(payload.fields).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ key: "logLevel", input: "select" }),
+          expect.objectContaining({ key: "dataDir", restartRequired: true }),
+        ]),
+      );
+    });
+
+    it("persists config changes and hot-reloads live fields", async () => {
+      const saveResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/api/config`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          defaultMaxLoops: "88",
+          defaultMaxCostUsd: "2.5",
+          maxConcurrentTasks: "5",
+          logLevel: "debug",
+          logRetentionDays: "14",
+          dataDir: "/tmp/always-on-next",
+        }),
+      });
+      const savePayload = await saveResponse.json();
+
+      expect(saveResponse.status).toBe(200);
+      expect(savePayload.values.defaultMaxLoops).toBe(88);
+      expect(savePayload.effectiveValues.defaultMaxLoops).toBe(88);
+      expect(savePayload.values.maxConcurrentTasks).toBe(5);
+      expect(savePayload.effectiveValues.maxConcurrentTasks).toBe(5);
+      expect(savePayload.values.dataDir).toBe("/tmp/always-on-next");
+      expect(savePayload.effectiveValues.dataDir).toBeUndefined();
+      expect(savePayload.pendingRestartFields).toContain("dataDir");
+      expect(
+        (
+          configFileSnapshot as {
+            plugins: { entries: Record<string, { config: Record<string, unknown> }> };
+          }
+        ).plugins.entries["clawx-always-on"].config,
+      ).toEqual(
+        expect.objectContaining({
+          defaultMaxLoops: 88,
+          defaultMaxCostUsd: 2.5,
+          maxConcurrentTasks: 5,
+          logLevel: "debug",
+          logRetentionDays: 14,
+          dataDir: "/tmp/always-on-next",
+        }),
+      );
+
+      const statusResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/api/status`);
+      const statusPayload = await statusResponse.json();
+      expect(statusPayload.defaultMaxLoops).toBe(88);
+      expect(statusPayload.defaultMaxCostUsd).toBe(2.5);
+      expect(statusPayload.maxConcurrentTasks).toBe(5);
+      expect(statusPayload.logRetentionDays).toBe(14);
+
+      const createResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/api/tasks`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Use hot-reloaded defaults" }),
+      });
+      const createPayload = await createResponse.json();
+
+      expect(createResponse.status).toBe(201);
+      expect(createPayload.task.budgetConstraints).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "max-loops", limit: 88 }),
+          expect.objectContaining({ kind: "max-cost-usd", limitUsd: 2.5 }),
+        ]),
+      );
+    });
+  });
+
   describe("v2 dashboard", () => {
     it("redirects /v2 to /v2/", async () => {
       const response = await fetch(`${baseUrl}/plugins/clawx-always-on/v2`, {
@@ -360,7 +462,7 @@ describe("createAlwaysOnHttpHandler", () => {
 
       expect(response.status).toBe(200);
       expect(html).toContain("ClawX Always-On");
-      expect(html).toContain("Launch a background task");
+      expect(html).toContain("Compose");
     });
 
     it("serves v2 static assets", async () => {

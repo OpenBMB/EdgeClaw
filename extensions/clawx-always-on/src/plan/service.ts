@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 import type { PluginCommandContext, OpenClawPluginApi } from "../../api.js";
-import type { AlwaysOnConfig } from "../core/config.js";
+import {
+  resolveConfigSource,
+  type AlwaysOnConfig,
+  type AlwaysOnConfigSource,
+} from "../core/config.js";
 import { createAlwaysOnTaskFromUserInput } from "../core/task-factory.js";
 import { buildAlwaysOnCommandNote, type AlwaysOnToolSupport } from "../core/tool-compat.js";
 import type { TaskLogger } from "../storage/logger.js";
@@ -70,13 +74,17 @@ function parseClarificationMetadata(raw: string | undefined): ClarificationMetad
 }
 
 export class AlwaysOnPlanService {
+  private readonly getConfig: () => AlwaysOnConfig;
+
   constructor(
     private readonly api: OpenClawPluginApi,
     private readonly store: TaskStore,
     private readonly logger: TaskLogger,
-    private readonly config: AlwaysOnConfig,
+    config: AlwaysOnConfigSource,
     private readonly toolSupport: AlwaysOnToolSupport,
-  ) {}
+  ) {
+    this.getConfig = resolveConfigSource(config);
+  }
 
   async startPlan(ctx: PluginCommandContext, prompt: string): Promise<{ text: string }> {
     const trimmedPrompt = prompt.trim();
@@ -231,7 +239,7 @@ export class AlwaysOnPlanService {
         },
         store: this.store,
         logger: this.logger,
-        config: this.config,
+        config: this.getConfig(),
       });
 
       const now = Date.now();
@@ -262,12 +270,13 @@ export class AlwaysOnPlanService {
     assumptions: string[],
   ): string {
     const commandNote = buildAlwaysOnCommandNote(this.toolSupport);
+    const config = this.getConfig();
     const lines = [
       `Task **${taskId}** created from the planning flow and queued for background execution.`,
       `> ${taskTitle}`,
       "",
-      `Budget: ${this.config.defaultMaxLoops} loops, $${this.config.defaultMaxCostUsd} max cost.`,
-      `The worker runs up to ${this.config.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.`,
+      `Budget: ${config.defaultMaxLoops} loops, $${config.defaultMaxCostUsd} max cost.`,
+      `The worker runs up to ${config.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.`,
       "Planning mode is complete. Your main session is not affected — keep chatting normally.",
     ];
     if (assumptions.length > 0) {

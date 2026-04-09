@@ -120,6 +120,31 @@ describe("AlwaysOnWorker", () => {
     worker.stop();
   });
 
+  it("applies updated maxConcurrentTasks while running", async () => {
+    const executor = {
+      launch: vi.fn().mockResolvedValue("run-1"),
+    } as unknown as SubagentExecutor;
+    const worker = new AlwaysOnWorker(store, logger, executor, undefined, 5, 1);
+
+    store.createTask(makeTask({ id: "task-001", createdAt: 100 }));
+    store.createTask(makeTask({ id: "task-002", createdAt: 200 }));
+    worker.start();
+
+    await vi.waitFor(() => {
+      expect(executor.launch).toHaveBeenCalledTimes(1);
+    });
+    expect(store.getTask("task-002")?.status).toBe("queued");
+
+    worker.updateMaxConcurrentTasks(2);
+
+    await vi.waitFor(() => {
+      expect(executor.launch).toHaveBeenCalledTimes(2);
+    });
+    expect(store.getTask("task-002")?.status).toBe("launching");
+
+    worker.stop();
+  });
+
   it("re-queues tasks left in launching state on start before retrying launch", async () => {
     const executor = {
       launch: vi.fn().mockResolvedValue("run-1"),

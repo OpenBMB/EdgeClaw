@@ -248,6 +248,34 @@ describe("commands", () => {
     expect(result.text).toContain("reply-based completion fallback");
   });
 
+  it("reads the latest config from a provider", async () => {
+    let currentConfig = { ...defaultConfig };
+    const mockApi = {
+      config: {},
+      registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
+        commandHandler = cmd.handler;
+      }),
+    };
+
+    const { registerCommands } = await import("./commands.js");
+    registerCommands(mockApi as never, store, logger, () => currentConfig);
+
+    currentConfig = {
+      ...currentConfig,
+      defaultMaxLoops: 88,
+      defaultMaxCostUsd: 2.5,
+      maxConcurrentTasks: 5,
+    };
+
+    const createResult = await commandHandler({ args: "create Dynamic config task" });
+    const statusResult = await commandHandler({ args: "status" });
+
+    expect(createResult.text).toContain("88 loops");
+    expect(createResult.text).toContain("$2.5 max cost");
+    expect(statusResult.text).toContain("Concurrent run limit");
+    expect(statusResult.text).toContain("5");
+  });
+
   it("rejects resume of non-suspended task", async () => {
     store.createTask(makeTask({ id: "t1", status: "pending" }));
 

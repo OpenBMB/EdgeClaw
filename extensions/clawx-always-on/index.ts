@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { definePluginEntry, type OpenClawPluginApi } from "./api.js";
 import { registerCommands } from "./src/commands/commands.js";
+import { AlwaysOnConfigController } from "./src/core/config-controller.js";
 import { resolveConfig } from "./src/core/config.js";
 import { PLUGIN_ID, PROGRESS_TOOL_NAME, COMPLETE_TOOL_NAME } from "./src/core/constants.js";
 import { resolveAlwaysOnToolSupport } from "./src/core/tool-compat.js";
@@ -26,7 +27,9 @@ export default definePluginEntry({
   register(api: OpenClawPluginApi) {
     if (api.registrationMode !== "full") return;
 
-    const config = resolveConfig(api.pluginConfig);
+    const initialConfig = resolveConfig(api.pluginConfig);
+    const configController = new AlwaysOnConfigController(api, initialConfig);
+    const config = configController.getConfig();
 
     const stateDir = api.runtime.state.resolveStateDir();
     const dataDir = config.dataDir ?? join(stateDir, PLUGIN_ID);
@@ -36,8 +39,9 @@ export default definePluginEntry({
     const store = new TaskStore(db);
     const logger = new TaskLogger(db, config, api.logger);
     const toolSupport = resolveAlwaysOnToolSupport(api.config);
-    const planService = new AlwaysOnPlanService(api, store, logger, config, toolSupport);
-    const webPlanService = new AlwaysOnWebPlanService(api, store, logger, config);
+    const getConfig = () => configController.getConfig();
+    const planService = new AlwaysOnPlanService(api, store, logger, getConfig, toolSupport);
+    const webPlanService = new AlwaysOnWebPlanService(api, store, logger, getConfig);
 
     const executor = new SubagentExecutor(api.runtime.subagent, store, logger, toolSupport);
     const worker = new AlwaysOnWorker(
@@ -48,6 +52,15 @@ export default definePluginEntry({
       undefined,
       config.maxConcurrentTasks,
     );
+    configController.subscribe(({ changedFields, effectiveValues, pendingRestartFields }) => {
+      logger.updateConfig(effectiveValues);
+      worker.updateMaxConcurrentTasks(effectiveValues.maxConcurrentTasks);
+      const restartNote =
+        pendingRestartFields.length > 0
+          ? `; restart required: ${pendingRestartFields.join(", ")}`
+          : "";
+      api.logger.info(`[${PLUGIN_ID}] config updated (${changedFields.join(", ")})${restartNote}`);
+    });
 
     // Register tools as factories (session-key aware)
     const progressFactory = createProgressToolFactory(store, logger);
@@ -56,7 +69,7 @@ export default definePluginEntry({
     api.registerTool(progressFactory, { name: PROGRESS_TOOL_NAME });
     api.registerTool(completeFactory, { name: COMPLETE_TOOL_NAME });
 
-    registerCommands(api, store, logger, config, toolSupport, planService);
+    registerCommands(api, store, logger, getConfig, toolSupport, planService);
     api.registerHttpRoute({
       path: `/plugins/${PLUGIN_ID}`,
       auth: "plugin",
@@ -64,7 +77,8 @@ export default definePluginEntry({
       handler: createAlwaysOnHttpHandler({
         store,
         logger,
-        config,
+        getConfig,
+        configController,
         planService: webPlanService,
         pluginLogger: api.logger,
       }),

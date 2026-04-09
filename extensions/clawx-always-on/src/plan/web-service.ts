@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 import type { OpenClawPluginApi } from "../../api.js";
-import type { AlwaysOnConfig } from "../core/config.js";
+import {
+  resolveConfigSource,
+  type AlwaysOnConfig,
+  type AlwaysOnConfigSource,
+} from "../core/config.js";
 import { createAlwaysOnTaskFromUserInput } from "../core/task-factory.js";
 import type { TaskLogger } from "../storage/logger.js";
 import type { TaskStore } from "../storage/store.js";
@@ -94,12 +98,16 @@ function buildWebPlanConversationKey(planId: string): string {
 }
 
 export class AlwaysOnWebPlanService {
+  private readonly getConfig: () => AlwaysOnConfig;
+
   constructor(
     private readonly api: OpenClawPluginApi,
     private readonly store: TaskStore,
     private readonly logger: TaskLogger,
-    private readonly config: AlwaysOnConfig,
-  ) {}
+    config: AlwaysOnConfigSource,
+  ) {
+    this.getConfig = resolveConfigSource(config);
+  }
 
   async startPlan(prompt: string): Promise<DashboardPlanStartResult> {
     const trimmedPrompt = prompt.trim();
@@ -201,7 +209,7 @@ export class AlwaysOnWebPlanService {
         },
         store: this.store,
         logger: this.logger,
-        config: this.config,
+        config: this.getConfig(),
       });
       const now = Date.now();
       this.store.updatePlan(plan.id, {

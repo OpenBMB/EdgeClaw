@@ -2,7 +2,15 @@ const ROUTE_BASE = "/plugins/clawx-always-on";
 const REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_LOG_LIMIT = 80;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "clawx-always-on.sidebar-collapsed";
+const COMPOSE_MODE_STORAGE_KEY = "clawx-always-on.compose-mode";
 const PLANNER_PLAN_STORAGE_KEY = "clawx-always-on.planner-plan-id";
+const TOPBAR_TITLES = {
+  overview: "ClawX Always-On",
+  compose: "Compose",
+  tasks: "Tasks",
+  activity: "Activity",
+  config: "Config",
+};
 const STATUS_ORDER = [
   "all",
   "active",
@@ -25,7 +33,7 @@ const STATUS_LABELS = {
   cancelled: "Cancelled",
   pending: "Pending",
 };
-const TAB_ORDER = ["overview", "create", "planner", "tasks", "activity"];
+const TAB_ORDER = ["overview", "compose", "tasks", "activity", "config"];
 const ACTIVE_TASK_STATUSES = new Set(["active", "launching"]);
 const REVIEW_TASK_STATUSES = new Set(["suspended", "failed"]);
 const CLOSED_TASK_STATUSES = new Set(["completed", "cancelled"]);
@@ -74,29 +82,36 @@ const state = {
   activeTab: "overview",
   refreshing: false,
   action: null,
+  createTitleDraft: "",
+  createMaxLoopsDraft: "",
+  createMaxCostDraft: "",
   sidebarCollapsed: readStorageValue(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true",
   sidebarOpen: false,
+  composeMode: readStorageValue(COMPOSE_MODE_STORAGE_KEY) === "plan" ? "plan" : "direct",
   planner: null,
   plannerLoading: false,
   plannerAction: null,
   plannerPromptDraft: "",
   plannerAnswerDraft: "",
+  config: null,
+  configLoading: false,
+  configSaving: false,
 };
 
 const elements = {
-  createForm: document.querySelector("#create-form"),
-  titleInput: document.querySelector("#task-title"),
-  loopsInput: document.querySelector("#max-loops"),
-  costInput: document.querySelector("#max-cost"),
   refreshButton: document.querySelector("#refresh-button"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   sidebarNav: document.querySelector("#sidebar-nav"),
   sidebarOverlay: document.querySelector("#sidebar-overlay"),
-  topbarSummary: document.querySelector("#topbar-summary"),
+  topbarTitle: document.querySelector("#topbar-title"),
   appFrame: document.querySelector(".app-frame"),
   overviewSummary: document.querySelector("#overview-summary"),
   overviewRunning: document.querySelector("#overview-running"),
   overviewQueue: document.querySelector("#overview-queue"),
+  composeModeSwitch: document.querySelector("#compose-mode-switch"),
+  composeThread: document.querySelector("#compose-thread"),
+  composeComposer: document.querySelector("#compose-composer"),
+  composeDefaults: document.querySelector("#compose-defaults"),
   filterStrip: document.querySelector("#filter-strip"),
   taskList: document.querySelector("#task-list"),
   detailActions: document.querySelector("#detail-actions"),
@@ -106,9 +121,8 @@ const elements = {
   activitySubtitle: document.querySelector("#activity-subtitle"),
   activityPill: document.querySelector("#activity-pill"),
   activityStream: document.querySelector("#activity-stream"),
+  configContent: document.querySelector("#config-content"),
   statusBanner: document.querySelector("#status-banner"),
-  plannerToolbar: document.querySelector("#planner-toolbar"),
-  plannerContent: document.querySelector("#planner-content"),
 };
 
 function escapeHtml(value) {
@@ -261,17 +275,15 @@ function renderChrome() {
   elements.sidebarOverlay.hidden = !(mobile && state.sidebarOpen);
   document.body.classList.toggle("body--locked", mobile && state.sidebarOpen);
 
-  elements.sidebarToggle.setAttribute(
-    "aria-expanded",
-    String(mobile ? state.sidebarOpen : !state.sidebarCollapsed),
-  );
-  elements.sidebarToggle.textContent = mobile
-    ? state.sidebarOpen
-      ? "Close Navigation"
-      : "Open Navigation"
-    : state.sidebarCollapsed
-      ? "Expand Navigation"
-      : "Collapse Navigation";
+  const expanded = mobile ? state.sidebarOpen : !state.sidebarCollapsed;
+  const label = expanded ? "Collapse navigation" : "Expand navigation";
+  elements.sidebarToggle.setAttribute("aria-expanded", String(expanded));
+  elements.sidebarToggle.setAttribute("aria-label", label);
+  elements.sidebarToggle.title = label;
+
+  if (elements.topbarTitle) {
+    elements.topbarTitle.textContent = TOPBAR_TITLES[state.activeTab] ?? "ClawX Always-On";
+  }
 }
 
 function toggleSidebar() {
@@ -334,10 +346,18 @@ function updateControls() {
     elements.refreshButton.textContent = state.refreshing ? "Refreshing..." : "Refresh";
   }
 
-  if (elements.createForm) {
+  const createForm = document.querySelector("#create-form");
+  if (createForm instanceof HTMLFormElement) {
     const disabled = state.action === "create";
-    for (const field of Array.from(elements.createForm.elements)) {
+    for (const field of Array.from(createForm.elements)) {
       field.disabled = disabled;
+    }
+  }
+
+  const configForm = document.querySelector("#config-form");
+  if (configForm instanceof HTMLFormElement) {
+    for (const field of Array.from(configForm.elements)) {
+      field.disabled = state.configSaving;
     }
   }
 }
@@ -352,6 +372,9 @@ function setActiveTab(tab) {
     state.sidebarOpen = false;
   }
   render();
+  if (tab === "config" && !state.config && !state.configLoading) {
+    void loadConfigSnapshot({ silent: true });
+  }
 }
 
 function renderTabs() {
@@ -414,37 +437,6 @@ function renderMetaRow(label, value, mono = false) {
       <p class="task-meta__value${mono ? " mono" : ""}">${escapeHtml(value)}</p>
     </div>
   `;
-}
-
-function renderTopbarSummary() {
-  if (!elements.topbarSummary) {
-    return;
-  }
-
-  if (!state.stats) {
-    elements.topbarSummary.innerHTML = `
-      <span class="topbar__metric"><strong>&ndash;</strong>loading</span>
-    `;
-    return;
-  }
-
-  const activeCount = state.tasks.filter((task) => ACTIVE_TASK_STATUSES.has(task.status)).length;
-  const metrics = [
-    { value: activeCount, label: "active" },
-    { value: state.stats.countsByStatus?.queued ?? 0, label: "queued" },
-    { value: state.stats.maxConcurrentTasks ?? 0, label: "slots" },
-  ];
-
-  elements.topbarSummary.innerHTML = metrics
-    .map(
-      (metric) => `
-        <span class="topbar__metric">
-          <strong>${escapeHtml(String(metric.value))}</strong>
-          ${escapeHtml(metric.label)}
-        </span>
-      `,
-    )
-    .join("");
 }
 
 function renderOverviewSummary() {
@@ -524,8 +516,8 @@ function renderOverviewRunning() {
   if (activeTasks.length === 0) {
     elements.overviewRunning.innerHTML = `
       <article class="signal-card signal-card--empty">
-        <h3 class="signal-card__title">No task is holding a worker slot.</h3>
-        <p class="signal-card__meta">Queued work will appear here once the worker launches or resumes it.</p>
+        <h3 class="signal-card__title">No active tasks.</h3>
+        <p class="signal-card__meta">Worker slots are free.</p>
       </article>
     `;
     return;
@@ -578,17 +570,17 @@ function renderOverviewQueue() {
   elements.overviewQueue.innerHTML = [
     renderQueueSection(
       "Queued",
-      "Waiting for a worker slot or the next scheduler handoff.",
+      "Waiting for a slot.",
       state.tasks.filter((task) => task.status === "queued").slice(0, 4),
     ),
     renderQueueSection(
       "Needs review",
-      "Suspended or failed tasks that likely need resume or investigation.",
+      "Suspended or failed.",
       state.tasks.filter((task) => REVIEW_TASK_STATUSES.has(task.status)).slice(0, 4),
     ),
     renderQueueSection(
       "Recently closed",
-      "Completed or cancelled work from the latest task activity.",
+      "Completed or cancelled.",
       state.tasks.filter((task) => CLOSED_TASK_STATUSES.has(task.status)).slice(0, 4),
     ),
   ].join("");
@@ -644,220 +636,201 @@ function renderPlannerQuestions(questions = []) {
   `;
 }
 
-function renderPlannerToolbar() {
-  if (!elements.plannerToolbar) {
+function setComposeMode(mode) {
+  if (mode !== "direct" && mode !== "plan") {
+    return;
+  }
+  state.composeMode = mode;
+  writeStorageValue(COMPOSE_MODE_STORAGE_KEY, mode);
+  render();
+}
+
+function renderComposeModeSwitch() {
+  if (!elements.composeModeSwitch) {
     return;
   }
 
-  if (state.plannerLoading && !state.planner) {
-    elements.plannerToolbar.innerHTML = `
-      <span class="planner-toolbar__note">Loading...</span>
-    `;
+  elements.composeModeSwitch.innerHTML = ["direct", "plan"]
+    .map(
+      (mode) => `
+        <button
+          class="mode-switch__button"
+          type="button"
+          data-compose-mode="${mode}"
+          data-active="${String(state.composeMode === mode)}"
+        >
+          ${escapeHtml(mode === "direct" ? "Direct" : "Plan")}
+        </button>
+      `,
+    )
+    .join("");
+}
+
+function renderComposeDefaults() {
+  if (!elements.composeDefaults) {
     return;
   }
 
-  if (!state.planner) {
-    elements.plannerToolbar.innerHTML = "";
+  if (!state.stats) {
+    elements.composeDefaults.innerHTML = renderEmptyState("Loading", "Fetching current defaults.");
     return;
   }
 
-  const buttons = [renderStatusPill(state.planner.status)];
-
-  if (state.planner.status === "active") {
-    buttons.push(`
-      <button
-        class="button button--secondary"
-        type="button"
-        data-ui-action="cancel-planner"
-        ${state.plannerAction === "cancel" ? "disabled" : ""}
-      >
-        ${state.plannerAction === "cancel" ? "Cancelling..." : "Cancel Planning"}
-      </button>
-    `);
-  } else {
-    buttons.push(`
-      <button class="button button--secondary" type="button" data-ui-action="reset-planner">
-        Start Another Plan
-      </button>
-    `);
-  }
-
-  elements.plannerToolbar.innerHTML = `
-    <div class="planner-toolbar__group">
-      ${buttons.join("")}
+  const activeCount = state.tasks.filter((task) => ACTIVE_TASK_STATUSES.has(task.status)).length;
+  elements.composeDefaults.innerHTML = `
+    <div class="compose-defaults__stack">
+      <section class="surface-card">
+        <div class="surface-card__header">
+          <h3>Budget</h3>
+        </div>
+        <dl class="detail-grid">
+          <div class="detail-grid__item">
+            <dt class="detail-grid__term">Loops</dt>
+            <dd class="detail-grid__value">${escapeHtml(String(state.stats.defaultMaxLoops ?? 0))}</dd>
+          </div>
+          <div class="detail-grid__item">
+            <dt class="detail-grid__term">Cost</dt>
+            <dd class="detail-grid__value">${escapeHtml(formatCurrency(state.stats.defaultMaxCostUsd))}</dd>
+          </div>
+        </dl>
+      </section>
+      <section class="surface-card">
+        <div class="surface-card__header">
+          <h3>Worker</h3>
+        </div>
+        <dl class="detail-grid">
+          <div class="detail-grid__item">
+            <dt class="detail-grid__term">Slots</dt>
+            <dd class="detail-grid__value">${escapeHtml(String(state.stats.maxConcurrentTasks ?? 0))}</dd>
+          </div>
+          <div class="detail-grid__item">
+            <dt class="detail-grid__term">Active</dt>
+            <dd class="detail-grid__value">${escapeHtml(String(activeCount))}</dd>
+          </div>
+          <div class="detail-grid__item">
+            <dt class="detail-grid__term">Retention</dt>
+            <dd class="detail-grid__value">${escapeHtml(String(state.stats.logRetentionDays ?? 0))} days</dd>
+          </div>
+        </dl>
+      </section>
     </div>
   `;
 }
 
-function renderPlanner() {
-  if (!elements.plannerContent) {
-    return;
-  }
-
-  const plan = state.planner;
-  const plannerBusy = Boolean(state.plannerLoading || state.plannerAction);
-
-  if (state.plannerLoading && !plan) {
-    elements.plannerContent.innerHTML = `
-      <div class="planner-stack">
-        <section class="surface-card">
-          <div class="surface-card__header">
-            <h3>Restoring planner session</h3>
-          </div>
-          <p class="hint-copy">Loading your last planner state from the dashboard session.</p>
-        </section>
-      </div>
-    `;
-    return;
-  }
-
-  if (!plan) {
-    elements.plannerContent.innerHTML = `
-      <div class="planner-stack">
-        <section class="surface-card">
-          <div class="surface-card__header">
-            <h3>Start a planning session</h3>
-          </div>
-          <p class="hint-copy">
-            Describe the outcome you want. The planner will ask a short clarification round before it
-            creates the background task.
-          </p>
-          <form id="planner-start-form" class="form-stack planner-form">
-            <label class="field">
-              <span class="field__label">Goal description</span>
-              <textarea
-                id="planner-prompt"
-                rows="5"
-                placeholder="Audit the auth middleware for rate-limit gaps and propose fixes with tests."
-              >${escapeHtml(state.plannerPromptDraft)}</textarea>
-            </label>
-            <div class="form-actions">
-              <button class="button button--primary" type="submit" ${plannerBusy ? "disabled" : ""}>
-                ${state.plannerAction === "start" ? "Starting..." : "Start Planning"}
-              </button>
-            </div>
-          </form>
-        </section>
-      </div>
-    `;
-    return;
-  }
-
-  const transcript = `
-    <section class="surface-card">
+function renderDirectThread() {
+  return `
+    <section class="surface-card surface-card--muted">
       <div class="surface-card__header">
-        <h3>Planner transcript</h3>
+        <h3>Queue a focused task</h3>
       </div>
-      <div class="planner-turns">
-        ${plan.turns.map(renderPlannerTurn).join("")}
+      <div class="compose-pill-row">
+        ${renderStatusPill("queued", "Queue")}
+        ${renderStatusPill("completed", "Defaults")}
       </div>
     </section>
   `;
+}
 
-  if (plan.status === "active") {
-    const defaultPlan = plan.defaultPlan
-      ? `
-          <section class="surface-card surface-card--muted">
-            <div class="surface-card__header">
-              <h3>Default plan preview</h3>
-            </div>
-            <p class="planner-preview__title">${escapeHtml(plan.defaultPlan.taskTitle)}</p>
-            <p class="hint-copy">${escapeHtml(plan.defaultPlan.taskPrompt)}</p>
-          </section>
-        `
+function renderDirectComposer() {
+  const loopsPlaceholder = state.stats?.defaultMaxLoops ? String(state.stats.defaultMaxLoops) : "";
+  const costPlaceholder =
+    typeof state.stats?.defaultMaxCostUsd === "number"
+      ? state.stats.defaultMaxCostUsd.toFixed(2)
       : "";
 
-    elements.plannerContent.innerHTML = `
-      <div class="planner-stack">
-        ${transcript}
-        ${defaultPlan}
-        <section class="surface-card">
-          <div class="surface-card__header">
-            <h3>Answer the clarification round</h3>
-          </div>
-          <p class="hint-copy">
-            Reply with option letters, plain language, or a mix of both. The final task will be created
-            from your answer.
-          </p>
-          ${renderPlannerQuestions(plan.pendingQuestions)}
-          <form id="planner-answer-form" class="form-stack planner-form">
-            <label class="field">
-              <span class="field__label">Your answer</span>
-              <textarea
-                id="planner-answer"
-                rows="4"
-                placeholder="Example: A for the first question, B for the second, and please focus on public web sources."
-                ${plannerBusy ? "disabled" : ""}
-              >${escapeHtml(state.plannerAnswerDraft)}</textarea>
-            </label>
-            <div class="form-actions">
-              <button class="button button--primary" type="submit" ${plannerBusy ? "disabled" : ""}>
-                ${state.plannerAction === "answer" ? "Creating Task..." : "Create Task"}
-              </button>
-            </div>
-          </form>
-        </section>
-      </div>
-    `;
-    return;
-  }
+  return `
+    <form id="create-form" class="form-stack">
+      <label class="field">
+        <span class="field__label">Task prompt</span>
+        <textarea
+          id="task-title"
+          name="title"
+          rows="5"
+          placeholder="Research the top regressions in yesterday's build and summarize likely fixes."
+          required
+        >${escapeHtml(state.createTitleDraft)}</textarea>
+      </label>
 
-  if (plan.status === "completed") {
-    elements.plannerContent.innerHTML = `
-      <div class="planner-stack">
-        <section class="surface-card planner-result-card" data-status="completed">
-          <div class="surface-card__header">
-            <h3>Task queued from planner</h3>
-            ${renderStatusPill("completed")}
-          </div>
-          <p class="hint-copy">
-            Task <span class="mono">${escapeHtml(plan.createdTaskId ?? "")}</span> was created and queued
-            for background execution.
-          </p>
-          <div class="planner-result-actions">
-            <button class="button button--primary" type="button" data-ui-action="open-created-task">
-              Open in Tasks
-            </button>
-            <button class="button button--secondary" type="button" data-ui-action="reset-planner">
-              Start Another Plan
-            </button>
-          </div>
-        </section>
-        ${transcript}
+      <div class="field-grid">
+        <label class="field">
+          <span class="field__label">Max loops</span>
+          <input
+            id="max-loops"
+            name="maxLoops"
+            type="number"
+            min="1"
+            max="1000"
+            step="1"
+            placeholder="${escapeHtml(loopsPlaceholder)}"
+            value="${escapeHtml(state.createMaxLoopsDraft)}"
+          />
+        </label>
+        <label class="field">
+          <span class="field__label">Max cost (USD)</span>
+          <input
+            id="max-cost"
+            name="maxCostUsd"
+            type="number"
+            min="0.01"
+            max="100"
+            step="0.01"
+            placeholder="${escapeHtml(costPlaceholder)}"
+            value="${escapeHtml(state.createMaxCostDraft)}"
+          />
+        </label>
       </div>
+
+      <div class="form-actions">
+        <button class="button button--primary" type="submit" ${state.action === "create" ? "disabled" : ""}>
+          ${state.action === "create" ? "Queueing..." : "Queue Task"}
+        </button>
+        <p class="helper-text">Leave limits blank to use the current defaults.</p>
+      </div>
+    </form>
+  `;
+}
+
+function renderPlannerResultCard(plan) {
+  if (plan.status === "completed") {
+    return `
+      <section class="surface-card planner-result-card" data-status="completed">
+        <div class="surface-card__header">
+          <h3>Task queued</h3>
+          ${renderStatusPill("completed")}
+        </div>
+        <div class="planner-result-actions">
+          <button class="button button--primary" type="button" data-ui-action="open-created-task">
+            Open in Tasks
+          </button>
+          <button class="button button--secondary" type="button" data-ui-action="reset-planner">
+            Start Another Plan
+          </button>
+        </div>
+      </section>
     `;
-    return;
   }
 
   if (plan.status === "cancelled") {
-    elements.plannerContent.innerHTML = `
-      <div class="planner-stack">
-        <section class="surface-card planner-result-card" data-status="cancelled">
-          <div class="surface-card__header">
-            <h3>Planning session cancelled</h3>
-            ${renderStatusPill("cancelled")}
-          </div>
-          <p class="hint-copy">
-            The current planner session was cancelled before task creation. Start a new plan whenever
-            you are ready.
-          </p>
-          <div class="planner-result-actions">
-            <button class="button button--secondary" type="button" data-ui-action="reset-planner">
-              Start Another Plan
-            </button>
-          </div>
-        </section>
-        ${transcript}
-      </div>
+    return `
+      <section class="surface-card planner-result-card" data-status="cancelled">
+        <div class="surface-card__header">
+          <h3>Planning cancelled</h3>
+          ${renderStatusPill("cancelled")}
+        </div>
+        <div class="planner-result-actions">
+          <button class="button button--secondary" type="button" data-ui-action="reset-planner">
+            Start Another Plan
+          </button>
+        </div>
+      </section>
     `;
-    return;
   }
 
-  elements.plannerContent.innerHTML = `
-    <div class="planner-stack">
+  if (plan.status === "failed") {
+    return `
       <section class="surface-card planner-result-card" data-status="failed">
         <div class="surface-card__header">
-          <h3>Planning session failed</h3>
+          <h3>Planning failed</h3>
           ${renderStatusPill("failed")}
         </div>
         <p class="hint-copy">${escapeHtml(plan.failureReason || "The planner did not complete successfully.")}</p>
@@ -867,9 +840,168 @@ function renderPlanner() {
           </button>
         </div>
       </section>
-      ${transcript}
+    `;
+  }
+
+  return "";
+}
+
+function renderPlannerThread() {
+  const plan = state.planner;
+
+  if (state.plannerLoading && !plan) {
+    return `
+      <section class="surface-card">
+        <div class="surface-card__header">
+          <h3>Restoring plan</h3>
+        </div>
+      </section>
+    `;
+  }
+
+  if (!plan) {
+    return `
+      <section class="surface-card surface-card--muted">
+        <div class="surface-card__header">
+          <h3>Start with a goal</h3>
+        </div>
+      </section>
+    `;
+  }
+
+  const preview =
+    plan.status === "active" && plan.defaultPlan
+      ? `
+          <section class="surface-card surface-card--muted">
+            <div class="surface-card__header">
+              <h3>Preview</h3>
+            </div>
+            <p class="planner-preview__title">${escapeHtml(plan.defaultPlan.taskTitle)}</p>
+            <p class="hint-copy">${escapeHtml(plan.defaultPlan.taskPrompt)}</p>
+          </section>
+        `
+      : "";
+
+  const controls =
+    plan.status === "active"
+      ? `
+          <button
+            class="button button--secondary"
+            type="button"
+            data-ui-action="cancel-planner"
+            ${state.plannerAction === "cancel" ? "disabled" : ""}
+          >
+            ${state.plannerAction === "cancel" ? "Cancelling..." : "Cancel"}
+          </button>
+        `
+      : "";
+
+  return `
+    <div class="planner-stack">
+      ${renderPlannerResultCard(plan)}
+      <section class="surface-card">
+        <div class="surface-card__header">
+          <h3>Thread</h3>
+          <div class="planner-thread__controls">
+            ${renderStatusPill(plan.status)}
+            ${controls}
+          </div>
+        </div>
+        <div class="planner-turns">
+          ${plan.turns.map(renderPlannerTurn).join("")}
+        </div>
+      </section>
+      ${preview}
     </div>
   `;
+}
+
+function renderPlannerComposer() {
+  const plan = state.planner;
+  const plannerBusy = Boolean(state.plannerLoading || state.plannerAction);
+
+  if (!plan) {
+    return `
+      <section class="surface-card">
+        <form id="planner-start-form" class="form-stack planner-form">
+          <label class="field">
+            <span class="field__label">Goal</span>
+            <textarea
+              id="planner-prompt"
+              rows="5"
+              placeholder="Audit the auth middleware for rate-limit gaps and propose fixes with tests."
+            >${escapeHtml(state.plannerPromptDraft)}</textarea>
+          </label>
+          <div class="form-actions">
+            <button class="button button--primary" type="submit" ${plannerBusy ? "disabled" : ""}>
+              ${state.plannerAction === "start" ? "Starting..." : "Start Planning"}
+            </button>
+          </div>
+        </form>
+      </section>
+    `;
+  }
+
+  if (plan.status === "active") {
+    return `
+      <section class="surface-card">
+        ${renderPlannerQuestions(plan.pendingQuestions)}
+        <form id="planner-answer-form" class="form-stack planner-form">
+          <label class="field">
+            <span class="field__label">Answer</span>
+            <textarea
+              id="planner-answer"
+              rows="4"
+              placeholder="Example: A for the first question, and focus on public web sources."
+              ${plannerBusy ? "disabled" : ""}
+            >${escapeHtml(state.plannerAnswerDraft)}</textarea>
+          </label>
+          <div class="form-actions">
+            <button class="button button--primary" type="submit" ${plannerBusy ? "disabled" : ""}>
+              ${state.plannerAction === "answer" ? "Creating Task..." : "Create Task"}
+            </button>
+          </div>
+        </form>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="surface-card surface-card--muted">
+      <div class="planner-result-actions">
+        ${
+          plan.createdTaskId
+            ? `
+                <button class="button button--primary" type="button" data-ui-action="open-created-task">
+                  Open in Tasks
+                </button>
+              `
+            : ""
+        }
+        <button class="button button--secondary" type="button" data-ui-action="reset-planner">
+          Start Another Plan
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function renderCompose() {
+  renderComposeModeSwitch();
+  renderComposeDefaults();
+
+  if (!elements.composeThread || !elements.composeComposer) {
+    return;
+  }
+
+  if (state.composeMode === "plan") {
+    elements.composeThread.innerHTML = renderPlannerThread();
+    elements.composeComposer.innerHTML = renderPlannerComposer();
+    return;
+  }
+
+  elements.composeThread.innerHTML = renderDirectThread();
+  elements.composeComposer.innerHTML = renderDirectComposer();
 }
 
 function renderFilters() {
@@ -916,28 +1048,25 @@ function renderTaskList() {
       const costBudget = task.budgetConstraints.find(
         (constraint) => constraint.kind === "max-cost-usd",
       );
+      const budgetLabel = `${loopBudget?.label ?? "No loop cap"} · ${costBudget?.label ?? "No cost cap"}`;
 
       return `
         <button
-          class="task-card"
+          class="task-row"
           type="button"
           data-task-id="${escapeHtml(task.id)}"
           data-selected="${String(state.selectedTaskId === task.id)}"
         >
-          <div class="task-card__header">
-            <div class="task-card__topline">
-              <h3 class="task-card__title">${escapeHtml(task.title)}</h3>
+          <div class="task-row__main">
+            <div class="task-row__topline">
+              <h3 class="task-row__title">${escapeHtml(task.title)}</h3>
               ${renderStatusPill(task.status)}
             </div>
-            <p class="task-card__summary">${escapeHtml(summary)}</p>
+            <p class="task-row__summary">${escapeHtml(summary)}</p>
           </div>
-          <div class="task-meta">
-            ${renderMetaRow("Task ID", task.id, true)}
-            ${renderMetaRow(
-              "Budget",
-              `${loopBudget?.label ?? "No loop cap"} \u00b7 ${costBudget?.label ?? "No cost cap"}`,
-            )}
-            ${renderMetaRow("Updated", formatDateTime(getTaskUpdatedAt(task)))}
+          <div class="task-row__meta">
+            <span class="task-row__budget">${escapeHtml(budgetLabel)}</span>
+            <time class="task-row__updated">${escapeHtml(formatDateTime(getTaskUpdatedAt(task)))}</time>
           </div>
         </button>
       `;
@@ -1041,18 +1170,6 @@ function renderTaskDetail() {
           </article>
         `;
 
-  const summaryText =
-    task.progressSummary ||
-    task.resultSummary ||
-    "No narrative summary is available yet. Use the Activity tab for lifecycle events and logs.";
-  const progressSection = task.progressSummary
-    ? renderTextSection("Latest progress", task.progressSummary)
-    : "";
-  const resultSection =
-    task.resultSummary && task.resultSummary !== task.progressSummary
-      ? renderTextSection("Result summary", task.resultSummary)
-      : "";
-
   elements.taskDetail.innerHTML = `
     <section class="detail-header">
       <div class="task-card__topline">
@@ -1086,13 +1203,10 @@ function renderTaskDetail() {
       </article>
     </section>
 
-    ${renderTextSection("Current summary", summaryText)}
-    ${progressSection}
-    ${resultSection}
-
-    <section class="task-meta">
+      <section class="task-meta task-meta--dense">
       ${renderMetaRow("Task ID", task.id, true)}
       ${renderMetaRow("Source", task.sourceType)}
+        ${renderMetaRow("Session", task.sessionKey || "Waiting for launch", Boolean(task.sessionKey))}
       ${renderMetaRow("Created", formatDateTime(task.createdAt))}
       ${renderMetaRow("Started", formatDateTime(task.startedAt))}
       ${renderMetaRow("Suspended", formatDateTime(task.suspendedAt))}
@@ -1197,6 +1311,20 @@ function renderActivityEvent(entry) {
   `;
 }
 
+function renderActivitySummaryCard(label, content, variant) {
+  return `
+    <article class="activity-event activity-event--summary" data-variant="${escapeHtml(variant)}">
+      <div class="activity-event__stamp">
+        <span class="activity-event__timestamp">${escapeHtml(label)}</span>
+        <span class="activity-event__stamp-note">summary</span>
+      </div>
+      <div class="activity-event__body">
+        <p class="activity-event__message">${escapeHtml(content)}</p>
+      </div>
+    </article>
+  `;
+}
+
 function renderActivityStream() {
   if (
     !elements.activityStream ||
@@ -1209,44 +1337,188 @@ function renderActivityStream() {
 
   if (!state.selectedTask) {
     elements.activityTitle.textContent = "Recent events";
-    elements.activitySubtitle.textContent = "Select a task to inspect its background event stream.";
+    elements.activitySubtitle.textContent = "Select a task.";
     elements.activityPill.innerHTML = "";
     elements.activityStream.innerHTML = renderEmptyState(
       "No task selected",
-      "Choose a task from the left rail or open one from the task browser to inspect its logs.",
+      "Choose a task from the left rail or task list.",
       state.tasks.length > 0 ? "open-tasks" : "open-overview",
     );
     return;
   }
 
   elements.activityTitle.textContent = truncate(state.selectedTask.title, 72);
-  elements.activitySubtitle.textContent = `${state.logs.length} recent event${state.logs.length === 1 ? "" : "s"} loaded for task ${state.selectedTask.id}.`;
+  elements.activitySubtitle.textContent = `${state.logs.length} event${state.logs.length === 1 ? "" : "s"} loaded.`;
   elements.activityPill.innerHTML = renderStatusPill(state.selectedTask.status);
 
-  if (state.logs.length === 0) {
-    elements.activityStream.innerHTML = renderEmptyState(
-      "No activity yet",
-      "This task has not emitted any recent log entries. Check back after the worker reports progress.",
+  const highlights = [];
+  if (state.selectedTask.progressSummary) {
+    highlights.push(
+      renderActivitySummaryCard("Current summary", state.selectedTask.progressSummary, "progress"),
+    );
+  }
+  if (
+    state.selectedTask.resultSummary &&
+    state.selectedTask.resultSummary !== state.selectedTask.progressSummary
+  ) {
+    highlights.push(
+      renderActivitySummaryCard("Result summary", state.selectedTask.resultSummary, "result"),
+    );
+  }
+
+  const logStream =
+    state.logs.length > 0
+      ? state.logs.map(renderActivityEvent).join("")
+      : renderEmptyState("No logs yet", "This task has not emitted recent log entries.");
+
+  elements.activityStream.innerHTML = `
+    ${highlights.length > 0 ? `<div class="activity-highlights">${highlights.join("")}</div>` : ""}
+    <div class="activity-log-stream">${logStream}</div>
+  `;
+}
+
+function formatConfigDisplayValue(value, field) {
+  if (value === undefined || value === null || value === "") {
+    return field.placeholder || "default path";
+  }
+  if (field.key === "defaultMaxCostUsd" && typeof value === "number") {
+    return formatCurrency(value);
+  }
+  return String(value);
+}
+
+function renderConfigField(field, snapshot) {
+  const savedValue = snapshot.values?.[field.key];
+  const effectiveValue = snapshot.effectiveValues?.[field.key];
+  const defaultValue = snapshot.defaults?.[field.key];
+  const restartPending = snapshot.pendingRestartFields?.includes(field.key);
+
+  const notes = [
+    field.help,
+    `Default: ${formatConfigDisplayValue(defaultValue, field)}`,
+    field.restartRequired ? "Saved value applies after restart." : null,
+    restartPending
+      ? `Runtime still uses: ${formatConfigDisplayValue(effectiveValue, field)}`
+      : null,
+  ]
+    .filter(Boolean)
+    .map(
+      (note) => `
+        <p class="config-field__note">${escapeHtml(note)}</p>
+      `,
+    )
+    .join("");
+
+  const badge = field.restartRequired
+    ? `<span class="config-field__badge">Restart</span>`
+    : `<span class="config-field__badge config-field__badge--live">Live</span>`;
+
+  const control =
+    field.input === "select"
+      ? `
+          <select id="config-${field.key}" name="${field.key}">
+            ${field.options
+              .map(
+                (option) => `
+                  <option value="${escapeHtml(option)}" ${savedValue === option ? "selected" : ""}>
+                    ${escapeHtml(option)}
+                  </option>
+                `,
+              )
+              .join("")}
+          </select>
+        `
+      : `
+          <input
+            id="config-${field.key}"
+            name="${field.key}"
+            type="${field.input === "number" ? "number" : "text"}"
+            ${
+              field.input === "number"
+                ? `min="${field.minimum}" max="${field.maximum}" step="${field.step}"`
+                : ""
+            }
+            ${field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : ""}
+            value="${escapeHtml(savedValue ?? "")}"
+          />
+        `;
+
+  return `
+    <div class="config-field" data-pending-restart="${String(restartPending)}">
+      <label class="field" for="config-${field.key}">
+        <span class="field__label">
+          ${escapeHtml(field.label)}
+          ${badge}
+        </span>
+        ${control}
+      </label>
+      <div class="config-field__notes">
+        ${notes}
+      </div>
+    </div>
+  `;
+}
+
+function renderConfig() {
+  if (!elements.configContent) {
+    return;
+  }
+
+  if (state.configLoading && !state.config) {
+    elements.configContent.innerHTML = renderEmptyState("Loading", "Fetching config.");
+    return;
+  }
+
+  if (!state.config) {
+    elements.configContent.innerHTML = renderEmptyState(
+      "No config loaded",
+      "Reload to fetch config.",
     );
     return;
   }
 
-  elements.activityStream.innerHTML = state.logs.map(renderActivityEvent).join("");
+  const restartNotice =
+    state.config.pendingRestartFields?.length > 0
+      ? `
+          <section class="surface-card surface-card--muted config-notice">
+            <div class="surface-card__header">
+              <h3>Pending restart</h3>
+            </div>
+            <p class="hint-copy">
+              ${escapeHtml(state.config.pendingRestartFields.join(", "))} will apply next start.
+            </p>
+          </section>
+        `
+      : "";
+
+  elements.configContent.innerHTML = `
+    <form id="config-form" class="config-stack">
+      ${restartNotice}
+      ${state.config.fields.map((field) => renderConfigField(field, state.config)).join("")}
+      <div class="form-actions">
+        <button class="button button--primary" type="submit" ${state.configSaving ? "disabled" : ""}>
+          ${state.configSaving ? "Saving..." : "Save Changes"}
+        </button>
+        <button class="button button--secondary" type="button" data-ui-action="reload-config">
+          Reload
+        </button>
+      </div>
+    </form>
+  `;
 }
 
 function render() {
   updateControls();
   renderChrome();
   renderTabs();
-  renderTopbarSummary();
   renderOverview();
-  renderPlannerToolbar();
-  renderPlanner();
+  renderCompose();
   renderFilters();
   renderTaskList();
   renderTaskDetail();
   renderActivityTaskList();
   renderActivityStream();
+  renderConfig();
 }
 
 async function loadTaskDetail(taskId, { silent = false } = {}) {
@@ -1339,6 +1611,61 @@ async function loadDashboard({ silent = false } = {}) {
   } finally {
     state.refreshing = false;
     updateControls();
+  }
+}
+
+async function loadConfigSnapshot({ silent = false } = {}) {
+  state.configLoading = true;
+  render();
+
+  try {
+    state.config = await fetchJson("/api/config");
+    if (!silent) {
+      setBanner("Config reloaded.", "info");
+    }
+  } catch (error) {
+    if (!silent) {
+      setBanner(error instanceof Error ? error.message : String(error), "error");
+    }
+  } finally {
+    state.configLoading = false;
+    render();
+  }
+}
+
+async function handleConfigSave(event) {
+  event.preventDefault();
+
+  if (!(event.target instanceof HTMLFormElement) || !state.config) {
+    return;
+  }
+
+  const formData = new FormData(event.target);
+  const payload = Object.fromEntries(
+    state.config.fields.map((field) => [field.key, String(formData.get(field.key) ?? "")]),
+  );
+
+  state.configSaving = true;
+  updateControls();
+
+  try {
+    state.config = await fetchJson("/api/config", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    await loadDashboard({ silent: true });
+    setBanner(
+      state.config.pendingRestartFields?.length > 0
+        ? "Config saved. Some changes need restart."
+        : "Config saved.",
+      "success",
+    );
+  } catch (error) {
+    setBanner(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    state.configSaving = false;
+    updateControls();
+    render();
   }
 }
 
@@ -1485,22 +1812,22 @@ async function handlePlannerCancel() {
 
 async function handleCreate(event) {
   event.preventDefault();
-  if (!elements.titleInput || !elements.loopsInput || !elements.costInput || !elements.createForm) {
+  if (!(event.target instanceof HTMLFormElement)) {
     return;
   }
 
-  const title = elements.titleInput.value.trim();
+  const title = state.createTitleDraft.trim();
   if (!title) {
     setBanner("Task prompt is required.", "error");
     return;
   }
 
   const payload = { title };
-  if (elements.loopsInput.value.trim()) {
-    payload.maxLoops = Number(elements.loopsInput.value);
+  if (state.createMaxLoopsDraft.trim()) {
+    payload.maxLoops = Number(state.createMaxLoopsDraft);
   }
-  if (elements.costInput.value.trim()) {
-    payload.maxCostUsd = Number(elements.costInput.value);
+  if (state.createMaxCostDraft.trim()) {
+    payload.maxCostUsd = Number(state.createMaxCostDraft);
   }
 
   state.action = "create";
@@ -1512,7 +1839,9 @@ async function handleCreate(event) {
       body: JSON.stringify(payload),
     });
 
-    elements.createForm.reset();
+    state.createTitleDraft = "";
+    state.createMaxLoopsDraft = "";
+    state.createMaxCostDraft = "";
     state.selectedTaskId = result.task.id;
     state.activeFilter = "all";
     setActiveTab("tasks");
@@ -1570,13 +1899,21 @@ async function handleUiAction(action) {
       return;
     }
     case "open-create":
-      setActiveTab("create");
+      setComposeMode("direct");
+      setActiveTab("compose");
       return;
     case "open-overview":
       setActiveTab("overview");
       return;
     case "open-planner":
-      setActiveTab("planner");
+      setComposeMode("plan");
+      setActiveTab("compose");
+      return;
+    case "open-config":
+      setActiveTab("config");
+      return;
+    case "reload-config":
+      await loadConfigSnapshot();
       return;
     case "open-created-task":
       if (state.planner?.createdTaskId) {
@@ -1586,7 +1923,8 @@ async function handleUiAction(action) {
       return;
     case "reset-planner":
       resetPlanner();
-      setActiveTab("planner");
+      setComposeMode("plan");
+      setActiveTab("compose");
       return;
     case "open-tasks":
       setActiveTab("tasks");
@@ -1625,11 +1963,32 @@ function registerEvents() {
     }
     if (event.target.id === "planner-answer-form") {
       void handlePlannerAnswer(event);
+      return;
+    }
+    if (event.target.id === "config-form") {
+      void handleConfigSave(event);
     }
   });
 
   document.addEventListener("input", (event) => {
-    if (!(event.target instanceof HTMLTextAreaElement)) {
+    if (
+      !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)
+    ) {
+      return;
+    }
+
+    if (event.target.id === "task-title") {
+      state.createTitleDraft = event.target.value;
+      return;
+    }
+
+    if (event.target.id === "max-loops") {
+      state.createMaxLoopsDraft = event.target.value;
+      return;
+    }
+
+    if (event.target.id === "max-cost") {
+      state.createMaxCostDraft = event.target.value;
       return;
     }
 
@@ -1651,6 +2010,12 @@ function registerEvents() {
     const tabButton = event.target.closest("[data-tab]");
     if (tabButton?.dataset.tab) {
       setActiveTab(tabButton.dataset.tab);
+      return;
+    }
+
+    const modeButton = event.target.closest("[data-compose-mode]");
+    if (modeButton?.dataset.composeMode) {
+      setComposeMode(modeButton.dataset.composeMode);
       return;
     }
 

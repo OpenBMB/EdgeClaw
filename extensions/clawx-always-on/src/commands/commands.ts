@@ -1,6 +1,6 @@
 import type { OpenClawPluginApi, PluginCommandContext } from "../../api.js";
 import { deserializeBudgetConstraints } from "../budget/registry.js";
-import type { AlwaysOnConfig } from "../core/config.js";
+import { resolveConfigSource, type AlwaysOnConfigSource } from "../core/config.js";
 import { createAlwaysOnTaskFromUserInput } from "../core/task-factory.js";
 import {
   buildAlwaysOnCommandNote,
@@ -20,11 +20,12 @@ export function registerCommands(
   api: OpenClawPluginApi,
   store: TaskStore,
   logger: TaskLogger,
-  config: AlwaysOnConfig,
+  config: AlwaysOnConfigSource,
   toolSupport: AlwaysOnToolSupport = resolveAlwaysOnToolSupport(api.config),
   planHandler?: AlwaysOnPlanCommandHandler,
 ): void {
   const commandNote = buildAlwaysOnCommandNote(toolSupport);
+  const getConfig = resolveConfigSource(config);
 
   api.registerCommand({
     name: "always-on",
@@ -63,19 +64,20 @@ export function registerCommands(
     if (!title) {
       return { text: "Usage: `/always-on create <task description>`" };
     }
+    const currentConfig = getConfig();
     const task = createAlwaysOnTaskFromUserInput({
       input: { title },
       store,
       logger,
-      config,
+      config: currentConfig,
     });
 
     return {
       text:
         `Task **${task.id}** created and queued for background execution.\n` +
         `> ${title}\n\n` +
-        `Budget: ${config.defaultMaxLoops} loops, $${config.defaultMaxCostUsd} max cost.\n` +
-        `The worker runs up to ${config.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.\n` +
+        `Budget: ${currentConfig.defaultMaxLoops} loops, $${currentConfig.defaultMaxCostUsd} max cost.\n` +
+        `The worker runs up to ${currentConfig.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.\n` +
         `Your main session is not affected — keep chatting normally.` +
         (commandNote ? `\n\n${commandNote}` : ""),
     };
@@ -165,6 +167,7 @@ export function registerCommands(
       };
     }
 
+    const currentConfig = getConfig();
     store.updateTask(task.id, {
       status: "queued",
       suspendedAt: null,
@@ -174,7 +177,7 @@ export function registerCommands(
     return {
       text:
         `Task **${taskId}** queued to resume in background. ` +
-        `The worker runs up to ${config.maxConcurrentTasks} task(s) at once and will restart it when a slot is available.` +
+        `The worker runs up to ${currentConfig.maxConcurrentTasks} task(s) at once and will restart it when a slot is available.` +
         (commandNote ? `\n\n${commandNote}` : ""),
     };
   }
@@ -215,6 +218,7 @@ export function registerCommands(
   }
 
   function handleStatus() {
+    const currentConfig = getConfig();
     const all = store.listTasks();
     const runningTasks = store.listRunningTasks();
     const byStatus = new Map<string, number>();
@@ -225,7 +229,7 @@ export function registerCommands(
     const lines = [
       "## Always-On Status",
       `- **Total tasks:** ${all.length}`,
-      `- **Concurrent run limit:** ${config.maxConcurrentTasks}`,
+      `- **Concurrent run limit:** ${currentConfig.maxConcurrentTasks}`,
     ];
     for (const [s, c] of byStatus) {
       lines.push(`- **${s}:** ${c}`);

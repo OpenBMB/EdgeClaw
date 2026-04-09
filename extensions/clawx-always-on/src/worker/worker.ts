@@ -9,6 +9,7 @@ export class AlwaysOnWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private processing = false;
+  private maxConcurrentTasks: number;
 
   constructor(
     private readonly store: TaskStore,
@@ -16,8 +17,10 @@ export class AlwaysOnWorker {
     private readonly executor: SubagentExecutor,
     private readonly hostLogger?: PluginLoggerSink,
     private readonly pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-    private readonly maxConcurrentTasks = 1,
-  ) {}
+    maxConcurrentTasks = 1,
+  ) {
+    this.maxConcurrentTasks = maxConcurrentTasks;
+  }
 
   start(): void {
     if (this.running) {
@@ -45,6 +48,16 @@ export class AlwaysOnWorker {
       this.timer = null;
     }
     this.hostLogger?.info("[clawx-always-on] worker stopped");
+  }
+
+  updateMaxConcurrentTasks(maxConcurrentTasks: number): void {
+    this.maxConcurrentTasks = maxConcurrentTasks;
+    this.hostLogger?.info(
+      `[clawx-always-on] worker concurrency updated (maxConcurrentTasks=${this.maxConcurrentTasks})`,
+    );
+    if (this.running) {
+      void this.processQueue();
+    }
   }
 
   private requeueLaunchingTasks(): void {

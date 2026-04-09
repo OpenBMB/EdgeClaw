@@ -18,16 +18,15 @@ export type PluginLoggerSink = {
 
 export class TaskLogger {
   private readonly db: DatabaseSync;
-  private readonly minLevel: number;
-  private readonly retentionMs: number;
+  private minLevel!: number;
+  private retentionMs!: number;
   private readonly pluginLogger?: PluginLoggerSink;
 
   constructor(db: DatabaseSync, config: AlwaysOnConfig, pluginLogger?: PluginLoggerSink) {
     this.db = db;
-    this.minLevel = LOG_LEVEL_ORDER[config.logLevel];
-    this.retentionMs = config.logRetentionDays * 24 * 60 * 60 * 1000;
     this.pluginLogger = pluginLogger;
     this.ensureTable();
+    this.updateConfig(config);
   }
 
   private ensureTable(): void {
@@ -76,6 +75,11 @@ export class TaskLogger {
 
   error(taskId: string, message: string, metadata?: Record<string, unknown>): void {
     this.log(taskId, "error", message, metadata);
+  }
+
+  updateConfig(config: AlwaysOnConfig): void {
+    this.minLevel = LOG_LEVEL_ORDER[config.logLevel];
+    this.retentionMs = config.logRetentionDays * 24 * 60 * 60 * 1000;
   }
 
   getLogs(taskId: string, limit = 50): TaskLogEntry[] {

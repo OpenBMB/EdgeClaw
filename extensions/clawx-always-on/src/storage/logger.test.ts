@@ -58,6 +58,19 @@ describe("TaskLogger", () => {
     expect(logs).toHaveLength(2);
   });
 
+  it("updates log filtering when config changes", () => {
+    logger = new TaskLogger(db, makeConfig({ logLevel: "warn" }));
+    logger.info("task-1", "before update");
+    expect(logger.getLogs("task-1")).toHaveLength(0);
+
+    logger.updateConfig(makeConfig({ logLevel: "info" }));
+    logger.info("task-1", "after update");
+
+    const logs = logger.getLogs("task-1");
+    expect(logs).toHaveLength(1);
+    expect(logs[0].message).toBe("after update");
+  });
+
   it("respects limit parameter", () => {
     logger = new TaskLogger(db, makeConfig());
     for (let i = 0; i < 10; i++) {

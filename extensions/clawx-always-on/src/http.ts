@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 import { MaxCostUsdBudget } from "./budget/max-cost-usd.js";
 import { MaxLoopsBudget } from "./budget/max-loops.js";
 import { deserializeBudgetConstraints } from "./budget/registry.js";
+import {
+  AlwaysOnConfigController,
+  AlwaysOnConfigControllerError,
+} from "./core/config-controller.js";
 import type { AlwaysOnConfig } from "./core/config.js";
 import { PLUGIN_ID } from "./core/constants.js";
 import type {
@@ -76,7 +80,8 @@ type DashboardLogEntry = Omit<TaskLogEntry, "metadata"> & {
 export function createAlwaysOnHttpHandler(params: {
   store: TaskStore;
   logger: TaskLogger;
-  config: AlwaysOnConfig;
+  getConfig: () => AlwaysOnConfig;
+  configController: AlwaysOnConfigController;
   planService?: AlwaysOnWebPlanService;
   pluginLogger?: PluginLoggerSink;
 }) {
@@ -125,7 +130,8 @@ export function createAlwaysOnHttpHandler(params: {
         store: params.store,
         logger: params.logger,
         source,
-        config: params.config,
+        getConfig: params.getConfig,
+        configController: params.configController,
         planService: params.planService,
       });
     }
@@ -187,7 +193,8 @@ async function handleApi(
     store: TaskStore;
     logger: TaskLogger;
     source: UserCommandTaskSource;
-    config: AlwaysOnConfig;
+    getConfig: () => AlwaysOnConfig;
+    configController: AlwaysOnConfigController;
     planService?: AlwaysOnWebPlanService;
   },
 ): Promise<boolean> {
@@ -198,7 +205,37 @@ async function handleApi(
       respondJson(res, 405, { error: "Method not allowed" }, { Allow: "GET" });
       return true;
     }
-    respondJson(res, 200, buildDashboardOverview(params.store, params.config));
+    respondJson(res, 200, buildDashboardOverview(params.store, params.getConfig()));
+    return true;
+  }
+
+  if (relativePath === "/api/config") {
+    if (method === "GET") {
+      respondJson(res, 200, params.configController.getSnapshot());
+      return true;
+    }
+
+    if (method === "POST") {
+      let body: Record<string, unknown>;
+      try {
+        body = await readJsonBody(req);
+      } catch (error) {
+        respondJson(res, 400, {
+          error: error instanceof Error ? error.message : "Invalid JSON body",
+        });
+        return true;
+      }
+
+      try {
+        const snapshot = await params.configController.update(body);
+        respondJson(res, 200, snapshot);
+      } catch (error) {
+        respondConfigError(res, error);
+      }
+      return true;
+    }
+
+    respondJson(res, 405, { error: "Method not allowed" }, { Allow: "GET, POST" });
     return true;
   }
 
@@ -342,20 +379,21 @@ async function handleApi(
       }
 
       try {
+        const currentConfig = params.getConfig();
         const maxLoops =
           parseOptionalInteger(
             body.maxLoops,
             "maxLoops",
             LOOP_LIMIT_RANGE.min,
             LOOP_LIMIT_RANGE.max,
-          ) ?? params.config.defaultMaxLoops;
+          ) ?? currentConfig.defaultMaxLoops;
         const maxCostUsd =
           parseOptionalNumber(
             body.maxCostUsd,
             "maxCostUsd",
             COST_LIMIT_RANGE.min,
             COST_LIMIT_RANGE.max,
-          ) ?? params.config.defaultMaxCostUsd;
+          ) ?? currentConfig.defaultMaxCostUsd;
 
         const task = params.source.createTask({
           title,
@@ -723,6 +761,16 @@ function respondPlanError(res: ServerResponse, error: unknown): void {
   }
   const message =
     error instanceof Error && error.message.trim() ? error.message.trim() : "Plan request failed";
+  respondJson(res, 500, { error: message });
+}
+
+function respondConfigError(res: ServerResponse, error: unknown): void {
+  if (error instanceof AlwaysOnConfigControllerError) {
+    respondJson(res, error.statusCode, { error: error.message });
+    return;
+  }
+  const message =
+    error instanceof Error && error.message.trim() ? error.message.trim() : "Config request failed";
   respondJson(res, 500, { error: message });
 }
 
