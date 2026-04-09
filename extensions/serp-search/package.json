@@ -1,0 +1,11 @@
+{
+  "name": "openclaw-serp-search",
+  "version": "1.0.0",
+  "description": "Google Search tool via serp.hk for OpenClaw (China-friendly)",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

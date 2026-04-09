@@ -1,0 +1,21 @@
+{
+  "id": "serp-search",
+  "contracts": {
+    "tools": ["serp_search"]
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "SERP API Key",
+      "help": "serp.hk API key for Google search (fallback: SERP_API_KEY env var).",
+      "sensitive": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiKey": { "type": "string" },
+      "region": { "type": "string", "enum": ["cn", "global"], "default": "cn" }
+    }
+  }
+}

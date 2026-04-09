@@ -1,0 +1,11 @@
+{
+  "name": "openclaw-figma-capture",
+  "version": "1.0.0",
+  "description": "Push local HTML to Figma as editable designs via Figma MCP",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
