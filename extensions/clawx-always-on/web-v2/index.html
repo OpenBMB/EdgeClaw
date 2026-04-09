@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClawX Always-On</title>
+    <meta
+      name="description"
+      content="Operate queued, running, and resumable background tasks from a focused control console."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="topbar__row">
+          <div class="topbar__brand">
+            <p class="topbar__eyebrow">OpenClaw Plugin</p>
+            <h1 class="topbar__title">ClawX Always-On</h1>
+            <p class="topbar__subtitle">
+              Background task control console for queued, running, and resumable work.
+            </p>
+          </div>
+          <div class="topbar__controls">
+            <div id="topbar-summary" class="topbar__summary" aria-live="polite"></div>
+            <button id="refresh-button" class="button button--ghost button--pill" type="button">
+              Refresh
+            </button>
+          </div>
+        </div>
+        <nav id="tab-nav" class="tab-nav" aria-label="Console sections" role="tablist">
+          <button
+            id="tab-button-overview"
+            class="tab-button"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="tab-panel-overview"
+            data-tab="overview"
+          >
+            Overview
+          </button>
+          <button
+            id="tab-button-tasks"
+            class="tab-button"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-panel-tasks"
+            data-tab="tasks"
+          >
+            Tasks
+          </button>
+          <button
+            id="tab-button-activity"
+            class="tab-button"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-panel-activity"
+            data-tab="activity"
+          >
+            Activity
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="workspace">
+        <div class="workspace__inner">
+          <div id="status-banner" class="status-banner" hidden></div>
+
+          <section
+            id="tab-panel-overview"
+            class="tab-panel"
+            data-tab-panel="overview"
+            role="tabpanel"
+            aria-labelledby="tab-button-overview"
+          >
+            <div class="overview-grid">
+              <section class="panel panel--dark overview-panel">
+                <div class="panel__header">
+                  <p class="eyebrow eyebrow--light">Overview</p>
+                  <h2>Runtime snapshot</h2>
+                  <p class="panel__copy">
+                    Monitor slot pressure, queue health, and default task guardrails at a glance.
+                  </p>
+                </div>
+                <div id="overview-summary" class="summary-grid" aria-live="polite"></div>
+                <div id="overview-running" class="signal-list" aria-live="polite"></div>
+              </section>
+
+              <section class="panel create-panel">
+                <div class="panel__header">
+                  <p class="eyebrow">Create</p>
+                  <h2>Create a background task</h2>
+                  <p class="panel__copy">
+                    Send a focused prompt to the worker and let the main chat keep moving.
+                  </p>
+                </div>
+                <form id="create-form" class="form-stack">
+                  <label class="field">
+                    <span class="field__label">Task prompt</span>
+                    <textarea
+                      id="task-title"
+                      name="title"
+                      rows="4"
+                      placeholder="Research the top regressions in yesterday's build and summarize likely fixes."
+                      required
+                    ></textarea>
+                  </label>
+
+                  <div class="field-grid">
+                    <label class="field">
+                      <span class="field__label">Max loops</span>
+                      <input
+                        id="max-loops"
+                        name="maxLoops"
+                        type="number"
+                        min="1"
+                        max="1000"
+                        step="1"
+                      />
+                    </label>
+                    <label class="field">
+                      <span class="field__label">Max cost (USD)</span>
+                      <input
+                        id="max-cost"
+                        name="maxCostUsd"
+                        type="number"
+                        min="0.01"
+                        max="100"
+                        step="0.01"
+                      />
+                    </label>
+                  </div>
+
+                  <div class="form-actions">
+                    <button class="button button--primary" type="submit">Queue Task</button>
+                    <p class="helper-text">
+                      Leave budget fields empty to use the plugin defaults from the OpenClaw settings
+                      UI.
+                    </p>
+                  </div>
+                </form>
+              </section>
+
+              <section class="panel queue-panel">
+                <div class="panel__header">
+                  <p class="eyebrow">Queue</p>
+                  <h2>Queue snapshot</h2>
+                  <p class="panel__copy">
+                    See which tasks are running now and which work items need attention next.
+                  </p>
+                </div>
+                <div id="overview-queue" class="queue-sections" aria-live="polite"></div>
+              </section>
+            </div>
+          </section>
+
+          <section
+            id="tab-panel-tasks"
+            class="tab-panel"
+            data-tab-panel="tasks"
+            role="tabpanel"
+            aria-labelledby="tab-button-tasks"
+            hidden
+          >
+            <div class="workspace__grid">
+              <aside class="panel task-browser">
+                <div class="panel__header panel__header--compact">
+                  <div>
+                    <p class="eyebrow">Tasks</p>
+                    <h2>Task browser</h2>
+                    <p class="panel__copy">Filter by status, select a task, and manage its run state.</p>
+                  </div>
+                  <div id="filter-strip" class="filter-strip" aria-label="Task filters"></div>
+                </div>
+
+                <div id="task-list" class="task-list" aria-live="polite"></div>
+              </aside>
+
+              <section class="panel detail-panel">
+                <div class="panel__header panel__header--compact">
+                  <div>
+                    <p class="eyebrow">Task</p>
+                    <h2>Selected task</h2>
+                    <p class="panel__copy">
+                      Review budgets, checkpoints, and task-specific controls without leaving the queue.
+                    </p>
+                  </div>
+                  <div id="detail-actions" class="detail-actions"></div>
+                </div>
+
+                <div id="task-detail" class="task-detail" aria-live="polite"></div>
+              </section>
+            </div>
+          </section>
+
+          <section
+            id="tab-panel-activity"
+            class="tab-panel"
+            data-tab-panel="activity"
+            role="tabpanel"
+            aria-labelledby="tab-button-activity"
+            hidden
+          >
+            <div class="activity-grid">
+              <aside class="panel activity-sidebar">
+                <div class="panel__header">
+                  <p class="eyebrow">Focus</p>
+                  <h2>Task activity</h2>
+                  <p class="panel__copy">
+                    Choose a task to inspect its recent background events and lifecycle checkpoints.
+                  </p>
+                </div>
+                <div id="activity-task-list" class="activity-task-list" aria-live="polite"></div>
+              </aside>
+
+              <section class="panel activity-panel">
+                <div class="panel__header panel__header--compact">
+                  <div>
+                    <p class="eyebrow">Activity</p>
+                    <h2 id="activity-title">Recent events</h2>
+                    <p id="activity-subtitle" class="panel__copy">
+                      Event stream for the selected background task.
+                    </p>
+                  </div>
+                  <div id="activity-pill" class="activity-pill"></div>
+                </div>
+                <div id="activity-stream" class="activity-stream" aria-live="polite"></div>
+              </section>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

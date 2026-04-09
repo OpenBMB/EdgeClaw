@@ -211,4 +211,42 @@ describe("createAlwaysOnHttpHandler", () => {
     expect(response.status).toBe(400);
     expect(payload.error).toContain("Task title is required");
   });
+
+  describe("v2 dashboard", () => {
+    it("redirects /v2 to /v2/", async () => {
+      const response = await fetch(`${baseUrl}/plugins/clawx-always-on/v2`, {
+        redirect: "manual",
+      });
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/plugins/clawx-always-on/v2/");
+    });
+
+    it("serves the v2 dashboard shell", async () => {
+      const response = await fetch(`${baseUrl}/plugins/clawx-always-on/v2/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(html).toContain("ClawX Always-On");
+      expect(html).toContain("Create a background task");
+    });
+
+    it("serves v2 static assets", async () => {
+      const jsResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/v2/app.js`);
+      expect(jsResponse.status).toBe(200);
+      expect(jsResponse.headers.get("content-type")).toContain("text/javascript");
+
+      const cssResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/v2/styles.css`);
+      expect(cssResponse.status).toBe(200);
+      expect(cssResponse.headers.get("content-type")).toContain("text/css");
+    });
+
+    it("returns 404 for unknown v2 paths", async () => {
+      const response = await fetch(`${baseUrl}/plugins/clawx-always-on/v2/unknown.js`);
+      const payload = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(payload.error).toBe("Not found");
+    });
+  });
 });

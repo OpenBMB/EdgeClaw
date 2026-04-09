@@ -48,6 +48,7 @@ const TASK_STATUSES = [
 ] as const satisfies readonly TaskStatus[];
 
 const ASSET_NAMES = new Set(["index.html", "app.js", "styles.css"]);
+const V2_PREFIX = "/v2";
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -99,6 +100,20 @@ export function createAlwaysOnHttpHandler(params: {
       return false;
     }
 
+    if (relativePath === V2_PREFIX) {
+      respondRedirect(res, `${DASHBOARD_BASE_PATH}${V2_PREFIX}/`);
+      return true;
+    }
+
+    if (relativePath.startsWith(`${V2_PREFIX}/`)) {
+      const v2Relative = relativePath.slice(V2_PREFIX.length);
+      if (v2Relative === "/" || isStaticAssetPath(v2Relative)) {
+        return await handleStatic(v2Relative, req, res, params.pluginLogger, "v2");
+      }
+      respondJson(res, 404, { error: "Not found" });
+      return true;
+    }
+
     if (relativePath === "/" || isStaticAssetPath(relativePath)) {
       return await handleStatic(relativePath, req, res, params.pluginLogger);
     }
@@ -122,6 +137,7 @@ async function handleStatic(
   req: IncomingMessage,
   res: ServerResponse,
   pluginLogger?: PluginLoggerSink,
+  variant?: "v2",
 ): Promise<boolean> {
   const method = normalizeMethod(req.method);
   if (method !== "GET" && method !== "HEAD") {
@@ -130,7 +146,7 @@ async function handleStatic(
   }
 
   const assetName = relativePath === "/" ? "index.html" : relativePath.slice(1);
-  const assetPath = resolveAssetPath(assetName);
+  const assetPath = variant === "v2" ? resolveV2AssetPath(assetName) : resolveAssetPath(assetName);
   if (!assetPath) {
     respondJson(res, 404, { error: "Asset not found" });
     return true;
@@ -467,6 +483,13 @@ function resolveAssetPath(assetName: string): string | null {
     return null;
   }
   return fileURLToPath(new URL(`../web/${assetName}`, import.meta.url));
+}
+
+function resolveV2AssetPath(assetName: string): string | null {
+  if (!ASSET_NAMES.has(assetName)) {
+    return null;
+  }
+  return fileURLToPath(new URL(`../web-v2/${assetName}`, import.meta.url));
 }
 
 function normalizeMethod(method: string | undefined): string {
