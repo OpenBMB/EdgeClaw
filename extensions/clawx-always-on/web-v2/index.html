@@ -94,56 +94,95 @@
               <section class="panel create-panel">
                 <div class="panel__header">
                   <p class="eyebrow">Create</p>
-                  <h2>Create a background task</h2>
+                  <h2>Launch a background task</h2>
                   <p class="panel__copy">
-                    Send a focused prompt to the worker and let the main chat keep moving.
+                    Queue work directly or plan it interactively through the chat.
                   </p>
                 </div>
-                <form id="create-form" class="form-stack">
-                  <label class="field">
-                    <span class="field__label">Task prompt</span>
-                    <textarea
-                      id="task-title"
-                      name="title"
-                      rows="4"
-                      placeholder="Research the top regressions in yesterday's build and summarize likely fixes."
-                      required
-                    ></textarea>
-                  </label>
 
-                  <div class="field-grid">
-                    <label class="field">
-                      <span class="field__label">Max loops</span>
-                      <input
-                        id="max-loops"
-                        name="maxLoops"
-                        type="number"
-                        min="1"
-                        max="1000"
-                        step="1"
-                      />
-                    </label>
-                    <label class="field">
-                      <span class="field__label">Max cost (USD)</span>
-                      <input
-                        id="max-cost"
-                        name="maxCostUsd"
-                        type="number"
-                        min="0.01"
-                        max="100"
-                        step="0.01"
-                      />
-                    </label>
-                  </div>
+                <div id="create-mode-toggle" class="mode-toggle" role="radiogroup" aria-label="Task creation mode">
+                  <button class="mode-toggle__btn" type="button" data-create-mode="direct" aria-checked="true" role="radio">Direct</button>
+                  <button class="mode-toggle__btn" type="button" data-create-mode="plan" aria-checked="false" role="radio">Plan</button>
+                </div>
 
-                  <div class="form-actions">
-                    <button class="button button--primary" type="submit">Queue Task</button>
+                <div id="create-direct" class="create-mode-panel">
+                  <form id="create-form" class="form-stack">
+                    <label class="field">
+                      <span class="field__label">Task prompt</span>
+                      <textarea
+                        id="task-title"
+                        name="title"
+                        rows="4"
+                        placeholder="Research the top regressions in yesterday's build and summarize likely fixes."
+                        required
+                      ></textarea>
+                    </label>
+
+                    <div class="field-grid">
+                      <label class="field">
+                        <span class="field__label">Max loops</span>
+                        <input
+                          id="max-loops"
+                          name="maxLoops"
+                          type="number"
+                          min="1"
+                          max="1000"
+                          step="1"
+                        />
+                      </label>
+                      <label class="field">
+                        <span class="field__label">Max cost (USD)</span>
+                        <input
+                          id="max-cost"
+                          name="maxCostUsd"
+                          type="number"
+                          min="0.01"
+                          max="100"
+                          step="0.01"
+                        />
+                      </label>
+                    </div>
+
+                    <div class="form-actions">
+                      <button class="button button--primary" type="submit">Queue Task</button>
+                      <p class="helper-text">
+                        Leave budget fields empty to use the plugin defaults from the OpenClaw settings
+                        UI.
+                      </p>
+                    </div>
+                  </form>
+                </div>
+
+                <div id="create-plan" class="create-mode-panel" hidden>
+                  <div class="plan-guide">
+                    <div class="plan-guide__intro">
+                      <h3 class="plan-guide__title">Interactive planning via chat</h3>
+                      <p class="plan-guide__copy">
+                        Plan mode lets the AI refine your task through a short conversation before
+                        queuing it. Describe what you want below, then copy the command to use in
+                        your chat session.
+                      </p>
+                    </div>
+                    <label class="field">
+                      <span class="field__label">What should the task accomplish?</span>
+                      <textarea
+                        id="plan-description"
+                        rows="3"
+                        placeholder="Audit the auth middleware for rate-limit gaps and propose fixes with tests."
+                      ></textarea>
+                    </label>
+                    <div class="plan-guide__command">
+                      <code id="plan-command-preview" class="plan-guide__code">/always-on plan</code>
+                      <button id="copy-plan-command" class="button button--secondary" type="button">
+                        Copy Command
+                      </button>
+                    </div>
                     <p class="helper-text">
-                      Leave budget fields empty to use the plugin defaults from the OpenClaw settings
-                      UI.
+                      Paste this command in your OpenClaw chat. The AI will ask clarifying questions
+                      before creating the task.
                     </p>
                   </div>
-                </form>
+                </div>
               </section>
 
               <section class="panel queue-panel">
@@ -169,14 +208,12 @@
           >
             <div class="workspace__grid">
               <aside class="panel task-browser">
-                <div class="panel__header panel__header--compact">
-                  <div>
-                    <p class="eyebrow">Tasks</p>
-                    <h2>Task browser</h2>
-                    <p class="panel__copy">Filter by status, select a task, and manage its run state.</p>
-                  </div>
-                  <div id="filter-strip" class="filter-strip" aria-label="Task filters"></div>
+                <div class="panel__header">
+                  <p class="eyebrow">Tasks</p>
+                  <h2>Task browser</h2>
+                  <p class="panel__copy">Filter by status, select a task, and manage its run state.</p>
                 </div>
+                <div id="filter-strip" class="filter-strip" aria-label="Task filters"></div>
 
                 <div id="task-list" class="task-list" aria-live="polite"></div>
               </aside>

@@ -228,7 +228,7 @@ describe("createAlwaysOnHttpHandler", () => {
 
       expect(response.status).toBe(200);
       expect(html).toContain("ClawX Always-On");
-      expect(html).toContain("Create a background task");
+      expect(html).toContain("Launch a background task");
     });
 
     it("serves v2 static assets", async () => {

@@ -409,6 +409,95 @@ button {
 }
 
 /* ──────────────────────────────────────────────
+   Mode Toggle (Direct / Plan)
+   ────────────────────────────────────────────── */
+
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin-bottom: 20px;
+  border: 1px solid var(--color-border-warm);
+  border-radius: var(--radius-comfortable);
+  overflow: hidden;
+}
+
+.mode-toggle__btn {
+  appearance: none;
+  border: none;
+  padding: 10px 16px;
+  background: var(--color-parchment);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-olive-gray);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.mode-toggle__btn + .mode-toggle__btn {
+  border-left: 1px solid var(--color-border-warm);
+}
+
+.mode-toggle__btn:hover {
+  background: var(--color-warm-sand);
+}
+
+.mode-toggle__btn[aria-checked="true"] {
+  background: var(--color-terracotta);
+  color: var(--color-ivory);
+}
+
+.create-mode-panel[hidden] {
+  display: none !important;
+}
+
+/* ──────────────────────────────────────────────
+   Plan Guide
+   ────────────────────────────────────────────── */
+
+.plan-guide {
+  display: grid;
+  gap: 16px;
+}
+
+.plan-guide__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.06rem;
+  font-weight: 500;
+  line-height: 1.30;
+}
+
+.plan-guide__copy {
+  margin: 8px 0 0;
+  font-size: 0.94rem;
+  line-height: 1.6;
+  color: var(--color-olive-gray);
+}
+
+.plan-guide__command {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--color-border-cream);
+  border-radius: var(--radius-comfortable);
+  background: var(--color-parchment);
+  padding: 12px 14px;
+}
+
+.plan-guide__code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--color-near-black);
+  word-break: break-all;
+}
+
+/* ──────────────────────────────────────────────
    Buttons
    ────────────────────────────────────────────── */
 
@@ -510,6 +599,12 @@ button {
   background: var(--color-ivory);
   font-size: 0.94rem;
   line-height: 1.6;
+  opacity: 1;
+  transition: opacity 300ms ease;
+}
+
+.status-banner--fading {
+  opacity: 0;
 }
 
 .status-banner[data-variant="error"] {
@@ -720,22 +815,24 @@ button {
    ────────────────────────────────────────────── */
 
 .filter-strip {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
 }
 
 .filter-pill {
   appearance: none;
   border: 1px solid var(--color-border-warm);
   border-radius: var(--radius-comfortable);
-  padding: 8px 12px;
+  padding: 7px 8px;
   background: var(--color-parchment);
   font-family: var(--font-sans);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
   color: var(--color-olive-gray);
+  text-align: center;
+  white-space: nowrap;
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
@@ -1270,7 +1367,10 @@ button {
     flex-direction: column;
   }
 
-  .filter-strip,
+  .filter-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
   .detail-actions {
     justify-content: flex-start;
   }

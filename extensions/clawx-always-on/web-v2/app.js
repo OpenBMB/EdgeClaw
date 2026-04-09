@@ -52,6 +52,7 @@ const state = {
   activeTab: "overview",
   refreshing: false,
   action: null,
+  createMode: "direct",
 };
 
 const elements = {
@@ -75,6 +76,12 @@ const elements = {
   activityPill: document.querySelector("#activity-pill"),
   activityStream: document.querySelector("#activity-stream"),
   statusBanner: document.querySelector("#status-banner"),
+  createModeToggle: document.querySelector("#create-mode-toggle"),
+  createDirect: document.querySelector("#create-direct"),
+  createPlan: document.querySelector("#create-plan"),
+  planDescription: document.querySelector("#plan-description"),
+  planCommandPreview: document.querySelector("#plan-command-preview"),
+  copyPlanCommand: document.querySelector("#copy-plan-command"),
 };
 
 function escapeHtml(value) {
@@ -178,21 +185,34 @@ function shouldUseMono(value) {
   return typeof value === "string" && /[:/_-]/.test(value);
 }
 
+const BANNER_DURATION_MS = { info: 3000, success: 3000, error: 6000 };
+let bannerTimerId = 0;
+
 function setBanner(message, variant = "info") {
   if (!elements.statusBanner) {
     return;
   }
 
+  clearTimeout(bannerTimerId);
+
   if (!message) {
-    elements.statusBanner.hidden = true;
-    elements.statusBanner.textContent = "";
-    delete elements.statusBanner.dataset.variant;
+    elements.statusBanner.classList.add("status-banner--fading");
+    bannerTimerId = window.setTimeout(() => {
+      elements.statusBanner.hidden = true;
+      elements.statusBanner.textContent = "";
+      elements.statusBanner.classList.remove("status-banner--fading");
+      delete elements.statusBanner.dataset.variant;
+    }, 300);
     return;
   }
 
+  elements.statusBanner.classList.remove("status-banner--fading");
   elements.statusBanner.hidden = false;
   elements.statusBanner.dataset.variant = variant;
   elements.statusBanner.textContent = message;
+
+  const duration = BANNER_DURATION_MS[variant] ?? 3000;
+  bannerTimerId = window.setTimeout(() => setBanner(null), duration);
 }
 
 async function fetchJson(path, options = {}) {
@@ -1065,6 +1085,36 @@ function handleUiAction(action) {
   }
 }
 
+function setCreateMode(mode) {
+  state.createMode = mode;
+  if (elements.createDirect) elements.createDirect.hidden = mode !== "direct";
+  if (elements.createPlan) elements.createPlan.hidden = mode !== "plan";
+  for (const btn of elements.createModeToggle?.querySelectorAll("[data-create-mode]") ?? []) {
+    btn.setAttribute("aria-checked", String(btn.dataset.createMode === mode));
+  }
+}
+
+function updatePlanCommandPreview() {
+  if (!elements.planCommandPreview || !elements.planDescription) return;
+  const desc = elements.planDescription.value.trim();
+  elements.planCommandPreview.textContent = desc ? `/always-on plan ${desc}` : "/always-on plan";
+}
+
+async function copyPlanCommand() {
+  if (!elements.planCommandPreview) return;
+  const text = elements.planCommandPreview.textContent ?? "";
+  if (!text || text === "/always-on plan") {
+    setBanner("Enter a task description first.", "error");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    setBanner("Command copied to clipboard.", "success");
+  } catch {
+    setBanner("Failed to copy. Please select and copy manually.", "error");
+  }
+}
+
 function registerEvents() {
   elements.createForm?.addEventListener("submit", (event) => {
     void handleCreate(event);
@@ -1072,6 +1122,18 @@ function registerEvents() {
 
   elements.refreshButton?.addEventListener("click", () => {
     void loadDashboard();
+  });
+
+  elements.createModeToggle?.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const btn = event.target.closest("[data-create-mode]");
+    if (btn?.dataset.createMode) setCreateMode(btn.dataset.createMode);
+  });
+
+  elements.planDescription?.addEventListener("input", updatePlanCommandPreview);
+
+  elements.copyPlanCommand?.addEventListener("click", () => {
+    void copyPlanCommand();
   });
 
   elements.tabNav?.addEventListener("click", (event) => {
