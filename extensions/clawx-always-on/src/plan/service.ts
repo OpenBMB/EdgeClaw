@@ -230,6 +230,7 @@ export class AlwaysOnPlanService {
         input: {
           title: decision.taskTitle,
           prompt: decision.taskPrompt,
+          deliverySessionKey: originSessionKey,
           metadata: {
             mode: "plan",
             planId: activePlan.id,

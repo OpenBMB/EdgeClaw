@@ -40,6 +40,13 @@ export function createProgressToolFactory(
         }
 
         store.updateTask(task.id, { progressSummary: summary });
+        store.appendTaskCheckpoint({
+          taskId: task.id,
+          runOrdinal: task.runCount,
+          kind: "progress",
+          content: summary,
+          createdAt: Date.now(),
+        });
         logger.info(task.id, "Progress saved", { summaryLength: summary.length });
 
         return {

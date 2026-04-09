@@ -42,6 +42,18 @@ export function createCompleteToolFactory(
           resultSummary: result,
           completedAt: Date.now(),
         });
+        store.appendTaskCheckpoint({
+          taskId: task.id,
+          runOrdinal: task.runCount,
+          kind: "completion",
+          content: result,
+          createdAt: Date.now(),
+        });
+        store.updateTaskRun(task.id, task.runCount, {
+          status: "completed",
+          endedAt: Date.now(),
+          budgetUsageSnapshot: task.budgetUsage,
+        });
         logger.info(task.id, "Task completed", { resultLength: result.length });
 
         return {

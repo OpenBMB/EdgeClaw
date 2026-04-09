@@ -14,6 +14,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
     title: "Test task",
     status: "active",
     sourceType: "user-command",
+    budgetExceededAction: "warn",
     budgetConstraints: JSON.stringify([{ kind: "max-loops", limit: 10 }]),
     budgetUsage: JSON.stringify({ loopsUsed: 0, costUsedUsd: 0 }),
     sessionKey: "always-on:task-001",
@@ -26,7 +27,12 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  defaultBudgetExceededAction: "warn",
   maxConcurrentTasks: 3,
+  dreamEnabled: false,
+  dreamIntervalMinutes: 60,
+  dreamMaxCandidates: 3,
+  dreamContextMessageLimit: 40,
   logLevel: "debug",
   logRetentionDays: 30,
 };

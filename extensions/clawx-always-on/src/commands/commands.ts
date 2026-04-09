@@ -8,12 +8,20 @@ import {
   type AlwaysOnToolSupport,
 } from "../core/tool-compat.js";
 import type { AlwaysOnTask, BudgetUsage } from "../core/types.js";
+import {
+  resolveCommandPeer,
+  resolvePlanConversationKeyFromCommand,
+} from "../plan/conversation-key.js";
 import type { TaskLogger } from "../storage/logger.js";
 import type { TaskStore } from "../storage/store.js";
 
 export type AlwaysOnPlanCommandHandler = {
   startPlan: (ctx: PluginCommandContext, prompt: string) => Promise<{ text: string }>;
   cancelPlan: (ctx: PluginCommandContext) => { text: string };
+};
+
+export type AlwaysOnDreamCommandHandler = {
+  runDream: (ctx: PluginCommandContext) => Promise<{ text: string }>;
 };
 
 export function registerCommands(
@@ -23,6 +31,7 @@ export function registerCommands(
   config: AlwaysOnConfigSource,
   toolSupport: AlwaysOnToolSupport = resolveAlwaysOnToolSupport(api.config),
   planHandler?: AlwaysOnPlanCommandHandler,
+  dreamHandler?: AlwaysOnDreamCommandHandler,
 ): void {
   const commandNote = buildAlwaysOnCommandNote(toolSupport);
   const getConfig = resolveConfigSource(config);
@@ -39,17 +48,21 @@ export function registerCommands(
 
       switch (subcommand.toLowerCase()) {
         case "create":
-          return handleCreate(args);
+          return handleCreate(ctx, args);
         case "list":
           return handleList();
         case "show":
           return handleShow(args);
+        case "start":
+          return handleStart(args);
         case "resume":
           return handleResume(args);
         case "cancel":
           return handleCancel(args);
         case "plan":
           return handlePlan(ctx, args);
+        case "dream":
+          return handleDream(ctx);
         case "logs":
           return handleLogs(args);
         case "status":
@@ -60,13 +73,22 @@ export function registerCommands(
     },
   });
 
-  async function handleCreate(title: string) {
+  async function handleCreate(ctx: PluginCommandContext, title: string) {
     if (!title) {
       return { text: "Usage: `/always-on create <task description>`" };
     }
     const currentConfig = getConfig();
+    const target = resolveCommandTarget(ctx);
     const task = createAlwaysOnTaskFromUserInput({
-      input: { title },
+      input: {
+        title,
+        deliverySessionKey: target.sessionKey,
+        metadata: {
+          mode: "create",
+          originConversationKey: target.conversationKey,
+          originSessionKey: target.sessionKey,
+        },
+      },
       store,
       logger,
       config: currentConfig,
@@ -77,6 +99,7 @@ export function registerCommands(
         `Task **${task.id}** created and queued for background execution.\n` +
         `> ${title}\n\n` +
         `Budget: ${currentConfig.defaultMaxLoops} loops, $${currentConfig.defaultMaxCostUsd} max cost.\n` +
+        `Execution profile: provider=${task.provider ?? "default"}, model=${task.model ?? "default"}, budgetAction=${task.budgetExceededAction}.\n` +
         `The worker runs up to ${currentConfig.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.\n` +
         `Your main session is not affected — keep chatting normally.` +
         (commandNote ? `\n\n${commandNote}` : ""),
@@ -95,6 +118,13 @@ export function registerCommands(
       return planHandler.cancelPlan(ctx);
     }
     return planHandler.startPlan(ctx, trimmedArgs);
+  }
+
+  async function handleDream(ctx: PluginCommandContext) {
+    if (!dreamHandler) {
+      return { text: "Dream mode is currently unavailable." };
+    }
+    return dreamHandler.runDream(ctx);
   }
 
   function handleList() {
@@ -136,6 +166,8 @@ export function registerCommands(
       `- **ID:** ${task.id}`,
       `- **Status:** ${task.status}`,
       `- **Runs:** ${task.runCount}`,
+      `- **Execution profile:** provider=${task.provider ?? "default"}, model=${task.model ?? "default"}`,
+      `- **Budget action:** ${task.budgetExceededAction}`,
       `- **Created:** ${new Date(task.createdAt).toISOString()}`,
       `- **Loops used:** ${usage.loopsUsed}`,
       `- **Cost used:** $${usage.costUsedUsd.toFixed(4)}`,
@@ -154,6 +186,29 @@ export function registerCommands(
     }
 
     return { text: lines.join("\n") };
+  }
+
+  async function handleStart(taskId: string) {
+    if (!taskId) return { text: "Usage: `/always-on start <task-id>`" };
+
+    const task = store.getTask(taskId);
+    if (!task) return { text: `Task **${taskId}** not found.` };
+    if (task.status !== "pending") {
+      return {
+        text: `Task **${taskId}** is **${task.status}** — only pending tasks can be started.`,
+      };
+    }
+
+    if (!store.startPendingTask(task.id)) {
+      return { text: `Task **${taskId}** could not be moved into the queue.` };
+    }
+    logger.info(task.id, "Pending task started by user");
+    return {
+      text:
+        `Task **${taskId}** moved from **pending** to **queued**.` +
+        ` The worker will launch it when a slot is available.` +
+        (commandNote ? `\n\n${commandNote}` : ""),
+    };
   }
 
   async function handleResume(taskId: string) {
@@ -230,6 +285,7 @@ export function registerCommands(
       "## Always-On Status",
       `- **Total tasks:** ${all.length}`,
       `- **Concurrent run limit:** ${currentConfig.maxConcurrentTasks}`,
+      `- **Dream enabled:** ${currentConfig.dreamEnabled ? "yes" : "no"}`,
     ];
     for (const [s, c] of byStatus) {
       lines.push(`- **${s}:** ${c}`);
@@ -244,17 +300,40 @@ export function registerCommands(
 
     return { text: lines.join("\n") };
   }
+
+  function resolveCommandTarget(ctx: PluginCommandContext): {
+    conversationKey?: string;
+    sessionKey?: string;
+  } {
+    const conversationKey = resolvePlanConversationKeyFromCommand(ctx);
+    const peer = resolveCommandPeer(ctx);
+    if (!peer) {
+      return { conversationKey };
+    }
+    const route = api.runtime.channel.routing.resolveAgentRoute({
+      cfg: ctx.config,
+      channel: ctx.channel,
+      accountId: ctx.accountId,
+      peer,
+    });
+    return {
+      conversationKey,
+      sessionKey: route.sessionKey,
+    };
+  }
 }
 
 const HELP_TEXT = `## /always-on — Background Task Manager
 
 **Commands:**
 - \`/always-on create <description>\` — Create and queue a task
+- \`/always-on start <id>\` — Start a pending task
 - \`/always-on list\` — List all tasks
 - \`/always-on show <id>\` — Show task details
 - \`/always-on resume <id>\` — Re-queue a suspended task
 - \`/always-on cancel <id>\` — Cancel a task
 - \`/always-on plan <description>\` — Refine a task before creating it
 - \`/always-on plan cancel\` — Cancel the active planning flow
+- \`/always-on dream\` — Derive new pending tasks from transcript, memory, and task state
 - \`/always-on logs <id>\` — View task logs
 - \`/always-on status\` — System status overview`;

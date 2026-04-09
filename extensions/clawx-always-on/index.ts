@@ -5,6 +5,8 @@ import { AlwaysOnConfigController } from "./src/core/config-controller.js";
 import { resolveConfig } from "./src/core/config.js";
 import { PLUGIN_ID, PROGRESS_TOOL_NAME, COMPLETE_TOOL_NAME } from "./src/core/constants.js";
 import { resolveAlwaysOnToolSupport } from "./src/core/tool-compat.js";
+import { AlwaysOnDreamScheduler } from "./src/dream/scheduler.js";
+import { AlwaysOnDreamService } from "./src/dream/service.js";
 import { SubagentExecutor } from "./src/executor/executor.js";
 import { registerLifecycleHooks } from "./src/hooks/lifecycle-hook.js";
 import { registerPlanHook } from "./src/hooks/plan-hook.js";
@@ -42,6 +44,7 @@ export default definePluginEntry({
     const getConfig = () => configController.getConfig();
     const planService = new AlwaysOnPlanService(api, store, logger, getConfig, toolSupport);
     const webPlanService = new AlwaysOnWebPlanService(api, store, logger, getConfig);
+    const dreamService = new AlwaysOnDreamService(api, store, logger, getConfig);
 
     const executor = new SubagentExecutor(api.runtime.subagent, store, logger, toolSupport);
     const worker = new AlwaysOnWorker(
@@ -52,9 +55,11 @@ export default definePluginEntry({
       undefined,
       config.maxConcurrentTasks,
     );
+    const dreamScheduler = new AlwaysOnDreamScheduler(getConfig, dreamService, api.logger);
     configController.subscribe(({ changedFields, effectiveValues, pendingRestartFields }) => {
       logger.updateConfig(effectiveValues);
       worker.updateMaxConcurrentTasks(effectiveValues.maxConcurrentTasks);
+      dreamScheduler.refresh();
       const restartNote =
         pendingRestartFields.length > 0
           ? `; restart required: ${pendingRestartFields.join(", ")}`
@@ -69,7 +74,9 @@ export default definePluginEntry({
     api.registerTool(progressFactory, { name: PROGRESS_TOOL_NAME });
     api.registerTool(completeFactory, { name: COMPLETE_TOOL_NAME });
 
-    registerCommands(api, store, logger, getConfig, toolSupport, planService);
+    registerCommands(api, store, logger, getConfig, toolSupport, planService, {
+      runDream: (ctx) => dreamService.runFromCommand(ctx),
+    });
     api.registerHttpRoute({
       path: `/plugins/${PLUGIN_ID}`,
       auth: "plugin",
@@ -87,9 +94,11 @@ export default definePluginEntry({
       id: `${PLUGIN_ID}-worker`,
       start: () => {
         worker.start();
+        dreamScheduler.start();
       },
       stop: () => {
         worker.stop();
+        dreamScheduler.stop();
       },
     });
     registerPromptHook(api, store, toolSupport);
@@ -111,7 +120,7 @@ export default definePluginEntry({
     if (typeof cleanupTimer.unref === "function") cleanupTimer.unref();
 
     api.logger.info(
-      `[${PLUGIN_ID}] registered (maxLoops=${config.defaultMaxLoops}, maxCost=$${config.defaultMaxCostUsd}, maxConcurrentTasks=${config.maxConcurrentTasks})`,
+      `[${PLUGIN_ID}] registered (maxLoops=${config.defaultMaxLoops}, maxCost=$${config.defaultMaxCostUsd}, maxConcurrentTasks=${config.maxConcurrentTasks}, dreamEnabled=${config.dreamEnabled})`,
     );
   },
 });

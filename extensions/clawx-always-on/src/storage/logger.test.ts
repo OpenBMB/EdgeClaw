@@ -11,7 +11,12 @@ function makeConfig(overrides: Partial<AlwaysOnConfig> = {}): AlwaysOnConfig {
   return {
     defaultMaxLoops: 50,
     defaultMaxCostUsd: 1.0,
+    defaultBudgetExceededAction: "warn",
     maxConcurrentTasks: 3,
+    dreamEnabled: false,
+    dreamIntervalMinutes: 60,
+    dreamMaxCandidates: 3,
+    dreamContextMessageLimit: 40,
     logLevel: "debug",
     logRetentionDays: 30,
     ...overrides,

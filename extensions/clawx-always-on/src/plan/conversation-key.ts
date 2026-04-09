@@ -1,5 +1,10 @@
 import type { PluginCommandContext } from "../../api.js";
 
+export type CommandPeer = {
+  kind: "direct" | "group";
+  id: string;
+};
+
 type PlanHookContext = {
   channelId?: string;
   accountId?: string;
@@ -56,7 +61,7 @@ function deriveTelegramConversationId(
   return baseConversationId;
 }
 
-function deriveConversationIdFromCommand(ctx: PluginCommandContext): string | undefined {
+export function deriveConversationIdFromCommand(ctx: PluginCommandContext): string | undefined {
   if (ctx.channel === "discord") {
     return deriveDiscordConversationId(ctx);
   }
@@ -65,6 +70,29 @@ function deriveConversationIdFromCommand(ctx: PluginCommandContext): string | un
   }
   // webchat and other channels: prefer to/from, fall back to senderId
   return stripKnownPrefix(ctx.to ?? ctx.from, ctx.channel) ?? ctx.senderId;
+}
+
+export function resolveCommandPeer(ctx: PluginCommandContext): CommandPeer | undefined {
+  const conversationId = deriveConversationIdFromCommand(ctx)?.trim();
+  if (!conversationId) {
+    return undefined;
+  }
+  if (conversationId.startsWith("channel:")) {
+    return {
+      kind: "group",
+      id: conversationId.slice("channel:".length),
+    };
+  }
+  if (conversationId.startsWith("user:")) {
+    return {
+      kind: "direct",
+      id: conversationId.slice("user:".length),
+    };
+  }
+  return {
+    kind: "direct",
+    id: conversationId,
+  };
 }
 
 function buildConversationKey(params: {

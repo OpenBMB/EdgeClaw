@@ -12,6 +12,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
     title: "Test task",
     status: "pending",
     sourceType: "user-command",
+    budgetExceededAction: "warn",
     budgetConstraints: "[]",
     budgetUsage: '{"loopsUsed":0,"costUsedUsd":0}',
     createdAt: Date.now(),
@@ -175,6 +176,12 @@ describe("TaskStore", () => {
     expect(pending).toHaveLength(2);
   });
 
+  it("starts pending tasks explicitly", () => {
+    store.createTask(makeTask({ id: "t1", status: "pending" }));
+    expect(store.startPendingTask("t1")).toBe(true);
+    expect(store.getTask("t1")?.status).toBe("queued");
+  });
+
   it("lists all tasks ordered by creation time desc", () => {
     store.createTask(makeTask({ id: "t1", createdAt: 100 }));
     store.createTask(makeTask({ id: "t2", createdAt: 200 }));
@@ -194,6 +201,56 @@ describe("TaskStore", () => {
     expect(task!.startedAt).toBeUndefined();
     expect(task!.suspendedAt).toBeUndefined();
     expect(task!.completedAt).toBeUndefined();
+  });
+
+  it("stores task runs and checkpoints", () => {
+    store.createTask(makeTask({ id: "t1", status: "active", runCount: 1 }));
+    const runId = store.createTaskRun({
+      taskId: "t1",
+      runOrdinal: 1,
+      sessionKey: "always-on:t1",
+      status: "active",
+      startedAt: 100,
+      createdAt: 100,
+    });
+    store.updateTaskRun("t1", 1, {
+      runId: "run-1",
+      budgetUsageSnapshot: '{"loopsUsed":2,"costUsedUsd":0.01}',
+      endedAt: 200,
+      status: "completed",
+    });
+    store.appendTaskCheckpoint({
+      taskId: "t1",
+      runOrdinal: 1,
+      kind: "completion",
+      content: "Finished successfully",
+      createdAt: 200,
+    });
+
+    expect(runId).toBeGreaterThan(0);
+    expect(store.getLatestTaskRun("t1")?.runId).toBe("run-1");
+    expect(store.listTaskCheckpoints("t1")[0]?.content).toBe("Finished successfully");
+  });
+
+  it("stores dream runs", () => {
+    store.createDreamRun({
+      id: "dream-1",
+      status: "running",
+      trigger: "manual",
+      sourceSessionKey: "agent:main:webchat:user-123",
+      createdTaskIdsJson: "[]",
+      createdAt: 100,
+    });
+    store.updateDreamRun("dream-1", {
+      status: "completed",
+      summary: "Created one useful candidate.",
+      createdTaskIdsJson: '["task-1"]',
+      completedAt: 120,
+    });
+
+    const run = store.getDreamRun("dream-1");
+    expect(run?.status).toBe("completed");
+    expect(run?.createdTaskIdsJson).toBe('["task-1"]');
   });
 
   it("creates and retrieves active plans by conversation key", () => {

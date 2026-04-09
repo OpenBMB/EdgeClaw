@@ -13,6 +13,8 @@ describe("UserCommandTaskSource", () => {
     const source = new UserCommandTaskSource();
     const task = source.createTask({
       title: "Research topic",
+      status: "queued",
+      budgetExceededAction: "warn",
       budgetConstraints: [new MaxLoopsBudget(50), new MaxCostUsdBudget(1.0)],
     });
 
@@ -37,8 +39,18 @@ describe("UserCommandTaskSource", () => {
   it("generates unique IDs", () => {
     const source = new UserCommandTaskSource();
     const constraints = [new MaxLoopsBudget(10)];
-    const t1 = source.createTask({ title: "A", budgetConstraints: constraints });
-    const t2 = source.createTask({ title: "B", budgetConstraints: constraints });
+    const t1 = source.createTask({
+      title: "A",
+      status: "queued",
+      budgetExceededAction: "warn",
+      budgetConstraints: constraints,
+    });
+    const t2 = source.createTask({
+      title: "B",
+      status: "queued",
+      budgetExceededAction: "warn",
+      budgetConstraints: constraints,
+    });
     expect(t1.id).not.toBe(t2.id);
   });
 
@@ -46,6 +58,8 @@ describe("UserCommandTaskSource", () => {
     const source = new UserCommandTaskSource();
     const task = source.createTask({
       title: "Research topic",
+      status: "queued",
+      budgetExceededAction: "warn",
       budgetConstraints: [new MaxLoopsBudget(50)],
       sourceMetadata: serializeUserCommandSourceMetadata({
         mode: "plan",
@@ -58,8 +72,11 @@ describe("UserCommandTaskSource", () => {
       mode: "plan",
       prompt: "Do the full research task",
       planId: "plan-1",
+      dreamRunId: undefined,
+      rationale: undefined,
       originConversationKey: undefined,
       originSessionKey: undefined,
+      parentTaskIds: undefined,
     });
   });
 });

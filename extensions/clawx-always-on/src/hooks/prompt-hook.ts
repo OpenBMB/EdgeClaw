@@ -53,6 +53,7 @@ export function registerPromptHook(
 function buildAlwaysOnPrompt(task: AlwaysOnTask, toolSupport: AlwaysOnToolSupport): string {
   const usage = JSON.parse(task.budgetUsage) as BudgetUsage;
   const constraints = deserializeBudgetConstraints(task.budgetConstraints);
+  let hasExceededBudget = false;
 
   const parts: string[] = [
     `You are executing an always-on background task.`,
@@ -78,9 +79,15 @@ function buildAlwaysOnPrompt(task: AlwaysOnTask, toolSupport: AlwaysOnToolSuppor
         );
       }
     } else {
+      hasExceededBudget = true;
       parts.push(`- **${result.reason}**`);
     }
   }
+
+  parts.push("", "## Execution Profile");
+  parts.push(`- Provider: ${task.provider ?? "default"}`);
+  parts.push(`- Model: ${task.model ?? "default"}`);
+  parts.push(`- Budget action: ${task.budgetExceededAction}`);
 
   parts.push("", "## Instructions");
   for (const line of buildAlwaysOnExecutionInstructions(toolSupport)) {
@@ -90,6 +97,12 @@ function buildAlwaysOnPrompt(task: AlwaysOnTask, toolSupport: AlwaysOnToolSuppor
     "- Work efficiently within the budget constraints.",
     "- If you cannot complete the task within budget, leave a clear final summary so it can be resumed.",
   );
+  if (hasExceededBudget && task.budgetExceededAction === "terminate") {
+    parts.push(
+      "- Budget has already been exceeded and this task is configured to terminate.",
+      "- Do not continue the underlying work. Immediately summarize what is already done and stop.",
+    );
+  }
 
   return parts.join("\n");
 }

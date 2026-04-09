@@ -164,7 +164,7 @@ function getTaskUpdatedAt(task) {
 }
 
 function pickDefaultTaskId(tasks) {
-  for (const status of ["active", "launching", "queued", "suspended"]) {
+  for (const status of ["active", "launching", "queued", "pending", "suspended"]) {
     const match = tasks.find((task) => task.status === status);
     if (match) {
       return match.id;
@@ -572,6 +572,11 @@ function renderOverviewQueue() {
       "Queued",
       "Waiting for a slot.",
       state.tasks.filter((task) => task.status === "queued").slice(0, 4),
+    ),
+    renderQueueSection(
+      "Pending",
+      "Created but intentionally waiting for an explicit start command or dashboard action.",
+      state.tasks.filter((task) => task.status === "pending").slice(0, 4),
     ),
     renderQueueSection(
       "Needs review",
@@ -1091,6 +1096,19 @@ function renderDetailActions() {
       </button>
     `,
   ];
+
+  if (state.selectedTask.status === "pending") {
+    buttons.push(`
+      <button
+        class="button button--primary"
+        type="button"
+        data-task-action="start"
+        ${state.action === "start" ? "disabled" : ""}
+      >
+        ${state.action === "start" ? "Queueing..." : "Start"}
+      </button>
+    `);
+  }
 
   if (state.selectedTask.status === "suspended") {
     buttons.push(`
@@ -1872,7 +1890,13 @@ async function handleDetailAction(action) {
     );
 
     state.selectedTaskId = result.task.id;
-    setBanner(action === "resume" ? "Task re-queued." : "Task cancelled.", "success");
+    const message =
+      action === "resume"
+        ? "Task re-queued."
+        : action === "start"
+          ? "Pending task moved into the queue."
+          : "Task cancelled.";
+    setBanner(message, "success");
     await loadDashboard({ silent: true });
   } catch (error) {
     setBanner(error instanceof Error ? error.message : String(error), "error");

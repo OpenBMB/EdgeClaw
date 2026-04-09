@@ -2,8 +2,6 @@ import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MaxCostUsdBudget } from "./budget/max-cost-usd.js";
-import { MaxLoopsBudget } from "./budget/max-loops.js";
 import { deserializeBudgetConstraints } from "./budget/registry.js";
 import {
   AlwaysOnConfigController,
@@ -11,6 +9,7 @@ import {
 } from "./core/config-controller.js";
 import type { AlwaysOnConfig } from "./core/config.js";
 import { PLUGIN_ID } from "./core/constants.js";
+import { createAlwaysOnTaskFromUserInput } from "./core/task-factory.js";
 import type {
   AlwaysOnTask,
   BudgetConstraint,
@@ -19,7 +18,6 @@ import type {
   TaskStatus,
 } from "./core/types.js";
 import { WebPlanRequestError, type AlwaysOnWebPlanService } from "./plan/web-service.js";
-import { UserCommandTaskSource } from "./source/user-command-source.js";
 import type { PluginLoggerSink } from "./storage/logger.js";
 import type { TaskLogger } from "./storage/logger.js";
 import type { TaskStore } from "./storage/store.js";
@@ -85,8 +83,6 @@ export function createAlwaysOnHttpHandler(params: {
   planService?: AlwaysOnWebPlanService;
   pluginLogger?: PluginLoggerSink;
 }) {
-  const source = new UserCommandTaskSource();
-
   return async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
     const parsed = parseRequestUrl(req.url);
     if (!parsed) {
@@ -129,7 +125,6 @@ export function createAlwaysOnHttpHandler(params: {
       return await handleApi(relativePath, parsed, req, res, {
         store: params.store,
         logger: params.logger,
-        source,
         getConfig: params.getConfig,
         configController: params.configController,
         planService: params.planService,
@@ -192,7 +187,6 @@ async function handleApi(
   params: {
     store: TaskStore;
     logger: TaskLogger;
-    source: UserCommandTaskSource;
     getConfig: () => AlwaysOnConfig;
     configController: AlwaysOnConfigController;
     planService?: AlwaysOnWebPlanService;
@@ -394,14 +388,27 @@ async function handleApi(
             COST_LIMIT_RANGE.min,
             COST_LIMIT_RANGE.max,
           ) ?? currentConfig.defaultMaxCostUsd;
+        const provider = parseOptionalString(body.provider);
+        const model = parseOptionalString(body.model);
+        const budgetExceededAction = parseBudgetExceededAction(body.budgetExceededAction);
 
-        const task = params.source.createTask({
-          title,
-          budgetConstraints: [new MaxLoopsBudget(maxLoops), new MaxCostUsdBudget(maxCostUsd)],
+        const task = createAlwaysOnTaskFromUserInput({
+          input: {
+            title,
+            maxLoops,
+            maxCostUsd,
+            provider,
+            model,
+            budgetExceededAction,
+            metadata: {
+              mode: "create",
+            },
+          },
+          store: params.store,
+          logger: params.logger,
+          config: currentConfig,
         });
-        params.store.createTask(task);
         params.logger.info(task.id, `Task created from dashboard: ${title}`);
-        params.logger.info(task.id, "Task queued for background launch from dashboard");
 
         respondJson(res, 201, { task: serializeTask(task) });
       } catch (error) {
@@ -488,6 +495,34 @@ async function handleApi(
     return true;
   }
 
+  const startMatch = relativePath.match(/^\/api\/tasks\/([^/]+)\/start$/);
+  if (startMatch) {
+    if (method !== "POST") {
+      respondJson(res, 405, { error: "Method not allowed" }, { Allow: "POST" });
+      return true;
+    }
+
+    const taskId = decodeURIComponent(startMatch[1]);
+    const task = params.store.getTask(taskId);
+    if (!task) {
+      respondJson(res, 404, { error: `Task ${taskId} not found` });
+      return true;
+    }
+
+    if (task.status !== "pending") {
+      respondJson(res, 409, {
+        error: "Only pending tasks can be started",
+        task: serializeTask(task),
+      });
+      return true;
+    }
+
+    params.store.startPendingTask(task.id);
+    params.logger.info(task.id, "Pending task started from dashboard");
+    respondJson(res, 200, { task: serializeTask(requireTask(params.store, task.id)) });
+    return true;
+  }
+
   const cancelMatch = relativePath.match(/^\/api\/tasks\/([^/]+)\/cancel$/);
   if (cancelMatch) {
     if (method !== "POST") {
@@ -536,6 +571,11 @@ function buildDashboardOverview(store: TaskStore, config: AlwaysOnConfig) {
     maxConcurrentTasks: config.maxConcurrentTasks,
     defaultMaxLoops: config.defaultMaxLoops,
     defaultMaxCostUsd: config.defaultMaxCostUsd,
+    defaultBudgetExceededAction: config.defaultBudgetExceededAction,
+    defaultProvider: config.defaultProvider,
+    defaultModel: config.defaultModel,
+    dreamEnabled: config.dreamEnabled,
+    dreamIntervalMinutes: config.dreamIntervalMinutes,
     logRetentionDays: config.logRetentionDays,
     runningTasks,
   };
@@ -740,6 +780,24 @@ function parseOptionalNumber(
   }
 
   return parsed;
+}
+
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function parseBudgetExceededAction(value: unknown): "warn" | "terminate" | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (value === "warn" || value === "terminate") {
+    return value;
+  }
+  throw new Error("budgetExceededAction must be either 'warn' or 'terminate'");
 }
 
 function requireTask(store: TaskStore, taskId: string): AlwaysOnTask {

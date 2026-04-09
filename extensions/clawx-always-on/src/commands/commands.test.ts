@@ -14,6 +14,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
     title: "Test task",
     status: "pending",
     sourceType: "user-command",
+    budgetExceededAction: "warn",
     budgetConstraints: JSON.stringify([{ kind: "max-loops", limit: 50 }]),
     budgetUsage: '{"loopsUsed":0,"costUsedUsd":0}',
     createdAt: Date.now(),
@@ -25,7 +26,12 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  defaultBudgetExceededAction: "warn",
   maxConcurrentTasks: 2,
+  dreamEnabled: false,
+  dreamIntervalMinutes: 60,
+  dreamMaxCandidates: 3,
+  dreamContextMessageLimit: 40,
   logLevel: "info",
   logRetentionDays: 30,
 };
@@ -42,6 +48,7 @@ describe("commands", () => {
     to?: string;
     accountId?: string;
     messageThreadId?: string | number;
+    config?: unknown;
   }) => Promise<{ text: string }> | { text: string };
 
   beforeEach(async () => {
@@ -219,6 +226,14 @@ describe("commands", () => {
     expect(task!.suspendedAt).toBeUndefined();
   });
 
+  it("starts a pending task", async () => {
+    store.createTask(makeTask({ id: "t1", status: "pending" }));
+
+    const result = await commandHandler({ args: "start t1" });
+    expect(result.text).toContain("moved from **pending** to **queued**");
+    expect(store.getTask("t1")?.status).toBe("queued");
+  });
+
   it("queues resume even when another task is already running", async () => {
     store.createTask(makeTask({ id: "active-task", status: "active", title: "Existing active" }));
     store.createTask(makeTask({ id: "t1", status: "suspended" }));
@@ -302,5 +317,31 @@ describe("commands", () => {
     expect(result.text).toContain("Concurrent run limit");
     expect(result.text).toContain("t1");
     expect(result.text).toContain("Task 2");
+  });
+
+  it("delegates dream requests to the dream handler", async () => {
+    const runDream = vi.fn().mockResolvedValue({ text: "dreamed tasks" });
+    const mockApi = {
+      config: {},
+      registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
+        commandHandler = cmd.handler;
+      }),
+    };
+
+    const { registerCommands } = await import("./commands.js");
+    registerCommands(mockApi as never, store, logger, defaultConfig, undefined, undefined, {
+      runDream,
+    });
+
+    const result = await commandHandler({
+      args: "dream",
+      channel: "webchat",
+      from: "webchat:user-123",
+      to: "webchat:user-123",
+      config: {} as never,
+    });
+
+    expect(result.text).toBe("dreamed tasks");
+    expect(runDream).toHaveBeenCalledTimes(1);
   });
 });

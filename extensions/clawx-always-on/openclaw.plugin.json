@@ -18,11 +18,54 @@
         "minimum": 0.01,
         "maximum": 100
       },
+      "defaultBudgetExceededAction": {
+        "type": "string",
+        "enum": ["warn", "terminate"],
+        "default": "warn"
+      },
+      "defaultProvider": {
+        "type": "string",
+        "description": "Optional default provider for always-on task execution."
+      },
+      "defaultModel": {
+        "type": "string",
+        "description": "Optional default model for always-on task execution."
+      },
       "maxConcurrentTasks": {
         "type": "number",
         "default": 3,
         "minimum": 1,
         "maximum": 20
+      },
+      "dreamEnabled": {
+        "type": "boolean",
+        "default": false
+      },
+      "dreamIntervalMinutes": {
+        "type": "number",
+        "default": 60,
+        "minimum": 5,
+        "maximum": 1440
+      },
+      "dreamProvider": {
+        "type": "string",
+        "description": "Optional provider override for dream planning."
+      },
+      "dreamModel": {
+        "type": "string",
+        "description": "Optional model override for dream planning."
+      },
+      "dreamMaxCandidates": {
+        "type": "number",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 10
+      },
+      "dreamContextMessageLimit": {
+        "type": "number",
+        "default": 40,
+        "minimum": 5,
+        "maximum": 200
       },
       "logLevel": {
         "type": "string",
@@ -50,9 +93,45 @@
       "label": "Default Max Cost (USD)",
       "help": "Maximum estimated USD cost per task run (default: 1.0)"
     },
+    "defaultBudgetExceededAction": {
+      "label": "Budget Exceeded Action",
+      "help": "What to do when an always-on task exceeds budget: warn only or terminate the run (default: warn)"
+    },
+    "defaultProvider": {
+      "label": "Default Provider",
+      "help": "Optional provider override for always-on task execution."
+    },
+    "defaultModel": {
+      "label": "Default Model",
+      "help": "Optional model override for always-on task execution."
+    },
     "maxConcurrentTasks": {
       "label": "Max Concurrent Tasks",
       "help": "Maximum number of always-on tasks the worker will launch at the same time (default: 3)"
+    },
+    "dreamEnabled": {
+      "label": "Enable Dream",
+      "help": "Allow the plugin to derive new pending always-on tasks from transcript, memory, and task state."
+    },
+    "dreamIntervalMinutes": {
+      "label": "Dream Interval (minutes)",
+      "help": "How often the dream scheduler should try to derive new pending tasks (default: 60)"
+    },
+    "dreamProvider": {
+      "label": "Dream Provider",
+      "help": "Optional provider override for dream planning."
+    },
+    "dreamModel": {
+      "label": "Dream Model",
+      "help": "Optional model override for dream planning."
+    },
+    "dreamMaxCandidates": {
+      "label": "Dream Max Candidates",
+      "help": "Maximum number of pending tasks to derive in each dream run (default: 3)"
+    },
+    "dreamContextMessageLimit": {
+      "label": "Dream Transcript Messages",
+      "help": "How many recent transcript messages to include when deriving dream candidates (default: 40)"
     },
     "logLevel": {
       "label": "Log Level",

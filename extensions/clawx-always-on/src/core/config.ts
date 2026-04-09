@@ -1,7 +1,18 @@
+import type { BudgetExceededAction } from "./types.js";
+
 export type AlwaysOnConfig = {
   defaultMaxLoops: number;
   defaultMaxCostUsd: number;
+  defaultBudgetExceededAction: BudgetExceededAction;
+  defaultProvider?: string;
+  defaultModel?: string;
   maxConcurrentTasks: number;
+  dreamEnabled: boolean;
+  dreamIntervalMinutes: number;
+  dreamProvider?: string;
+  dreamModel?: string;
+  dreamMaxCandidates: number;
+  dreamContextMessageLimit: number;
   logLevel: "debug" | "info" | "warn" | "error";
   logRetentionDays: number;
   dataDir?: string;
@@ -26,7 +37,7 @@ type NumberFieldDefinition = BaseFieldDefinition & {
 
 type SelectFieldDefinition = BaseFieldDefinition & {
   input: "select";
-  options: AlwaysOnConfig["logLevel"][];
+  options: string[];
 };
 
 type TextFieldDefinition = BaseFieldDefinition & {
@@ -43,7 +54,12 @@ export type AlwaysOnConfigSource = AlwaysOnConfig | (() => AlwaysOnConfig);
 export const DEFAULTS: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  defaultBudgetExceededAction: "warn",
   maxConcurrentTasks: 3,
+  dreamEnabled: false,
+  dreamIntervalMinutes: 60,
+  dreamMaxCandidates: 3,
+  dreamContextMessageLimit: 40,
   logLevel: "info",
   logRetentionDays: 30,
 };
@@ -51,7 +67,16 @@ export const DEFAULTS: AlwaysOnConfig = {
 export const ALWAYS_ON_CONFIG_FIELD_ORDER = [
   "defaultMaxLoops",
   "defaultMaxCostUsd",
+  "defaultBudgetExceededAction",
+  "defaultProvider",
+  "defaultModel",
   "maxConcurrentTasks",
+  "dreamEnabled",
+  "dreamIntervalMinutes",
+  "dreamProvider",
+  "dreamModel",
+  "dreamMaxCandidates",
+  "dreamContextMessageLimit",
   "logLevel",
   "logRetentionDays",
   "dataDir",
@@ -83,6 +108,25 @@ export const ALWAYS_ON_CONFIG_FIELDS: Record<
     maximum: 100,
     step: 0.01,
   },
+  defaultBudgetExceededAction: {
+    key: "defaultBudgetExceededAction",
+    input: "select",
+    label: "Budget Exceeded Action",
+    help: "What to do when an always-on task exceeds budget.",
+    options: ["warn", "terminate"],
+  },
+  defaultProvider: {
+    key: "defaultProvider",
+    input: "text",
+    label: "Default Provider",
+    help: "Optional provider override for always-on task execution.",
+  },
+  defaultModel: {
+    key: "defaultModel",
+    input: "text",
+    label: "Default Model",
+    help: "Optional model override for always-on task execution.",
+  },
   maxConcurrentTasks: {
     key: "maxConcurrentTasks",
     input: "number",
@@ -90,6 +134,52 @@ export const ALWAYS_ON_CONFIG_FIELDS: Record<
     help: "Maximum number of always-on tasks the worker launches at the same time.",
     minimum: 1,
     maximum: 20,
+    step: 1,
+  },
+  dreamEnabled: {
+    key: "dreamEnabled",
+    input: "select",
+    label: "Enable Dream",
+    help: "Allow the plugin to derive new pending always-on tasks from transcript, memory, and task state.",
+    options: ["true", "false"],
+  },
+  dreamIntervalMinutes: {
+    key: "dreamIntervalMinutes",
+    input: "number",
+    label: "Dream Interval (minutes)",
+    help: "How often the dream scheduler should derive new pending tasks.",
+    minimum: 5,
+    maximum: 1440,
+    step: 1,
+  },
+  dreamProvider: {
+    key: "dreamProvider",
+    input: "text",
+    label: "Dream Provider",
+    help: "Optional provider override for dream planning.",
+  },
+  dreamModel: {
+    key: "dreamModel",
+    input: "text",
+    label: "Dream Model",
+    help: "Optional model override for dream planning.",
+  },
+  dreamMaxCandidates: {
+    key: "dreamMaxCandidates",
+    input: "number",
+    label: "Dream Max Candidates",
+    help: "Maximum number of pending tasks to derive in each dream run.",
+    minimum: 1,
+    maximum: 10,
+    step: 1,
+  },
+  dreamContextMessageLimit: {
+    key: "dreamContextMessageLimit",
+    input: "number",
+    label: "Dream Transcript Messages",
+    help: "How many recent transcript messages to include when deriving dream candidates.",
+    minimum: 5,
+    maximum: 200,
     step: 1,
   },
   logLevel: {
@@ -148,8 +238,53 @@ export function parseConfigPatch(
       patch.defaultMaxCostUsd = parseNumberField(key, value, { integer: false });
       continue;
     }
+    if (key === "defaultBudgetExceededAction") {
+      patch.defaultBudgetExceededAction = parseBudgetExceededAction(value);
+      continue;
+    }
+    if (key === "defaultProvider") {
+      patch.defaultProvider = parseOptionalTextField(
+        value,
+        ALWAYS_ON_CONFIG_FIELDS.defaultProvider.label,
+      );
+      continue;
+    }
+    if (key === "defaultModel") {
+      patch.defaultModel = parseOptionalTextField(
+        value,
+        ALWAYS_ON_CONFIG_FIELDS.defaultModel.label,
+      );
+      continue;
+    }
     if (key === "maxConcurrentTasks") {
       patch.maxConcurrentTasks = parseNumberField(key, value, { integer: true });
+      continue;
+    }
+    if (key === "dreamEnabled") {
+      patch.dreamEnabled = parseBooleanField(value, ALWAYS_ON_CONFIG_FIELDS.dreamEnabled.label);
+      continue;
+    }
+    if (key === "dreamIntervalMinutes") {
+      patch.dreamIntervalMinutes = parseNumberField(key, value, { integer: true });
+      continue;
+    }
+    if (key === "dreamProvider") {
+      patch.dreamProvider = parseOptionalTextField(
+        value,
+        ALWAYS_ON_CONFIG_FIELDS.dreamProvider.label,
+      );
+      continue;
+    }
+    if (key === "dreamModel") {
+      patch.dreamModel = parseOptionalTextField(value, ALWAYS_ON_CONFIG_FIELDS.dreamModel.label);
+      continue;
+    }
+    if (key === "dreamMaxCandidates") {
+      patch.dreamMaxCandidates = parseNumberField(key, value, { integer: true });
+      continue;
+    }
+    if (key === "dreamContextMessageLimit") {
+      patch.dreamContextMessageLimit = parseNumberField(key, value, { integer: true });
       continue;
     }
     if (key === "logLevel") {
@@ -172,11 +307,27 @@ export function mergeConfig(base: AlwaysOnConfig, patch: Partial<AlwaysOnConfig>
   const next: AlwaysOnConfig = {
     defaultMaxLoops: patch.defaultMaxLoops ?? base.defaultMaxLoops,
     defaultMaxCostUsd: patch.defaultMaxCostUsd ?? base.defaultMaxCostUsd,
+    defaultBudgetExceededAction:
+      patch.defaultBudgetExceededAction ?? base.defaultBudgetExceededAction,
+    defaultProvider: hasOwnKey(patch, "defaultProvider")
+      ? patch.defaultProvider
+      : base.defaultProvider,
+    defaultModel: hasOwnKey(patch, "defaultModel") ? patch.defaultModel : base.defaultModel,
     maxConcurrentTasks: patch.maxConcurrentTasks ?? base.maxConcurrentTasks,
+    dreamEnabled: patch.dreamEnabled ?? base.dreamEnabled,
+    dreamIntervalMinutes: patch.dreamIntervalMinutes ?? base.dreamIntervalMinutes,
+    dreamProvider: hasOwnKey(patch, "dreamProvider") ? patch.dreamProvider : base.dreamProvider,
+    dreamModel: hasOwnKey(patch, "dreamModel") ? patch.dreamModel : base.dreamModel,
+    dreamMaxCandidates: patch.dreamMaxCandidates ?? base.dreamMaxCandidates,
+    dreamContextMessageLimit: patch.dreamContextMessageLimit ?? base.dreamContextMessageLimit,
     logLevel: patch.logLevel ?? base.logLevel,
     logRetentionDays: patch.logRetentionDays ?? base.logRetentionDays,
     dataDir: hasOwnKey(patch, "dataDir") ? patch.dataDir : base.dataDir,
   };
+  next.defaultProvider = normalizeOptionalString(next.defaultProvider);
+  next.defaultModel = normalizeOptionalString(next.defaultModel);
+  next.dreamProvider = normalizeOptionalString(next.dreamProvider);
+  next.dreamModel = normalizeOptionalString(next.dreamModel);
   if (next.dataDir !== undefined && !next.dataDir.trim()) {
     next.dataDir = undefined;
   }
@@ -187,7 +338,16 @@ export function serializeConfig(config: AlwaysOnConfig): Record<string, unknown>
   return {
     defaultMaxLoops: config.defaultMaxLoops,
     defaultMaxCostUsd: config.defaultMaxCostUsd,
+    defaultBudgetExceededAction: config.defaultBudgetExceededAction,
+    ...(config.defaultProvider ? { defaultProvider: config.defaultProvider } : {}),
+    ...(config.defaultModel ? { defaultModel: config.defaultModel } : {}),
     maxConcurrentTasks: config.maxConcurrentTasks,
+    dreamEnabled: config.dreamEnabled,
+    dreamIntervalMinutes: config.dreamIntervalMinutes,
+    ...(config.dreamProvider ? { dreamProvider: config.dreamProvider } : {}),
+    ...(config.dreamModel ? { dreamModel: config.dreamModel } : {}),
+    dreamMaxCandidates: config.dreamMaxCandidates,
+    dreamContextMessageLimit: config.dreamContextMessageLimit,
     logLevel: config.logLevel,
     logRetentionDays: config.logRetentionDays,
     ...(config.dataDir ? { dataDir: config.dataDir } : {}),
@@ -207,7 +367,14 @@ function hasOwnKey<T extends object>(value: T, key: PropertyKey): key is keyof T
 }
 
 function parseNumberField(
-  key: "defaultMaxLoops" | "defaultMaxCostUsd" | "maxConcurrentTasks" | "logRetentionDays",
+  key:
+    | "defaultMaxLoops"
+    | "defaultMaxCostUsd"
+    | "maxConcurrentTasks"
+    | "dreamIntervalMinutes"
+    | "dreamMaxCandidates"
+    | "dreamContextMessageLimit"
+    | "logRetentionDays",
   value: unknown,
   options: { integer: boolean },
 ): number {
@@ -245,6 +412,37 @@ function parseLogLevel(value: unknown): AlwaysOnConfig["logLevel"] {
   throw new Error(`${field.label} must be one of: ${field.options.join(", ")}`);
 }
 
+function parseBudgetExceededAction(value: unknown): BudgetExceededAction {
+  const field = ALWAYS_ON_CONFIG_FIELDS.defaultBudgetExceededAction as SelectFieldDefinition;
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (normalized === "warn" || normalized === "terminate") {
+    return normalized;
+  }
+  throw new Error(`${field.label} must be one of: ${field.options.join(", ")}`);
+}
+
+function parseBooleanField(value: unknown, label: string): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  throw new Error(`${label} must be true or false`);
+}
+
+function parseOptionalTextField(value: unknown, label: string): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string`);
+  }
+  return normalizeOptionalString(value);
+}
+
 function parseDataDir(value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return undefined;
@@ -253,6 +451,14 @@ function parseDataDir(value: unknown): string | undefined {
     throw new Error("Data Directory must be a string");
   }
 
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 }

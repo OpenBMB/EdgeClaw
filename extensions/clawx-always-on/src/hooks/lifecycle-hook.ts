@@ -12,6 +12,10 @@ function parseBudgetUsage(raw: string): BudgetUsage {
   return JSON.parse(raw) as BudgetUsage;
 }
 
+function serializeBudgetUsage(usage: BudgetUsage): string {
+  return JSON.stringify(usage);
+}
+
 function isAssistantMessage(message: unknown): boolean {
   return Boolean(
     message && typeof message === "object" && (message as { role?: unknown }).role === "assistant",
@@ -49,9 +53,21 @@ export function registerLifecycleHooks(
     });
     if (!usage) return;
 
+    if (task.runCount > 0) {
+      store.updateTaskRun(task.id, task.runCount, {
+        budgetUsageSnapshot: serializeBudgetUsage(usage),
+      });
+    }
+
     const exceededReason = getBudgetExceededReason(task, usage);
     if (exceededReason) {
       logger.warn(task.id, `Budget constraint exceeded: ${exceededReason}`);
+      if (task.budgetExceededAction === "terminate") {
+        logger.warn(
+          task.id,
+          "Budget action is terminate; the next prompt will force a summary and stop.",
+        );
+      }
     }
   });
 
@@ -72,9 +88,21 @@ export function registerLifecycleHooks(
     });
     if (!usage) return;
 
+    if (task.runCount > 0) {
+      store.updateTaskRun(task.id, task.runCount, {
+        budgetUsageSnapshot: serializeBudgetUsage(usage),
+      });
+    }
+
     const exceededReason = getBudgetExceededReason(task, usage);
     if (exceededReason) {
       logger.warn(task.id, `Budget constraint exceeded: ${exceededReason}`);
+      if (task.budgetExceededAction === "terminate") {
+        logger.warn(
+          task.id,
+          "Budget action is terminate; the next prompt will force a summary and stop.",
+        );
+      }
     }
   });
 
@@ -82,7 +110,7 @@ export function registerLifecycleHooks(
     if (!isAlwaysOnSession(ctx.sessionKey)) return;
 
     const task = store.getTaskBySessionKey(ctx.sessionKey!);
-    if (!task || task.status !== "active") return;
+    if (!task) return;
 
     const eventRecord = event as {
       error?: unknown;
@@ -92,13 +120,39 @@ export function registerLifecycleHooks(
     const eventMessages = Array.isArray(eventRecord.messages) ? eventRecord.messages : [];
     const derivedOutcome = deriveTaskOutcomeFromMessages(eventMessages);
     const succeeded = eventRecord.success === true;
+    const finishedAt = Date.now();
+    const usage = parseBudgetUsage(task.budgetUsage);
+    const budgetUsageSnapshot = serializeBudgetUsage(usage);
+
+    if (task.status === "completed") {
+      store.updateTaskRun(task.id, task.runCount, {
+        status: "completed",
+        endedAt: finishedAt,
+        budgetUsageSnapshot,
+      });
+      return;
+    }
+
+    if (task.status !== "active") return;
 
     if (succeeded && derivedOutcome?.status === "completed") {
       store.updateTask(task.id, {
         status: "completed",
         resultSummary: derivedOutcome.summary,
-        completedAt: Date.now(),
+        completedAt: finishedAt,
         suspendedAt: null,
+      });
+      store.appendTaskCheckpoint({
+        taskId: task.id,
+        runOrdinal: task.runCount,
+        kind: "completion",
+        content: derivedOutcome.summary,
+        createdAt: finishedAt,
+      });
+      store.updateTaskRun(task.id, task.runCount, {
+        status: "completed",
+        endedAt: finishedAt,
+        budgetUsageSnapshot,
       });
       logger.info(task.id, "Task completed from final assistant reply", {
         summaryLength: derivedOutcome.summary.length,
@@ -110,7 +164,19 @@ export function registerLifecycleHooks(
       store.updateTask(task.id, {
         status: "suspended",
         progressSummary: derivedOutcome.summary,
-        suspendedAt: Date.now(),
+        suspendedAt: finishedAt,
+      });
+      store.appendTaskCheckpoint({
+        taskId: task.id,
+        runOrdinal: task.runCount,
+        kind: "progress",
+        content: derivedOutcome.summary,
+        createdAt: finishedAt,
+      });
+      store.updateTaskRun(task.id, task.runCount, {
+        status: "suspended",
+        endedAt: finishedAt,
+        budgetUsageSnapshot,
       });
       logger.info(task.id, "Task suspended: final assistant reply requested resume", {
         summaryLength: derivedOutcome.summary.length,
@@ -118,14 +184,27 @@ export function registerLifecycleHooks(
       return;
     }
 
+    const exceededReason = getBudgetExceededReason(task, usage);
     store.updateTask(task.id, {
       status: "suspended",
       progressSummary: derivedOutcome?.summary ?? task.progressSummary ?? null,
-      suspendedAt: Date.now(),
+      suspendedAt: finishedAt,
+    });
+    if (derivedOutcome?.summary) {
+      store.appendTaskCheckpoint({
+        taskId: task.id,
+        runOrdinal: task.runCount,
+        kind: "system",
+        content: derivedOutcome.summary,
+        createdAt: finishedAt,
+      });
+    }
+    store.updateTaskRun(task.id, task.runCount, {
+      status: "suspended",
+      endedAt: finishedAt,
+      budgetUsageSnapshot,
     });
 
-    const usage = parseBudgetUsage(task.budgetUsage);
-    const exceededReason = getBudgetExceededReason(task, usage);
     const runtimeError =
       typeof eventRecord.error === "string" && eventRecord.error.trim()
         ? eventRecord.error.trim()

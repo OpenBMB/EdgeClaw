@@ -20,6 +20,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
     title: "Investigate regressions",
     status: "queued",
     sourceType: "user-command",
+    budgetExceededAction: "warn",
     budgetConstraints: JSON.stringify([
       { kind: "max-loops", limit: 50 },
       { kind: "max-cost-usd", limitUsd: 1.25 },
@@ -34,7 +35,12 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.25,
+  defaultBudgetExceededAction: "warn",
   maxConcurrentTasks: 3,
+  dreamEnabled: false,
+  dreamIntervalMinutes: 60,
+  dreamMaxCandidates: 3,
+  dreamContextMessageLimit: 40,
   logLevel: "info",
   logRetentionDays: 30,
 };
@@ -240,6 +246,24 @@ describe("createAlwaysOnHttpHandler", () => {
     expect(response.status).toBe(200);
     expect(payload.task.status).toBe("queued");
     expect(store.getTask("task-resume")?.status).toBe("queued");
+  });
+
+  it("starts pending tasks", async () => {
+    store.createTask(
+      makeTask({
+        id: "task-start",
+        status: "pending",
+      }),
+    );
+
+    const response = await fetch(`${baseUrl}/plugins/clawx-always-on/api/tasks/task-start/start`, {
+      method: "POST",
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.task.status).toBe("queued");
+    expect(store.getTask("task-start")?.status).toBe("queued");
   });
 
   it("cancels active tasks", async () => {

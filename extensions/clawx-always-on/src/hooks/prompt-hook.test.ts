@@ -12,6 +12,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
     title: "Research AI trends",
     status: "active",
     sourceType: "user-command",
+    budgetExceededAction: "warn",
     budgetConstraints: JSON.stringify([{ kind: "max-loops", limit: 50 }]),
     budgetUsage: JSON.stringify({ loopsUsed: 5, costUsedUsd: 0.1 }),
     sessionKey: "always-on:task-001",

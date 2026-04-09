@@ -13,7 +13,12 @@ import { AlwaysOnPlanService } from "./service.js";
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  defaultBudgetExceededAction: "warn",
   maxConcurrentTasks: 2,
+  dreamEnabled: false,
+  dreamIntervalMinutes: 60,
+  dreamMaxCandidates: 3,
+  dreamContextMessageLimit: 40,
   logLevel: "info",
   logRetentionDays: 30,
 };
