@@ -62,7 +62,8 @@ function deriveConversationIdFromCommand(ctx: PluginCommandContext): string | un
   if (ctx.channel === "telegram") {
     return deriveTelegramConversationId(ctx);
   }
-  return stripKnownPrefix(ctx.to ?? ctx.from, ctx.channel);
+  // webchat and other channels: prefer to/from, fall back to senderId
+  return stripKnownPrefix(ctx.to ?? ctx.from, ctx.channel) ?? ctx.senderId;
 }
 
 function buildConversationKey(params: {
