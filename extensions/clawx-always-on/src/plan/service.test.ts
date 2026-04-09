@@ -34,6 +34,35 @@ function makeCommandContext(overrides: Partial<PluginCommandContext> = {}): Plug
   };
 }
 
+const MOCK_ASK_RESPONSE = {
+  action: "ask",
+  questions: [
+    {
+      id: "q1",
+      text: "你希望关注哪类信息？",
+      options: ["A. 行业新闻", "B. 竞品动态", "C. 自定义（请说明）"],
+    },
+    {
+      id: "q2",
+      text: "输出格式偏好？",
+      options: ["A. 简明摘要", "B. 详细报告", "C. 自定义（请说明）"],
+    },
+  ],
+  defaultPlan: {
+    taskTitle: "Competitor Monitor (default)",
+    taskPrompt: "Monitor competitors with default settings.",
+    assumptions: ["Uses public sources only."],
+  },
+};
+
+const MOCK_CREATE_RESPONSE = {
+  action: "create",
+  taskTitle: "Competitor Monitor",
+  taskPrompt:
+    "Monitor competitor changelogs, blog posts, and launch announcements. Summarize notable changes every run.",
+  assumptions: ["Use public web sources only."],
+};
+
 describe("AlwaysOnPlanService", () => {
   let tmpDir: string;
   let db: DatabaseSync;
@@ -65,16 +94,9 @@ describe("AlwaysOnPlanService", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("asks a follow-up question before creating a task", async () => {
+  it("presents multiple-choice questions on startPlan", async () => {
     runEmbeddedPiAgent.mockResolvedValue({
-      payloads: [
-        {
-          text: JSON.stringify({
-            action: "ask",
-            assistantReply: "What sources should this background task monitor?",
-          }),
-        },
-      ],
+      payloads: [{ text: JSON.stringify(MOCK_ASK_RESPONSE) }],
     });
     const service = new AlwaysOnPlanService(api, store, logger, defaultConfig, {
       explicitToolsAvailable: true,
@@ -85,25 +107,20 @@ describe("AlwaysOnPlanService", () => {
       "Build me a useful always-on competitor monitor",
     );
 
-    expect(result.text).toContain("I’ll refine this into a better always-on task");
-    expect(result.text).toContain("What sources should this background task monitor?");
+    expect(result.text).toContain("我会帮你把这个想法打磨成一条更好的后台任务");
+    expect(result.text).toContain("**1. 你希望关注哪类信息？**");
+    expect(result.text).toContain("A. 行业新闻");
+    expect(result.text).toContain("**2. 输出格式偏好？**");
+    expect(result.text).toContain("直接回复选项字母");
 
     const plan = store.getActivePlanByConversationKey("webchat:default:user-123");
-    expect(plan?.roundCount).toBe(1);
-    expect(JSON.parse(plan!.turnsJson)).toHaveLength(2);
-
-    expect(runEmbeddedPiAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: undefined,
-        model: undefined,
-        disableTools: true,
-      }),
-    );
+    expect(plan).toBeDefined();
+    expect(plan!.roundCount).toBe(1);
   });
 
   it("passes configured provider and model to the embedded agent", async () => {
     runEmbeddedPiAgent.mockResolvedValue({
-      payloads: [{ text: JSON.stringify({ action: "ask", assistantReply: "question" }) }],
+      payloads: [{ text: JSON.stringify(MOCK_ASK_RESPONSE) }],
     });
     const configuredApi = {
       ...api,
@@ -121,31 +138,15 @@ describe("AlwaysOnPlanService", () => {
     );
   });
 
-  it("continues the planning flow and creates a planned task", async () => {
+  it("finalizes the task when user answers via before_dispatch", async () => {
     runEmbeddedPiAgent
       .mockResolvedValueOnce({
-        payloads: [
-          {
-            text: JSON.stringify({
-              action: "ask",
-              assistantReply: "What sources should this background task monitor?",
-            }),
-          },
-        ],
+        payloads: [{ text: JSON.stringify(MOCK_ASK_RESPONSE) }],
       })
       .mockResolvedValueOnce({
-        payloads: [
-          {
-            text: JSON.stringify({
-              action: "create",
-              taskTitle: "Competitor Monitor",
-              taskPrompt:
-                "Monitor competitor changelogs, blog posts, and launch announcements. Summarize notable changes every run.",
-              assumptions: ["Use public web sources only."],
-            }),
-          },
-        ],
+        payloads: [{ text: JSON.stringify(MOCK_CREATE_RESPONSE) }],
       });
+
     const service = new AlwaysOnPlanService(api, store, logger, defaultConfig, {
       explicitToolsAvailable: true,
     });
@@ -155,29 +156,24 @@ describe("AlwaysOnPlanService", () => {
     expect(activePlan).toBeDefined();
 
     const followUp = await service.handleBeforeDispatch(
-      {
-        content: "Use public changelogs, product blogs, and launch announcements.",
-      },
+      { content: "A, A" },
       {
         channelId: "webchat",
         accountId: "default",
-        conversationId: "user-123",
+        conversationId: undefined,
+        senderId: "user-123",
         sessionKey: "agent:main:webchat:dm:user-123",
       },
     );
 
-    expect(followUp).toEqual(
-      expect.objectContaining({
-        handled: true,
-      }),
-    );
+    expect(followUp).toEqual(expect.objectContaining({ handled: true }));
     expect(followUp?.text).toContain("created from the planning flow");
     expect(followUp?.text).toContain("Competitor Monitor");
-    expect(followUp?.text).toContain("Use public web sources only.");
 
     const completedPlan = store.getPlan(activePlan!.id);
     expect(completedPlan?.status).toBe("completed");
     expect(completedPlan?.createdTaskId).toBeDefined();
+
     const task = store.listTasks()[0];
     expect(task.title).toBe("Competitor Monitor");
     expect(parseUserCommandSourceMetadata(task.sourceMetadata)).toEqual({
@@ -188,5 +184,51 @@ describe("AlwaysOnPlanService", () => {
       originConversationKey: "webchat:default:user-123",
       originSessionKey: "agent:main:webchat:dm:user-123",
     });
+  });
+
+  it("finds active plan via senderId when conversationId is undefined", async () => {
+    runEmbeddedPiAgent.mockResolvedValue({
+      payloads: [{ text: JSON.stringify(MOCK_ASK_RESPONSE) }],
+    });
+    const service = new AlwaysOnPlanService(api, store, logger, defaultConfig, {
+      explicitToolsAvailable: true,
+    });
+
+    await service.startPlan(makeCommandContext(), "test task");
+
+    runEmbeddedPiAgent.mockResolvedValue({
+      payloads: [{ text: JSON.stringify(MOCK_CREATE_RESPONSE) }],
+    });
+
+    const result = await service.handleBeforeDispatch(
+      { content: "B" },
+      {
+        channelId: "webchat",
+        accountId: undefined,
+        conversationId: undefined,
+        senderId: "user-123",
+        sessionKey: undefined,
+      },
+    );
+
+    expect(result).toEqual(expect.objectContaining({ handled: true }));
+    expect(result?.text).toContain("created from the planning flow");
+  });
+
+  it("does not intercept messages when no plan is active", async () => {
+    const service = new AlwaysOnPlanService(api, store, logger, defaultConfig, {
+      explicitToolsAvailable: true,
+    });
+
+    const result = await service.handleBeforeDispatch(
+      { content: "hello" },
+      {
+        channelId: "webchat",
+        conversationId: undefined,
+        senderId: "user-123",
+      },
+    );
+
+    expect(result).toBeUndefined();
   });
 });

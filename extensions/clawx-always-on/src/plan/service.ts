@@ -9,10 +9,13 @@ import {
   resolvePlanConversationKeyFromCommand,
   resolvePlanConversationKeyFromHook,
 } from "./conversation-key.js";
-import { runAlwaysOnPlanner } from "./planner.js";
+import {
+  runClarificationStep,
+  runFinalizationStep,
+  type PlanQuestion,
+  type PlanDefaultPlan,
+} from "./planner.js";
 import type { AlwaysOnPlan, AlwaysOnPlanTurn } from "./types.js";
-
-const MAX_PLAN_CLARIFICATION_ROUNDS = 3;
 
 type PlanHookEvent = {
   content: string;
@@ -23,6 +26,7 @@ type PlanHookContext = {
   accountId?: string;
   conversationId?: string;
   sessionKey?: string;
+  senderId?: string;
 };
 
 function generatePlanId(): string {
@@ -31,6 +35,38 @@ function generatePlanId(): string {
 
 function parsePlanTurns(raw: string): AlwaysOnPlanTurn[] {
   return JSON.parse(raw) as AlwaysOnPlanTurn[];
+}
+
+function formatQuestionsText(questions: PlanQuestion[]): string {
+  const lines: string[] = [];
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    lines.push(`**${i + 1}. ${q.text}**`);
+    for (const opt of q.options) {
+      lines.push(opt);
+    }
+    lines.push("");
+  }
+  lines.push('直接回复选项字母（如 "A, B"），或输入自定义内容。');
+  return lines.join("\n");
+}
+
+type ClarificationMetadata = {
+  questions: PlanQuestion[];
+  defaultPlan: PlanDefaultPlan;
+};
+
+function serializeClarificationMetadata(meta: ClarificationMetadata): string {
+  return JSON.stringify(meta);
+}
+
+function parseClarificationMetadata(raw: string | undefined): ClarificationMetadata | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as ClarificationMetadata;
+  } catch {
+    return undefined;
+  }
 }
 
 export class AlwaysOnPlanService {
@@ -76,8 +112,32 @@ export class AlwaysOnPlanService {
     this.store.createPlan(plan);
 
     try {
-      const text = await this.advancePlan(plan);
-      return { text };
+      const decision = await runClarificationStep({
+        api: this.api,
+        initialPrompt: trimmedPrompt,
+      });
+
+      const questionsText = formatQuestionsText(decision.questions);
+      const reply =
+        "我会帮你把这个想法打磨成一条更好的后台任务。先回答几个问题：\n\n" + questionsText;
+
+      const clarificationMeta = serializeClarificationMetadata({
+        questions: decision.questions,
+        defaultPlan: decision.defaultPlan,
+      });
+
+      this.store.appendPlanTurn(plan.id, {
+        role: "assistant",
+        content: reply,
+        timestamp: Date.now(),
+      });
+      this.store.updatePlan(plan.id, {
+        roundCount: 1,
+        finalPrompt: clarificationMeta,
+        updatedAt: Date.now(),
+      });
+
+      return { text: reply };
     } catch (error) {
       return { text: this.failPlan(plan.id, error) };
     }
@@ -119,11 +179,15 @@ export class AlwaysOnPlanService {
       return;
     }
 
+    if (activePlan.roundCount !== 1) {
+      return;
+    }
+
     const trimmedContent = event.content.trim();
     if (!trimmedContent) {
       return {
         handled: true,
-        text: "Please reply with plain text so I can keep refining the always-on task.",
+        text: "请回复选项字母或自定义内容，以完成任务规划。",
       };
     }
 
@@ -135,18 +199,54 @@ export class AlwaysOnPlanService {
         });
       }
 
-      const updatedPlan = this.store.appendPlanTurn(activePlan.id, {
+      this.store.appendPlanTurn(activePlan.id, {
         role: "user",
         content: trimmedContent,
         timestamp: Date.now(),
       });
-      if (!updatedPlan) {
-        throw new Error("failed to persist the planning turn");
+
+      const clarificationMeta = parseClarificationMetadata(activePlan.finalPrompt);
+      if (!clarificationMeta) {
+        throw new Error("plan is missing clarification metadata");
       }
+
+      const decision = await runFinalizationStep({
+        api: this.api,
+        initialPrompt: activePlan.initialPrompt,
+        questions: clarificationMeta.questions,
+        userAnswer: trimmedContent,
+      });
+
+      const originSessionKey = ctx.sessionKey ?? activePlan.originSessionKey;
+      const task = createAlwaysOnTaskFromUserInput({
+        input: {
+          title: decision.taskTitle,
+          prompt: decision.taskPrompt,
+          metadata: {
+            mode: "plan",
+            planId: activePlan.id,
+            originConversationKey: activePlan.conversationKey,
+            originSessionKey,
+          },
+        },
+        store: this.store,
+        logger: this.logger,
+        config: this.config,
+      });
+
+      const now = Date.now();
+      this.store.updatePlan(activePlan.id, {
+        status: "completed",
+        originSessionKey: originSessionKey ?? null,
+        finalPrompt: decision.taskPrompt,
+        createdTaskId: task.id,
+        updatedAt: now,
+        completedAt: now,
+      });
 
       return {
         handled: true,
-        text: await this.advancePlan(updatedPlan, ctx.sessionKey),
+        text: this.buildPlanCompletionText(task.id, task.title, decision.assumptions),
       };
     } catch (error) {
       return {
@@ -154,73 +254,6 @@ export class AlwaysOnPlanService {
         text: this.failPlan(activePlan.id, error),
       };
     }
-  }
-
-  private async advancePlan(plan: AlwaysOnPlan, originSessionKey?: string): Promise<string> {
-    const turns = parsePlanTurns(plan.turnsJson);
-    const mustFinalize = plan.roundCount >= MAX_PLAN_CLARIFICATION_ROUNDS;
-    const decision = await runAlwaysOnPlanner({
-      api: this.api,
-      initialPrompt: plan.initialPrompt,
-      turns,
-      clarificationRoundsUsed: plan.roundCount,
-      clarificationRoundsRemaining: Math.max(MAX_PLAN_CLARIFICATION_ROUNDS - plan.roundCount, 0),
-      mustFinalize,
-    });
-
-    if (decision.action === "ask") {
-      if (mustFinalize) {
-        throw new Error("planner requested more clarification after reaching the round limit");
-      }
-      const now = Date.now();
-      const reply = this.decoratePlannerQuestion(plan, decision.assistantReply);
-      this.store.appendPlanTurn(plan.id, {
-        role: "assistant",
-        content: reply,
-        timestamp: now,
-      });
-      this.store.updatePlan(plan.id, {
-        roundCount: plan.roundCount + 1,
-        originSessionKey: originSessionKey ?? plan.originSessionKey ?? null,
-        updatedAt: now,
-      });
-      return reply;
-    }
-
-    const task = createAlwaysOnTaskFromUserInput({
-      input: {
-        title: decision.taskTitle,
-        prompt: decision.taskPrompt,
-        metadata: {
-          mode: "plan",
-          planId: plan.id,
-          originConversationKey: plan.conversationKey,
-          originSessionKey,
-        },
-      },
-      store: this.store,
-      logger: this.logger,
-      config: this.config,
-    });
-    const now = Date.now();
-    this.store.updatePlan(plan.id, {
-      status: "completed",
-      originSessionKey: originSessionKey ?? plan.originSessionKey ?? null,
-      finalPrompt: decision.taskPrompt,
-      createdTaskId: task.id,
-      updatedAt: now,
-      completedAt: now,
-    });
-    return this.buildPlanCompletionText(task.id, task.title, decision.assumptions);
-  }
-
-  private decoratePlannerQuestion(plan: AlwaysOnPlan, assistantReply: string): string {
-    if (plan.roundCount === 0) {
-      return (
-        "I’ll refine this into a better always-on task before creating it.\n\n" + assistantReply
-      );
-    }
-    return assistantReply;
   }
 
   private buildPlanCompletionText(

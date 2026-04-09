@@ -4,6 +4,7 @@ type PlanHookContext = {
   channelId?: string;
   accountId?: string;
   conversationId?: string;
+  senderId?: string;
 };
 
 function stripKnownPrefix(value: string | undefined, channelId: string): string | undefined {
@@ -91,6 +92,6 @@ export function resolvePlanConversationKeyFromHook(ctx: PlanHookContext): string
   return buildConversationKey({
     channelId: ctx.channelId,
     accountId: ctx.accountId,
-    conversationId: ctx.conversationId,
+    conversationId: ctx.conversationId ?? ctx.senderId,
   });
 }
