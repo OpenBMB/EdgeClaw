@@ -14,6 +14,7 @@ import type {
   TaskLogEntry,
   TaskStatus,
 } from "./core/types.js";
+import { WebPlanRequestError, type AlwaysOnWebPlanService } from "./plan/web-service.js";
 import { UserCommandTaskSource } from "./source/user-command-source.js";
 import type { PluginLoggerSink } from "./storage/logger.js";
 import type { TaskLogger } from "./storage/logger.js";
@@ -76,6 +77,7 @@ export function createAlwaysOnHttpHandler(params: {
   store: TaskStore;
   logger: TaskLogger;
   config: AlwaysOnConfig;
+  planService?: AlwaysOnWebPlanService;
   pluginLogger?: PluginLoggerSink;
 }) {
   const source = new UserCommandTaskSource();
@@ -124,6 +126,7 @@ export function createAlwaysOnHttpHandler(params: {
         logger: params.logger,
         source,
         config: params.config,
+        planService: params.planService,
       });
     }
 
@@ -185,6 +188,7 @@ async function handleApi(
     logger: TaskLogger;
     source: UserCommandTaskSource;
     config: AlwaysOnConfig;
+    planService?: AlwaysOnWebPlanService;
   },
 ): Promise<boolean> {
   const method = normalizeMethod(req.method);
@@ -195,6 +199,114 @@ async function handleApi(
       return true;
     }
     respondJson(res, 200, buildDashboardOverview(params.store, params.config));
+    return true;
+  }
+
+  if (relativePath === "/api/plan/start") {
+    if (method !== "POST") {
+      respondJson(res, 405, { error: "Method not allowed" }, { Allow: "POST" });
+      return true;
+    }
+
+    if (!params.planService) {
+      respondJson(res, 503, { error: "Plan API is unavailable" });
+      return true;
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      respondJson(res, 400, {
+        error: error instanceof Error ? error.message : "Invalid JSON body",
+      });
+      return true;
+    }
+
+    try {
+      const prompt = typeof body.prompt === "string" ? body.prompt : "";
+      const result = await params.planService.startPlan(prompt);
+      respondJson(res, 201, result);
+    } catch (error) {
+      respondPlanError(res, error);
+    }
+    return true;
+  }
+
+  const planAnswerMatch = relativePath.match(/^\/api\/plan\/([^/]+)\/answer$/);
+  if (planAnswerMatch) {
+    if (method !== "POST") {
+      respondJson(res, 405, { error: "Method not allowed" }, { Allow: "POST" });
+      return true;
+    }
+
+    if (!params.planService) {
+      respondJson(res, 503, { error: "Plan API is unavailable" });
+      return true;
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      respondJson(res, 400, {
+        error: error instanceof Error ? error.message : "Invalid JSON body",
+      });
+      return true;
+    }
+
+    try {
+      const planId = decodeURIComponent(planAnswerMatch[1]);
+      const answer = typeof body.answer === "string" ? body.answer : "";
+      const result = await params.planService.answerPlan(planId, answer);
+      respondJson(res, 200, result);
+    } catch (error) {
+      respondPlanError(res, error);
+    }
+    return true;
+  }
+
+  const planCancelMatch = relativePath.match(/^\/api\/plan\/([^/]+)\/cancel$/);
+  if (planCancelMatch) {
+    if (method !== "POST") {
+      respondJson(res, 405, { error: "Method not allowed" }, { Allow: "POST" });
+      return true;
+    }
+
+    if (!params.planService) {
+      respondJson(res, 503, { error: "Plan API is unavailable" });
+      return true;
+    }
+
+    try {
+      const planId = decodeURIComponent(planCancelMatch[1]);
+      const plan = params.planService.cancelPlan(planId);
+      respondJson(res, 200, { plan });
+    } catch (error) {
+      respondPlanError(res, error);
+    }
+    return true;
+  }
+
+  const planDetailMatch = relativePath.match(/^\/api\/plan\/([^/]+)$/);
+  if (planDetailMatch) {
+    if (method !== "GET") {
+      respondJson(res, 405, { error: "Method not allowed" }, { Allow: "GET" });
+      return true;
+    }
+
+    if (!params.planService) {
+      respondJson(res, 503, { error: "Plan API is unavailable" });
+      return true;
+    }
+
+    try {
+      const planId = decodeURIComponent(planDetailMatch[1]);
+      const plan = params.planService.getPlan(planId);
+      respondJson(res, 200, { plan });
+    } catch (error) {
+      respondPlanError(res, error);
+    }
     return true;
   }
 
@@ -602,6 +714,16 @@ function requireTask(store: TaskStore, taskId: string): AlwaysOnTask {
 
 function isTaskStatus(value: string): value is TaskStatus {
   return TASK_STATUSES.includes(value as TaskStatus);
+}
+
+function respondPlanError(res: ServerResponse, error: unknown): void {
+  if (error instanceof WebPlanRequestError) {
+    respondJson(res, error.statusCode, { error: error.message });
+    return;
+  }
+  const message =
+    error instanceof Error && error.message.trim() ? error.message.trim() : "Plan request failed";
+  respondJson(res, 500, { error: message });
 }
 
 function respondRedirect(res: ServerResponse, location: string): void {

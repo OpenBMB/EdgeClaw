@@ -10,6 +10,7 @@ import { registerPlanHook } from "./src/hooks/plan-hook.js";
 import { registerPromptHook } from "./src/hooks/prompt-hook.js";
 import { createAlwaysOnHttpHandler } from "./src/http.js";
 import { AlwaysOnPlanService } from "./src/plan/service.js";
+import { AlwaysOnWebPlanService } from "./src/plan/web-service.js";
 import { TaskLogger } from "./src/storage/logger.js";
 import { openDatabase, TaskStore } from "./src/storage/store.js";
 import { createCompleteToolFactory } from "./src/tools/complete-tool.js";
@@ -36,6 +37,7 @@ export default definePluginEntry({
     const logger = new TaskLogger(db, config, api.logger);
     const toolSupport = resolveAlwaysOnToolSupport(api.config);
     const planService = new AlwaysOnPlanService(api, store, logger, config, toolSupport);
+    const webPlanService = new AlwaysOnWebPlanService(api, store, logger, config);
 
     const executor = new SubagentExecutor(api.runtime.subagent, store, logger, toolSupport);
     const worker = new AlwaysOnWorker(
@@ -63,6 +65,7 @@ export default definePluginEntry({
         store,
         logger,
         config,
+        planService: webPlanService,
         pluginLogger: api.logger,
       }),
     });

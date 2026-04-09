@@ -4,10 +4,12 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { OpenClawPluginApi } from "../api.js";
 import type { AlwaysOnConfig } from "./core/config.js";
 import type { AlwaysOnTask } from "./core/types.js";
 import { createAlwaysOnHttpHandler } from "./http.js";
+import { AlwaysOnWebPlanService } from "./plan/web-service.js";
 import { TaskLogger } from "./storage/logger.js";
 import { openDatabase, TaskStore } from "./storage/store.js";
 
@@ -36,11 +38,37 @@ const defaultConfig: AlwaysOnConfig = {
   logRetentionDays: 30,
 };
 
+const MOCK_ASK_RESPONSE = {
+  action: "ask",
+  questions: [
+    {
+      id: "q1",
+      text: "你希望关注哪类信息？",
+      options: ["A. 行业新闻", "B. 竞品动态", "C. 自定义（请说明）"],
+    },
+  ],
+  defaultPlan: {
+    taskTitle: "Competitor Monitor (default)",
+    taskPrompt: "Monitor competitors with default settings.",
+    assumptions: ["Uses public sources only."],
+  },
+};
+
+const MOCK_CREATE_RESPONSE = {
+  action: "create",
+  taskTitle: "Competitor Monitor",
+  taskPrompt:
+    "Monitor competitor changelogs, blog posts, and launch announcements. Summarize notable changes every run.",
+  assumptions: ["Use public web sources only."],
+};
+
 describe("createAlwaysOnHttpHandler", () => {
   let tmpDir: string;
   let db: DatabaseSync;
   let store: TaskStore;
   let logger: TaskLogger;
+  let runEmbeddedPiAgent: ReturnType<typeof vi.fn>;
+  let planService: AlwaysOnWebPlanService;
   let server: ReturnType<typeof createServer>;
   let baseUrl: string;
 
@@ -49,11 +77,24 @@ describe("createAlwaysOnHttpHandler", () => {
     db = openDatabase(join(tmpDir, "test.sqlite"));
     store = new TaskStore(db);
     logger = new TaskLogger(db, defaultConfig);
+    runEmbeddedPiAgent = vi.fn();
+    const api = {
+      config: {},
+      runtime: {
+        agent: {
+          runEmbeddedPiAgent,
+          resolveAgentWorkspaceDir: () => tmpDir,
+          resolveAgentTimeoutMs: () => 30_000,
+        },
+      },
+    } as never as OpenClawPluginApi;
+    planService = new AlwaysOnWebPlanService(api, store, logger, defaultConfig);
 
     const handler = createAlwaysOnHttpHandler({
       store,
       logger,
       config: defaultConfig,
+      planService,
     });
 
     server = createServer((req, res) => {
@@ -210,6 +251,97 @@ describe("createAlwaysOnHttpHandler", () => {
 
     expect(response.status).toBe(400);
     expect(payload.error).toContain("Task title is required");
+  });
+
+  describe("plan api", () => {
+    it("starts and reads a web planner session", async () => {
+      runEmbeddedPiAgent.mockResolvedValue({
+        payloads: [{ text: JSON.stringify(MOCK_ASK_RESPONSE) }],
+      });
+
+      const startResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/api/plan/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: "Build me a useful always-on competitor monitor",
+        }),
+      });
+      const startPayload = await startResponse.json();
+
+      expect(startResponse.status).toBe(201);
+      expect(startPayload.plan.status).toBe("active");
+      expect(startPayload.plan.pendingQuestions[0].id).toBe("q1");
+
+      const detailResponse = await fetch(
+        `${baseUrl}/plugins/clawx-always-on/api/plan/${startPayload.plan.id}`,
+      );
+      const detailPayload = await detailResponse.json();
+
+      expect(detailResponse.status).toBe(200);
+      expect(detailPayload.plan.id).toBe(startPayload.plan.id);
+      expect(detailPayload.plan.defaultPlan.taskTitle).toBe("Competitor Monitor (default)");
+    });
+
+    it("answers a web planner session and creates a task", async () => {
+      runEmbeddedPiAgent
+        .mockResolvedValueOnce({
+          payloads: [{ text: JSON.stringify(MOCK_ASK_RESPONSE) }],
+        })
+        .mockResolvedValueOnce({
+          payloads: [{ text: JSON.stringify(MOCK_CREATE_RESPONSE) }],
+        });
+
+      const startResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/api/plan/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: "Build me a useful always-on competitor monitor",
+        }),
+      });
+      const startPayload = await startResponse.json();
+
+      const answerResponse = await fetch(
+        `${baseUrl}/plugins/clawx-always-on/api/plan/${startPayload.plan.id}/answer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ answer: "A" }),
+        },
+      );
+      const answerPayload = await answerResponse.json();
+
+      expect(answerResponse.status).toBe(200);
+      expect(answerPayload.plan.status).toBe("completed");
+      expect(answerPayload.task.title).toBe("Competitor Monitor");
+      expect(answerPayload.plan.createdTaskId).toBe(answerPayload.task.id);
+      expect(store.getTask(answerPayload.task.id)?.status).toBe("queued");
+    });
+
+    it("cancels a web planner session", async () => {
+      runEmbeddedPiAgent.mockResolvedValue({
+        payloads: [{ text: JSON.stringify(MOCK_ASK_RESPONSE) }],
+      });
+
+      const startResponse = await fetch(`${baseUrl}/plugins/clawx-always-on/api/plan/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: "Build me a useful always-on competitor monitor",
+        }),
+      });
+      const startPayload = await startResponse.json();
+
+      const cancelResponse = await fetch(
+        `${baseUrl}/plugins/clawx-always-on/api/plan/${startPayload.plan.id}/cancel`,
+        {
+          method: "POST",
+        },
+      );
+      const cancelPayload = await cancelResponse.json();
+
+      expect(cancelResponse.status).toBe(200);
+      expect(cancelPayload.plan.status).toBe("cancelled");
+    });
   });
 
   describe("v2 dashboard", () => {
