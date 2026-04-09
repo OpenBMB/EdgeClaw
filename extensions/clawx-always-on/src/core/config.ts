@@ -1,6 +1,7 @@
 export type AlwaysOnConfig = {
   defaultMaxLoops: number;
   defaultMaxCostUsd: number;
+  maxConcurrentTasks: number;
   logLevel: "debug" | "info" | "warn" | "error";
   logRetentionDays: number;
   dataDir?: string;
@@ -9,6 +10,7 @@ export type AlwaysOnConfig = {
 const DEFAULTS: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  maxConcurrentTasks: 3,
   logLevel: "info",
   logRetentionDays: 30,
 };
@@ -18,6 +20,7 @@ export function resolveConfig(raw?: Record<string, unknown>): AlwaysOnConfig {
   return {
     defaultMaxLoops: cfg.defaultMaxLoops ?? DEFAULTS.defaultMaxLoops,
     defaultMaxCostUsd: cfg.defaultMaxCostUsd ?? DEFAULTS.defaultMaxCostUsd,
+    maxConcurrentTasks: cfg.maxConcurrentTasks ?? DEFAULTS.maxConcurrentTasks,
     logLevel: cfg.logLevel ?? DEFAULTS.logLevel,
     logRetentionDays: cfg.logRetentionDays ?? DEFAULTS.logRetentionDays,
     dataDir: cfg.dataDir,

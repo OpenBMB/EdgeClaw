@@ -11,6 +11,7 @@ function makeConfig(overrides: Partial<AlwaysOnConfig> = {}): AlwaysOnConfig {
   return {
     defaultMaxLoops: 50,
     defaultMaxCostUsd: 1.0,
+    maxConcurrentTasks: 3,
     logLevel: "debug",
     logRetentionDays: 30,
     ...overrides,

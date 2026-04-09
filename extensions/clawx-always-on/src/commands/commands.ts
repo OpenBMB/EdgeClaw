@@ -59,15 +59,6 @@ export function registerCommands(
       return { text: "Usage: `/always-on create <task description>`" };
     }
 
-    const inFlightTask = store.getInFlightTask();
-    if (inFlightTask) {
-      return {
-        text:
-          `Another task is already in progress: **${inFlightTask.title}** ` +
-          `(${inFlightTask.id}, status: ${inFlightTask.status}). Wait for it to finish or cancel it first.`,
-      };
-    }
-
     const constraints = [
       new MaxLoopsBudget(config.defaultMaxLoops),
       new MaxCostUsdBudget(config.defaultMaxCostUsd),
@@ -83,6 +74,7 @@ export function registerCommands(
         `Task **${task.id}** created and queued for background execution.\n` +
         `> ${title}\n\n` +
         `Budget: ${config.defaultMaxLoops} loops, $${config.defaultMaxCostUsd} max cost.\n` +
+        `The worker runs up to ${config.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.\n` +
         `Your main session is not affected — keep chatting normally.` +
         (commandNote ? `\n\n${commandNote}` : ""),
     };
@@ -158,15 +150,6 @@ export function registerCommands(
       };
     }
 
-    const inFlightTask = store.getInFlightTask();
-    if (inFlightTask) {
-      return {
-        text:
-          `Another task is already in progress: **${inFlightTask.title}** ` +
-          `(${inFlightTask.id}, status: ${inFlightTask.status}). Wait for it to finish or cancel it first.`,
-      };
-    }
-
     store.updateTask(task.id, {
       status: "queued",
       suspendedAt: null,
@@ -175,7 +158,8 @@ export function registerCommands(
 
     return {
       text:
-        `Task **${taskId}** queued to resume in background.` +
+        `Task **${taskId}** queued to resume in background. ` +
+        `The worker runs up to ${config.maxConcurrentTasks} task(s) at once and will restart it when a slot is available.` +
         (commandNote ? `\n\n${commandNote}` : ""),
     };
   }
@@ -217,18 +201,26 @@ export function registerCommands(
 
   function handleStatus() {
     const all = store.listTasks();
+    const runningTasks = store.listRunningTasks();
     const byStatus = new Map<string, number>();
     for (const t of all) {
       byStatus.set(t.status, (byStatus.get(t.status) ?? 0) + 1);
     }
 
-    const active = store.getInFlightTask();
-    const lines = ["## Always-On Status", `- **Total tasks:** ${all.length}`];
+    const lines = [
+      "## Always-On Status",
+      `- **Total tasks:** ${all.length}`,
+      `- **Concurrent run limit:** ${config.maxConcurrentTasks}`,
+    ];
     for (const [s, c] of byStatus) {
       lines.push(`- **${s}:** ${c}`);
     }
-    if (active) {
-      lines.push(`- **Currently in progress:** ${active.title} (${active.id}, ${active.status})`);
+    if (runningTasks.length === 0) {
+      lines.push("- **Running now:** none");
+    } else {
+      for (const task of runningTasks) {
+        lines.push(`- **Running now:** ${task.title} (${task.id}, ${task.status})`);
+      }
     }
 
     return { text: lines.join("\n") };
@@ -238,10 +230,10 @@ export function registerCommands(
 const HELP_TEXT = `## /always-on — Background Task Manager
 
 **Commands:**
-- \`/always-on create <description>\` — Create and start a task
+- \`/always-on create <description>\` — Create and queue a task
 - \`/always-on list\` — List all tasks
 - \`/always-on show <id>\` — Show task details
-- \`/always-on resume <id>\` — Resume a suspended task
+- \`/always-on resume <id>\` — Re-queue a suspended task
 - \`/always-on cancel <id>\` — Cancel a task
 - \`/always-on logs <id>\` — View task logs
 - \`/always-on status\` — System status overview`;

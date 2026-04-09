@@ -34,7 +34,14 @@ export default definePluginEntry({
     const toolSupport = resolveAlwaysOnToolSupport(api.config);
 
     const executor = new SubagentExecutor(api.runtime.subagent, store, logger, toolSupport);
-    const worker = new AlwaysOnWorker(store, logger, executor, api.logger);
+    const worker = new AlwaysOnWorker(
+      store,
+      logger,
+      executor,
+      api.logger,
+      undefined,
+      config.maxConcurrentTasks,
+    );
 
     // Register tools as factories (session-key aware)
     const progressFactory = createProgressToolFactory(store, logger);
@@ -71,7 +78,7 @@ export default definePluginEntry({
     if (typeof cleanupTimer.unref === "function") cleanupTimer.unref();
 
     api.logger.info(
-      `[${PLUGIN_ID}] registered (maxLoops=${config.defaultMaxLoops}, maxCost=$${config.defaultMaxCostUsd})`,
+      `[${PLUGIN_ID}] registered (maxLoops=${config.defaultMaxLoops}, maxCost=$${config.defaultMaxCostUsd}, maxConcurrentTasks=${config.maxConcurrentTasks})`,
     );
   },
 });

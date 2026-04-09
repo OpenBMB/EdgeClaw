@@ -16,6 +16,7 @@ export class AlwaysOnWorker {
     private readonly executor: SubagentExecutor,
     private readonly hostLogger?: PluginLoggerSink,
     private readonly pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+    private readonly maxConcurrentTasks = 1,
   ) {}
 
   start(): void {
@@ -32,7 +33,9 @@ export class AlwaysOnWorker {
     }, this.pollIntervalMs);
     this.timer.unref?.();
 
-    this.hostLogger?.info("[clawx-always-on] worker started");
+    this.hostLogger?.info(
+      `[clawx-always-on] worker started (maxConcurrentTasks=${this.maxConcurrentTasks})`,
+    );
   }
 
   stop(): void {
@@ -65,6 +68,9 @@ export class AlwaysOnWorker {
       const queuedTasks = this.store.getQueuedTasks();
       for (const task of queuedTasks) {
         if (!this.running) {
+          break;
+        }
+        if (this.store.countRunningTasks() >= this.maxConcurrentTasks) {
           break;
         }
         if (!this.store.claimQueuedTask(task.id)) {

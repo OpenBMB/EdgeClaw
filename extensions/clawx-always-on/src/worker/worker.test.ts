@@ -27,6 +27,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1,
+  maxConcurrentTasks: 3,
   logLevel: "debug",
   logRetentionDays: 30,
 };
@@ -92,6 +93,29 @@ describe("AlwaysOnWorker", () => {
     expect(logs.some((entry) => entry.message.includes("Failed to launch: Error: boom"))).toBe(
       true,
     );
+
+    worker.stop();
+  });
+
+  it("launches queued tasks only up to maxConcurrentTasks", async () => {
+    const executor = {
+      launch: vi.fn().mockResolvedValue("run-1"),
+    } as unknown as SubagentExecutor;
+    const worker = new AlwaysOnWorker(store, logger, executor, undefined, 5, 2);
+
+    store.createTask(makeTask({ id: "task-001", createdAt: 100 }));
+    store.createTask(makeTask({ id: "task-002", createdAt: 200 }));
+    store.createTask(makeTask({ id: "task-003", createdAt: 300 }));
+    worker.start();
+
+    await vi.waitFor(() => {
+      expect(executor.launch).toHaveBeenCalledTimes(2);
+    });
+
+    expect(store.getTask("task-001")?.status).toBe("launching");
+    expect(store.getTask("task-002")?.status).toBe("launching");
+    expect(store.getTask("task-003")?.status).toBe("queued");
+    expect(store.countRunningTasks()).toBe(2);
 
     worker.stop();
   });

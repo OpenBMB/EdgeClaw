@@ -28,6 +28,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  maxConcurrentTasks: 3,
   logLevel: "info",
   logRetentionDays: 30,
 };

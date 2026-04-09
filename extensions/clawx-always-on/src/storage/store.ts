@@ -2,7 +2,11 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { canonicalAlwaysOnSessionKey } from "../core/constants.js";
-import type { AlwaysOnTask, TaskFilter, TaskUpdatePatch } from "../core/types.js";
+import type { AlwaysOnTask, BudgetUsage, TaskFilter, TaskUpdatePatch } from "../core/types.js";
+
+function parseBudgetUsage(raw: string): BudgetUsage {
+  return JSON.parse(raw) as BudgetUsage;
+}
 
 export function openDatabase(dbPath: string): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -112,11 +116,53 @@ export class TaskStore {
     return row ? this.rowToTask(row) : undefined;
   }
 
+  updateBudgetUsage(id: string, updater: (usage: BudgetUsage) => void): BudgetUsage | undefined {
+    const row = this.db.prepare("SELECT budgetUsage FROM always_on_tasks WHERE id = ?").get(id) as
+      | { budgetUsage?: unknown }
+      | undefined;
+    if (!row || typeof row.budgetUsage !== "string") {
+      return undefined;
+    }
+
+    const usage = parseBudgetUsage(row.budgetUsage);
+    updater(usage);
+    this.db
+      .prepare("UPDATE always_on_tasks SET budgetUsage = ? WHERE id = ?")
+      .run(JSON.stringify(usage), id);
+    return usage;
+  }
+
   getActiveTask(): AlwaysOnTask | undefined {
     const row = this.db
       .prepare("SELECT * FROM always_on_tasks WHERE status = 'active' LIMIT 1")
       .get() as Record<string, unknown> | undefined;
     return row ? this.rowToTask(row) : undefined;
+  }
+
+  countRunningTasks(): number {
+    const row = this.db
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM always_on_tasks
+        WHERE status IN ('launching', 'active')
+      `)
+      .get() as { count?: unknown } | undefined;
+    return typeof row?.count === "number" ? row.count : Number(row?.count ?? 0);
+  }
+
+  listRunningTasks(): AlwaysOnTask[] {
+    const rows = this.db
+      .prepare(`
+        SELECT * FROM always_on_tasks
+        WHERE status IN ('launching', 'active')
+        ORDER BY CASE status
+          WHEN 'active' THEN 0
+          WHEN 'launching' THEN 1
+          ELSE 2
+        END, createdAt ASC
+      `)
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.rowToTask(row));
   }
 
   getInFlightTask(): AlwaysOnTask | undefined {

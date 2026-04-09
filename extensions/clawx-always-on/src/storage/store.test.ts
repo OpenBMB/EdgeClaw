@@ -53,6 +53,21 @@ describe("TaskStore", () => {
     expect(task!.startedAt).toBe(12345);
   });
 
+  it("merges budget usage updates across multiple writes", () => {
+    store.createTask(makeTask());
+
+    store.updateBudgetUsage("test-001", (usage) => {
+      usage.loopsUsed += 1;
+    });
+    store.updateBudgetUsage("test-001", (usage) => {
+      usage.costUsedUsd += 0.25;
+    });
+
+    const usage = JSON.parse(store.getTask("test-001")!.budgetUsage);
+    expect(usage.loopsUsed).toBe(1);
+    expect(usage.costUsedUsd).toBe(0.25);
+  });
+
   it("finds task by session key", () => {
     store.createTask(makeTask({ sessionKey: "always-on:test-001" }));
 
@@ -79,6 +94,21 @@ describe("TaskStore", () => {
     const active = store.getActiveTask();
     expect(active).toBeDefined();
     expect(active!.id).toBe("test-001");
+  });
+
+  it("counts running tasks from active and launching statuses", () => {
+    store.createTask(makeTask({ id: "queued", status: "queued" }));
+    store.createTask(makeTask({ id: "launching", status: "launching" }));
+    store.createTask(makeTask({ id: "active", status: "active" }));
+
+    expect(store.countRunningTasks()).toBe(2);
+  });
+
+  it("lists running tasks with active tasks first", () => {
+    store.createTask(makeTask({ id: "launching", status: "launching", createdAt: 200 }));
+    store.createTask(makeTask({ id: "active", status: "active", createdAt: 100 }));
+
+    expect(store.listRunningTasks().map((task) => task.id)).toEqual(["active", "launching"]);
   });
 
   it("prefers active tasks when resolving in-flight work", () => {

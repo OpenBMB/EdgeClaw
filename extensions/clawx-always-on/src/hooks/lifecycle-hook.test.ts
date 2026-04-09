@@ -26,6 +26,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  maxConcurrentTasks: 3,
   logLevel: "debug",
   logRetentionDays: 30,
 };
@@ -66,17 +67,62 @@ describe("lifecycle hooks", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe("llm_output hook", () => {
-    it.each(alwaysOnSessionKeys)("increments loop count for always-on session %s", (sessionKey) => {
+  describe("before_message_write hook", () => {
+    it.each(alwaysOnSessionKeys)(
+      "increments loop count for assistant messages in always-on session %s",
+      (sessionKey) => {
+        store.createTask(makeTask());
+
+        hooks.before_message_write!(
+          {
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "Working on the task" }],
+            },
+          },
+          { sessionKey },
+        );
+
+        const task = store.getTask("task-001");
+        const usage = JSON.parse(task!.budgetUsage);
+        expect(usage.loopsUsed).toBe(1);
+        expect(usage.costUsedUsd).toBe(0);
+      },
+    );
+
+    it("ignores non-assistant messages", () => {
       store.createTask(makeTask());
 
-      hooks.llm_output!({ usage: { input: 1000, output: 500 } }, { sessionKey });
+      hooks.before_message_write!(
+        {
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "Continue" }],
+          },
+        },
+        { sessionKey: "always-on:task-001" },
+      );
 
       const task = store.getTask("task-001");
       const usage = JSON.parse(task!.budgetUsage);
-      expect(usage.loopsUsed).toBe(1);
-      expect(usage.costUsedUsd).toBeGreaterThan(0);
+      expect(usage.loopsUsed).toBe(0);
     });
+  });
+
+  describe("llm_output hook", () => {
+    it.each(alwaysOnSessionKeys)(
+      "tracks cost without changing loop count for always-on session %s",
+      (sessionKey) => {
+        store.createTask(makeTask());
+
+        hooks.llm_output!({ usage: { input: 1000, output: 500 } }, { sessionKey });
+
+        const task = store.getTask("task-001");
+        const usage = JSON.parse(task!.budgetUsage);
+        expect(usage.loopsUsed).toBe(0);
+        expect(usage.costUsedUsd).toBeGreaterThan(0);
+      },
+    );
 
     it("ignores non-always-on sessions", () => {
       store.createTask(makeTask());
@@ -86,6 +132,7 @@ describe("lifecycle hooks", () => {
       const task = store.getTask("task-001");
       const usage = JSON.parse(task!.budgetUsage);
       expect(usage.loopsUsed).toBe(0);
+      expect(usage.costUsedUsd).toBe(0);
     });
 
     it.each(alwaysOnSessionKeys)("handles missing usage gracefully for %s", (sessionKey) => {
@@ -95,12 +142,12 @@ describe("lifecycle hooks", () => {
 
       const task = store.getTask("task-001");
       const usage = JSON.parse(task!.budgetUsage);
-      expect(usage.loopsUsed).toBe(1);
+      expect(usage.loopsUsed).toBe(0);
       expect(usage.costUsedUsd).toBe(0);
     });
 
     it.each(["suspended", "completed"] as const)(
-      "updates budget usage for %s tasks after agent_end timing",
+      "updates cost usage for %s tasks after agent_end timing",
       (status) => {
         store.createTask(makeTask({ status }));
 
@@ -111,7 +158,7 @@ describe("lifecycle hooks", () => {
 
         const task = store.getTask("task-001");
         const usage = JSON.parse(task!.budgetUsage);
-        expect(usage.loopsUsed).toBe(1);
+        expect(usage.loopsUsed).toBe(0);
         expect(usage.costUsedUsd).toBeGreaterThan(0);
       },
     );

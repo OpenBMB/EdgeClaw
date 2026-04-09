@@ -12,6 +12,12 @@ function parseBudgetUsage(raw: string): BudgetUsage {
   return JSON.parse(raw) as BudgetUsage;
 }
 
+function isAssistantMessage(message: unknown): boolean {
+  return Boolean(
+    message && typeof message === "object" && (message as { role?: unknown }).role === "assistant",
+  );
+}
+
 function getBudgetExceededReason(
   task: { budgetConstraints: string },
   usage: BudgetUsage,
@@ -30,23 +36,41 @@ export function registerLifecycleHooks(
   store: TaskStore,
   logger: TaskLogger,
 ): void {
+  api.on("before_message_write", (event, ctx) => {
+    if (!isAlwaysOnSession(ctx.sessionKey)) return;
+    if (!isAssistantMessage(event.message)) return;
+
+    const task = store.getTaskBySessionKey(ctx.sessionKey!);
+    if (!task || task.status !== "active") return;
+
+    const usage = store.updateBudgetUsage(task.id, (currentUsage) => {
+      currentUsage.loopsUsed =
+        typeof currentUsage.loopsUsed === "number" ? currentUsage.loopsUsed + 1 : 1;
+    });
+    if (!usage) return;
+
+    const exceededReason = getBudgetExceededReason(task, usage);
+    if (exceededReason) {
+      logger.warn(task.id, `Budget constraint exceeded: ${exceededReason}`);
+    }
+  });
+
   api.on("llm_output", (event, ctx) => {
     if (!isAlwaysOnSession(ctx.sessionKey)) return;
 
     const task = store.getTaskBySessionKey(ctx.sessionKey!);
     if (!task || !BUDGET_TRACKED_STATUSES.has(task.status)) return;
+    if (!event.usage) return;
 
-    const usage = parseBudgetUsage(task.budgetUsage);
-    usage.loopsUsed++;
-
-    if (event.usage) {
-      const inputTokens = event.usage.input ?? 0;
-      const outputTokens = event.usage.output ?? 0;
+    const usage = store.updateBudgetUsage(task.id, (currentUsage) => {
+      const inputTokens = event.usage?.input ?? 0;
+      const outputTokens = event.usage?.output ?? 0;
+      const currentCostUsd =
+        typeof currentUsage.costUsedUsd === "number" ? currentUsage.costUsedUsd : 0;
       // Rough estimate: $3/M input, $15/M output (conservative ballpark)
-      usage.costUsedUsd += (inputTokens * 3 + outputTokens * 15) / 1_000_000;
-    }
-
-    store.updateTask(task.id, { budgetUsage: JSON.stringify(usage) });
+      currentUsage.costUsedUsd = currentCostUsd + (inputTokens * 3 + outputTokens * 15) / 1_000_000;
+    });
+    if (!usage) return;
 
     const exceededReason = getBudgetExceededReason(task, usage);
     if (exceededReason) {

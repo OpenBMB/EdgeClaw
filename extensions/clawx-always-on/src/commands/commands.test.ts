@@ -25,6 +25,7 @@ function makeTask(overrides: Partial<AlwaysOnTask> = {}): AlwaysOnTask {
 const defaultConfig: AlwaysOnConfig = {
   defaultMaxLoops: 50,
   defaultMaxCostUsd: 1.0,
+  maxConcurrentTasks: 2,
   logLevel: "info",
   logRetentionDays: 30,
 };
@@ -95,12 +96,14 @@ describe("commands", () => {
   });
 
   it.each(["queued", "launching", "active"] as const)(
-    "rejects create when another task is %s",
+    "still queues create when another task is %s",
     async (status) => {
       store.createTask(makeTask({ id: "existing", status, title: "Existing" }));
 
       const result = await commandHandler({ args: "create New task" });
-      expect(result.text).toContain("already in progress");
+      expect(result.text).toContain("created and queued");
+      expect(result.text).not.toContain("already in progress");
+      expect(store.listTasks()).toHaveLength(2);
     },
   );
 
@@ -142,6 +145,16 @@ describe("commands", () => {
     expect(task!.suspendedAt).toBeUndefined();
   });
 
+  it("queues resume even when another task is already running", async () => {
+    store.createTask(makeTask({ id: "active-task", status: "active", title: "Existing active" }));
+    store.createTask(makeTask({ id: "t1", status: "suspended" }));
+
+    const result = await commandHandler({ args: "resume t1" });
+    expect(result.text).toContain("queued to resume");
+    expect(result.text).not.toContain("already in progress");
+    expect(store.getTask("t1")?.status).toBe("queued");
+  });
+
   it("includes degraded-mode note when resuming without explicit tools", async () => {
     const mockApi = {
       config: {},
@@ -178,10 +191,14 @@ describe("commands", () => {
 
   it("shows system status", async () => {
     store.createTask(makeTask({ id: "t1", status: "active" }));
-    store.createTask(makeTask({ id: "t2", status: "completed" }));
+    store.createTask(makeTask({ id: "t2", status: "launching", title: "Task 2" }));
+    store.createTask(makeTask({ id: "t3", status: "completed" }));
 
     const result = await commandHandler({ args: "status" });
     expect(result.text).toContain("Total tasks");
-    expect(result.text).toContain("2");
+    expect(result.text).toContain("3");
+    expect(result.text).toContain("Concurrent run limit");
+    expect(result.text).toContain("t1");
+    expect(result.text).toContain("Task 2");
   });
 });
