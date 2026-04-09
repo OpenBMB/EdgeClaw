@@ -17,6 +17,7 @@ describe("clawx-always-on plugin entry", () => {
     const registeredCommands: { name: string }[] = [];
     const registeredHooks: string[] = [];
     const registeredServices: { id: string }[] = [];
+    const registeredRoutes: { path: string; auth: string; match?: string }[] = [];
 
     const mockApi = {
       registrationMode: "full",
@@ -46,6 +47,9 @@ describe("clawx-always-on plugin entry", () => {
       registerCommand: vi.fn((cmd: { name: string }) => {
         registeredCommands.push({ name: cmd.name });
       }),
+      registerHttpRoute: vi.fn((route: { path: string; auth: string; match?: string }) => {
+        registeredRoutes.push(route);
+      }),
       registerService: vi.fn((service: { id: string }) => {
         registeredServices.push({ id: service.id });
       }),
@@ -69,6 +73,13 @@ describe("clawx-always-on plugin entry", () => {
 
     expect(registeredCommands).toHaveLength(1);
     expect(registeredCommands[0].name).toBe("always-on");
+    expect(registeredRoutes).toEqual([
+      expect.objectContaining({
+        path: "/plugins/clawx-always-on",
+        auth: "plugin",
+        match: "prefix",
+      }),
+    ]);
     expect(registeredServices).toEqual([{ id: "clawx-always-on-worker" }]);
 
     expect(registeredHooks).toContain("before_prompt_build");

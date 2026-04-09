@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClawX Always-On</title>
+    <meta
+      name="description"
+      content="Manage always-on background tasks, budgets, progress, and logs from a single dashboard."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="eyebrow">OpenClaw Plugin</div>
+        <div class="topbar__row">
+          <div>
+            <h1 class="topbar__title">ClawX Always-On</h1>
+            <p class="topbar__subtitle">
+              Run persistent background tasks with budget limits, resumable state, and a dedicated
+              control surface.
+            </p>
+          </div>
+          <button id="refresh-button" class="button button--pill button--ghost" type="button">
+            Refresh
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero__inner">
+          <div class="hero__content">
+            <p class="eyebrow eyebrow--light">Always-On Dashboard</p>
+            <h2 class="hero__title">Keep long-running work moving without leaving the main chat.</h2>
+            <p class="hero__copy">
+              Create new tasks, watch queue pressure, inspect budgets, and jump into recent progress
+              or logs from one place.
+            </p>
+          </div>
+
+          <section class="panel panel--dark create-panel">
+            <div class="panel__header">
+              <p class="eyebrow eyebrow--light">Create</p>
+              <h3>Create a background task</h3>
+            </div>
+            <form id="create-form" class="form-stack">
+              <label class="field">
+                <span class="field__label">Task prompt</span>
+                <textarea
+                  id="task-title"
+                  name="title"
+                  rows="4"
+                  placeholder="Research the top regressions in yesterday's build and summarize likely fixes."
+                  required
+                ></textarea>
+              </label>
+
+              <div class="field-grid">
+                <label class="field">
+                  <span class="field__label">Max loops</span>
+                  <input id="max-loops" name="maxLoops" type="number" min="1" max="1000" step="1" />
+                </label>
+                <label class="field">
+                  <span class="field__label">Max cost (USD)</span>
+                  <input
+                    id="max-cost"
+                    name="maxCostUsd"
+                    type="number"
+                    min="0.01"
+                    max="100"
+                    step="0.01"
+                  />
+                </label>
+              </div>
+
+              <div class="form-actions">
+                <button class="button button--primary" type="submit">Queue Task</button>
+                <p class="helper-text">
+                  Leave budget fields empty to use the plugin defaults from the OpenClaw settings UI.
+                </p>
+              </div>
+            </form>
+          </section>
+
+          <section class="hero__stats">
+            <div id="stat-grid" class="stats-grid" aria-live="polite"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="workspace__inner">
+          <div id="status-banner" class="status-banner" hidden></div>
+
+          <div class="workspace__grid">
+            <aside class="panel task-browser">
+              <div class="panel__header panel__header--compact">
+                <div>
+                  <p class="eyebrow">Queue</p>
+                  <h3>Task browser</h3>
+                </div>
+                <div id="filter-strip" class="filter-strip" aria-label="Task filters"></div>
+              </div>
+
+              <div id="task-list" class="task-list" aria-live="polite"></div>
+            </aside>
+
+            <section class="panel detail-panel">
+              <div class="panel__header panel__header--compact">
+                <div>
+                  <p class="eyebrow">Details</p>
+                  <h3>Selected task</h3>
+                </div>
+                <div id="detail-actions" class="detail-actions"></div>
+              </div>
+
+              <div id="task-detail" class="task-detail" aria-live="polite"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -7,6 +7,7 @@ import { resolveAlwaysOnToolSupport } from "./src/core/tool-compat.js";
 import { SubagentExecutor } from "./src/executor/executor.js";
 import { registerLifecycleHooks } from "./src/hooks/lifecycle-hook.js";
 import { registerPromptHook } from "./src/hooks/prompt-hook.js";
+import { createAlwaysOnHttpHandler } from "./src/http.js";
 import { TaskLogger } from "./src/storage/logger.js";
 import { openDatabase, TaskStore } from "./src/storage/store.js";
 import { createCompleteToolFactory } from "./src/tools/complete-tool.js";
@@ -51,6 +52,17 @@ export default definePluginEntry({
     api.registerTool(completeFactory, { name: COMPLETE_TOOL_NAME });
 
     registerCommands(api, store, logger, config, toolSupport);
+    api.registerHttpRoute({
+      path: `/plugins/${PLUGIN_ID}`,
+      auth: "plugin",
+      match: "prefix",
+      handler: createAlwaysOnHttpHandler({
+        store,
+        logger,
+        config,
+        pluginLogger: api.logger,
+      }),
+    });
     api.registerService({
       id: `${PLUGIN_ID}-worker`,
       start: () => {
