@@ -123,6 +123,17 @@ export async function runAlwaysOnPlanner(params: {
   mustFinalize: boolean;
 }): Promise<PlannerDecision> {
   const prompt = buildPlannerPrompt(params);
+
+  const defaultsModel = params.api.config?.agents?.defaults?.model;
+  const primary =
+    typeof defaultsModel === "string"
+      ? defaultsModel.trim()
+      : typeof defaultsModel === "object" && defaultsModel !== null && "primary" in defaultsModel
+        ? (defaultsModel as { primary?: string }).primary?.trim()
+        : undefined;
+  const provider = typeof primary === "string" ? primary.split("/")[0] : undefined;
+  const model = typeof primary === "string" ? primary.split("/").slice(1).join("/") : undefined;
+
   let tempDir: string | null = null;
   try {
     tempDir = await fs.mkdtemp(path.join(tmpdir(), "clawx-always-on-plan-"));
@@ -136,6 +147,8 @@ export async function runAlwaysOnPlanner(params: {
       prompt,
       timeoutMs: 30_000,
       runId: `${sessionId}-run`,
+      provider,
+      model,
       disableTools: true,
     });
     const text = collectText((result as { payloads?: unknown }).payloads);

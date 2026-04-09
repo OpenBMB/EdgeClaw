@@ -91,6 +91,34 @@ describe("AlwaysOnPlanService", () => {
     const plan = store.getActivePlanByConversationKey("webchat:default:user-123");
     expect(plan?.roundCount).toBe(1);
     expect(JSON.parse(plan!.turnsJson)).toHaveLength(2);
+
+    expect(runEmbeddedPiAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: undefined,
+        model: undefined,
+        disableTools: true,
+      }),
+    );
+  });
+
+  it("passes configured provider and model to the embedded agent", async () => {
+    runEmbeddedPiAgent.mockResolvedValue({
+      payloads: [{ text: JSON.stringify({ action: "ask", assistantReply: "question" }) }],
+    });
+    const configuredApi = {
+      ...api,
+      config: { agents: { defaults: { model: "openai-codex/gpt-5.4" } } },
+    } as never as OpenClawPluginApi;
+    const service = new AlwaysOnPlanService(configuredApi, store, logger, defaultConfig, {
+      explicitToolsAvailable: true,
+    });
+    await service.startPlan(makeCommandContext(), "test task");
+    expect(runEmbeddedPiAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai-codex",
+        model: "gpt-5.4",
+      }),
+    );
   });
 
   it("continues the planning flow and creates a planned task", async () => {
