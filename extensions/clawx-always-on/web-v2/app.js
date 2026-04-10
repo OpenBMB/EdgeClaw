@@ -115,12 +115,11 @@ const elements = {
   composeDefaults: document.querySelector("#compose-defaults"),
   filterStrip: document.querySelector("#filter-strip"),
   taskList: document.querySelector("#task-list"),
-  detailActions: document.querySelector("#detail-actions"),
-  taskDetail: document.querySelector("#task-detail"),
   activityTaskList: document.querySelector("#activity-task-list"),
   activityTitle: document.querySelector("#activity-title"),
   activitySubtitle: document.querySelector("#activity-subtitle"),
   activityPill: document.querySelector("#activity-pill"),
+  activityDetail: document.querySelector("#activity-detail"),
   activityStream: document.querySelector("#activity-stream"),
   configContent: document.querySelector("#config-content"),
   statusBanner: document.querySelector("#status-banner"),
@@ -459,14 +458,6 @@ function renderEmptyState(title, copy, action = null) {
         <p class="empty-state__copy">${escapeHtml(copy)}</p>
         ${actionMarkup}
       </div>
-    </div>
-  `;
-}
-
-function renderTextBlock(text) {
-  return `
-    <div class="text-block">
-      ${escapeHtml(text || "").replaceAll("\n", "<br />")}
     </div>
   `;
 }
@@ -1120,23 +1111,20 @@ function renderTaskList() {
     .join("");
 }
 
-function renderDetailActions() {
-  if (!elements.detailActions) {
-    return;
-  }
-
+function renderTaskActionButtons({ includeOpenActivity = false } = {}) {
   if (!state.selectedTask) {
-    elements.detailActions.innerHTML = "";
-    return;
+    return "";
   }
 
-  const buttons = [
-    `
+  const buttons = [];
+
+  if (includeOpenActivity) {
+    buttons.push(`
       <button class="button button--secondary" type="button" data-ui-action="open-activity">
         Open Activity
       </button>
-    `,
-  ];
+    `);
+  }
 
   if (state.selectedTask.status === "pending") {
     buttons.push(`
@@ -1177,105 +1165,88 @@ function renderDetailActions() {
     `);
   }
 
-  elements.detailActions.innerHTML = buttons.join("");
+  return buttons.join("");
 }
 
-function renderTextSection(title, content) {
+function renderBudgetCards(task) {
+  if (task.budgetConstraints.length > 0) {
+    return task.budgetConstraints
+      .map(
+        (constraint) => `
+          <article class="budget-card">
+            <p class="budget-card__label">${escapeHtml(constraint.kind)}</p>
+            <p class="budget-card__value">${escapeHtml(constraint.label)}</p>
+            <p class="budget-card__hint" data-ok="${String(constraint.ok)}">
+              ${escapeHtml(constraint.reason || "Within limits")}
+            </p>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
   return `
-    <section class="surface-card">
-      <div class="surface-card__header">
-        <h3>${escapeHtml(title)}</h3>
-      </div>
-      ${renderTextBlock(content)}
-    </section>
+    <article class="budget-card">
+      <p class="budget-card__label">Constraints</p>
+      <p class="budget-card__value">Using default policy</p>
+      <p class="budget-card__hint" data-ok="true">No task-specific overrides were supplied.</p>
+    </article>
   `;
 }
 
-function renderTaskDetail() {
-  if (!elements.taskDetail) {
+function renderActivityDetail() {
+  if (!elements.activityDetail) {
     return;
   }
 
   if (!state.selectedTask) {
-    elements.taskDetail.innerHTML = renderEmptyState(
-      "Select a task",
-      "Pick any task from the browser to inspect its budgets, checkpoints, and current state.",
-    );
-    renderDetailActions();
+    elements.activityDetail.innerHTML = "";
     return;
   }
 
   const task = state.selectedTask;
-  const budgetCards =
-    task.budgetConstraints.length > 0
-      ? task.budgetConstraints
-          .map(
-            (constraint) => `
-              <article class="budget-card">
-                <p class="budget-card__label">${escapeHtml(constraint.kind)}</p>
-                <p class="budget-card__value">${escapeHtml(constraint.label)}</p>
-                <p class="budget-card__hint" data-ok="${String(constraint.ok)}">
-                  ${escapeHtml(constraint.reason || "Within limits")}
-                </p>
-              </article>
-            `,
-          )
-          .join("")
-      : `
-          <article class="budget-card">
-            <p class="budget-card__label">Constraints</p>
-            <p class="budget-card__value">Using default policy</p>
-            <p class="budget-card__hint" data-ok="true">No task-specific overrides were supplied.</p>
-          </article>
-        `;
+  const actionButtons = renderTaskActionButtons();
+  const actionsMarkup = actionButtons
+    ? `<div class="detail-actions activity-summary__actions">${actionButtons}</div>`
+    : "";
+  const sessionCopy = task.sessionKey
+    ? `Session ${task.sessionKey}`
+    : "A session key will appear after the worker launches the task.";
 
-  elements.taskDetail.innerHTML = `
-    <section class="detail-header">
-      <div class="task-card__topline">
-        <h3 class="detail-header__title">${escapeHtml(task.title)}</h3>
-        ${renderStatusPill(task.status)}
+  elements.activityDetail.innerHTML = `
+    <section class="activity-summary">
+      <div class="activity-summary__header">
+        <div class="activity-summary__copy">
+          <p class="eyebrow">Task snapshot</p>
+          <p class="muted-copy">${escapeHtml(sessionCopy)}</p>
+        </div>
+        ${actionsMarkup}
       </div>
-      <p class="muted-copy">
-        ${escapeHtml(
-          task.sessionKey
-            ? `Session ${task.sessionKey}`
-            : "A session key will appear after the worker launches the task.",
-        )}
-      </p>
-    </section>
 
-    <section class="detail-callout">
-      <p>Detailed lifecycle logs and metadata are separated into the Activity tab.</p>
-      <button class="button button--secondary" type="button" data-ui-action="open-activity">
-        Open Activity
-      </button>
-    </section>
-
-    <section class="budget-grid">
-      ${budgetCards}
-      <article class="budget-card">
-        <p class="budget-card__label">Run count</p>
-        <p class="budget-card__value">${escapeHtml(String(task.runCount))}</p>
-        <p class="budget-card__hint" data-ok="true">
-          ${escapeHtml(formatCurrency(task.budgetUsage.costUsedUsd, true))} tracked spend
-        </p>
-      </article>
-    </section>
+      <section class="budget-grid">
+        ${renderBudgetCards(task)}
+        <article class="budget-card">
+          <p class="budget-card__label">Run count</p>
+          <p class="budget-card__value">${escapeHtml(String(task.runCount))}</p>
+          <p class="budget-card__hint" data-ok="true">
+            ${escapeHtml(formatCurrency(task.budgetUsage.costUsedUsd, true))} tracked spend
+          </p>
+        </article>
+      </section>
 
       <section class="task-meta task-meta--dense">
-      ${renderMetaRow("Task ID", task.id, true)}
-      ${renderMetaRow("Source", task.sourceType)}
+        ${renderMetaRow("Task ID", task.id, true)}
+        ${renderMetaRow("Source", task.sourceType)}
         ${renderMetaRow("Session", task.sessionKey || "Waiting for launch", Boolean(task.sessionKey))}
-      ${renderMetaRow("Created", formatDateTime(task.createdAt))}
-      ${renderMetaRow("Started", formatDateTime(task.startedAt))}
-      ${renderMetaRow("Suspended", formatDateTime(task.suspendedAt))}
-      ${renderMetaRow("Completed", formatDateTime(task.completedAt))}
-      ${renderMetaRow("Loops used", String(task.budgetUsage.loopsUsed ?? 0))}
-      ${renderMetaRow("Cost used", formatCurrency(task.budgetUsage.costUsedUsd, true))}
+        ${renderMetaRow("Created", formatDateTime(task.createdAt))}
+        ${renderMetaRow("Started", formatDateTime(task.startedAt))}
+        ${renderMetaRow("Suspended", formatDateTime(task.suspendedAt))}
+        ${renderMetaRow("Completed", formatDateTime(task.completedAt))}
+        ${renderMetaRow("Loops used", String(task.budgetUsage.loopsUsed ?? 0))}
+        ${renderMetaRow("Cost used", formatCurrency(task.budgetUsage.costUsedUsd, true))}
+      </section>
     </section>
   `;
-
-  renderDetailActions();
 }
 
 function renderActivityTaskList() {
@@ -1396,18 +1367,21 @@ function renderActivityStream() {
 
   if (!state.selectedTask) {
     elements.activityTitle.textContent = "Recent events";
-    elements.activitySubtitle.textContent = "Select a task.";
+    elements.activitySubtitle.textContent =
+      "Select a task to inspect its details and event stream.";
     elements.activityPill.innerHTML = "";
     elements.activityStream.innerHTML = renderEmptyState(
       "No task selected",
-      "Choose a task from the left rail or task list.",
+      "Choose a task from the list to review its budget, metadata, and recent events.",
       state.tasks.length > 0 ? "open-tasks" : "open-overview",
     );
     return;
   }
 
   elements.activityTitle.textContent = truncate(state.selectedTask.title, 72);
-  elements.activitySubtitle.textContent = `${state.logs.length} event${state.logs.length === 1 ? "" : "s"} loaded.`;
+  elements.activitySubtitle.textContent = state.selectedTask.sessionKey
+    ? `Session ${state.selectedTask.sessionKey} · ${state.logs.length} event${state.logs.length === 1 ? "" : "s"} loaded.`
+    : `${state.logs.length} event${state.logs.length === 1 ? "" : "s"} loaded.`;
   elements.activityPill.innerHTML = renderStatusPill(state.selectedTask.status);
 
   const highlights = [];
@@ -1574,8 +1548,8 @@ function render() {
   renderCompose();
   renderFilters();
   renderTaskList();
-  renderTaskDetail();
   renderActivityTaskList();
+  renderActivityDetail();
   renderActivityStream();
   renderConfig();
 }
@@ -1920,7 +1894,7 @@ async function handleDetailAction(action) {
   }
 
   state.action = action;
-  renderDetailActions();
+  render();
 
   try {
     const result = await fetchJson(
@@ -1943,7 +1917,7 @@ async function handleDetailAction(action) {
     setBanner(error instanceof Error ? error.message : String(error), "error");
   } finally {
     state.action = null;
-    renderDetailActions();
+    render();
   }
 }
 

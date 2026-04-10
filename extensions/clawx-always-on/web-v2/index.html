@@ -116,7 +116,14 @@
           </div>
         </header>
 
-        <div id="status-banner" class="status-banner" hidden></div>
+        <div
+          id="status-banner"
+          class="status-banner"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          hidden
+        ></div>
 
         <main class="app-shell">
           <section class="workspace">
@@ -135,26 +142,6 @@
                     </div>
                     <div id="overview-summary" class="summary-grid" aria-live="polite"></div>
                     <div id="overview-running" class="signal-list" aria-live="polite"></div>
-                  </section>
-
-                  <section class="panel overview-actions-panel">
-                    <div class="panel__header">
-                      <h2>Workflows</h2>
-                    </div>
-                    <div class="shortcut-grid">
-                      <button class="shortcut-card" type="button" data-ui-action="open-create">
-                        <p class="shortcut-card__eyebrow">Direct</p>
-                        <h3 class="shortcut-card__title">Open Compose</h3>
-                      </button>
-                      <button class="shortcut-card" type="button" data-ui-action="open-planner">
-                        <p class="shortcut-card__eyebrow">Interactive</p>
-                        <h3 class="shortcut-card__title">Open Plan</h3>
-                      </button>
-                      <button class="shortcut-card" type="button" data-ui-action="open-tasks">
-                        <p class="shortcut-card__eyebrow">Review</p>
-                        <h3 class="shortcut-card__title">Open Tasks</h3>
-                      </button>
-                    </div>
                   </section>
 
                   <section class="panel queue-panel">
@@ -208,25 +195,11 @@
                 aria-labelledby="nav-button-tasks"
                 hidden
               >
-                <div class="workspace__grid">
+                <div class="workspace__grid workspace__grid--single">
                   <aside class="panel task-browser">
-                    <div class="panel__header">
-                      <h2>Tasks</h2>
-                    </div>
                     <div id="filter-strip" class="filter-strip" aria-label="Task filters"></div>
                     <div id="task-list" class="task-list" aria-live="polite"></div>
                   </aside>
-
-                  <section class="panel detail-panel">
-                    <div class="panel__header panel__header--compact">
-                      <div>
-                        <h2>Details</h2>
-                      </div>
-                      <div id="detail-actions" class="detail-actions"></div>
-                    </div>
-
-                    <div id="task-detail" class="task-detail" aria-live="polite"></div>
-                  </section>
                 </div>
               </section>
 
@@ -254,6 +227,7 @@
                       </div>
                       <div id="activity-pill" class="activity-pill"></div>
                     </div>
+                    <div id="activity-detail" class="activity-detail" aria-live="polite"></div>
                     <div id="activity-stream" class="activity-stream" aria-live="polite"></div>
                   </section>
                 </div>
