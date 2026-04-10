@@ -100,6 +100,54 @@ description: "小红书最简图文发布技能。读取用户指定路径的图
 { "action": "act", "profile": "openclaw", "request": { "kind": "wait", "timeMs": 3000 } }
 ```
 
+## ⛔ 致命错误速查（实战踩坑，必须避免）
+
+### 错误 1：ref 传了文字而非 snapshot ID
+
+snapshot 返回的每个元素都有唯一 ID（格式为 `e3`、`e15`、`e42` 等数字编号）。
+**所有 `ref` 参数必须使用这个 ID，绝不能用元素的文字内容。**
+
+```
+❌ 错误：{ "kind": "click", "ref": "上传图文" }     ← 会 TimeoutError
+✅ 正确：{ "kind": "click", "ref": "e7" }          ← snapshot 返回的 ID
+```
+
+**实际报错**：`TimeoutError: locator.click: Timeout 8000ms exceeded. waiting for locator('aria-ref=上传图文')`
+
+### 错误 2：evaluate 的 fn 缺少箭头函数包装
+
+`fn` 必须是 `() => { ... }` 或 `() => expression` 格式的字符串。裸代码会报语法错误。
+
+```
+❌ 错误："fn": "document.title"
+❌ 错误："fn": "const x = 1; return x;"
+❌ 错误："fn": "Array.from(...).forEach(...); 'done'"   ← 缺少箭头函数包装
+✅ 正确："fn": "() => document.title"
+✅ 正确："fn": "() => { const x = 1; return x; }"
+✅ 正确："fn": "() => { Array.from(...).forEach(...); return 'done'; }"
+```
+
+**实际报错**：`Error: Invalid evaluate function: Unexpected token ';'`
+
+### 错误 3：在 open 之后立即 snapshot（页面未加载）
+
+必须在 open 和 snapshot 之间加 wait 3000ms。
+
+```
+❌ 错误：open → snapshot（页面还在加载，DOM 不完整）
+✅ 正确：open → wait 3000 → snapshot
+```
+
+### 错误 4：单轮想完成所有步骤
+
+Opus 系模型收到复杂多步指令后，倾向于输出文字计划然后停止（不调用工具）。
+**必须每条消息只要求完成一步操作。**
+
+```
+❌ 无效："打开发布页，上传图片，填标题正文"  → 模型只输出计划文字
+✅ 有效："直接调用browser工具（不要解释）：打开 https://creator.xiaohongshu.com/publish/publish"
+```
+
 ## 流程
 
 ### Step 0: 准备图片 + 确认登录（合并执行减少 API 轮次）
@@ -129,12 +177,12 @@ mkdir -p /tmp/openclaw/uploads/xhs-publish && cp "<用户图片路径>" /tmp/ope
 
 ### Step 2: 切换到图文 + 上传图片
 
-**2a.** 点击"上传图文"标签（只做切换，不做其他操作）：
+**2a.** 用 evaluate 点击"上传图文"标签（⚠️ 不要用 `act.click`+文字 ref，会超时）：
 ```json
 { "action": "act", "profile": "openclaw", "request": { "kind": "evaluate", "fn": "() => { const tabs = document.querySelectorAll('span, div, a'); for(const t of tabs){ if(t.textContent.trim() === '上传图文' && t.offsetParent !== null){ t.click(); return 'clicked'; } } return 'tab not found'; }" } }
 ```
 
-**2b.** 等 3 秒让 DOM 完全更新，然后让**新的** file input 可见：
+**2b.** 等 3 秒让 DOM 完全更新，然后用 evaluate 让 file input 可见（⚠️ `fn` 必须是箭头函数）：
 ```json
 { "action": "act", "profile": "openclaw", "request": { "kind": "wait", "timeMs": 3000 } }
 ```
@@ -142,25 +190,28 @@ mkdir -p /tmp/openclaw/uploads/xhs-publish && cp "<用户图片路径>" /tmp/ope
 { "action": "act", "profile": "openclaw", "request": { "kind": "evaluate", "fn": "() => { const inputs = document.querySelectorAll('input[type=file]'); inputs.forEach(input => { input.style.cssText = 'opacity:1!important;width:200px!important;height:50px!important;position:relative!important;z-index:99999!important;display:block!important;visibility:visible!important'; }); return 'found ' + inputs.length + ' file inputs'; }" } }
 ```
 
-**2c.** 做 snapshot 找到 file input 的 ref（如 `e3`）：
+**2c.** 做 snapshot 找到 file input 的 ref：
 ```json
 { "action": "snapshot", "profile": "openclaw" }
 ```
-在结果中找 `input` 或 `Choose File` 类元素，记下 ref。
+在结果中找 `input` 或 `Choose File` 类元素，记下其 **数字编号 ref**（如 `e3`、`e15`）。
 
-**2d.** 用找到的 **ref** 上传图片：
+⚠️ **关键**：ref 是 snapshot 返回的形如 `e数字` 的 ID，不是文字内容。例如 snapshot 返回 `[e3] input[type=file]`，则 ref 为 `"e3"`。
+
+**2d.** 用 snapshot 返回的 **精确 ref** 上传图片：
 ```json
 { "action": "upload", "profile": "openclaw", "paths": ["/tmp/openclaw/uploads/xhs-publish/photo1.jpg"], "ref": "e3" }
 ```
-> **重要**：`ref` 必须是上一步 snapshot 返回的 ID，不能用 CSS 选择器。上传后立即做下一步，不要重新 snapshot。
+> ⛔ `ref` 必须是上一步 snapshot 返回的 `e数字` ID。**绝不能**写成 `"input[type=file]"` 或 `"Choose File"` 或任何 CSS 选择器。
 
-**2e.** 等待上传完成（3秒），然后 snapshot 确认缩略图出现：
+**2e.** 等待上传完成（5 秒——图片较大时需要更久），然后 snapshot 确认缩略图出现：
 ```json
-{ "action": "act", "profile": "openclaw", "request": { "kind": "wait", "timeMs": 3000 } }
+{ "action": "act", "profile": "openclaw", "request": { "kind": "wait", "timeMs": 5000 } }
 ```
 ```json
 { "action": "snapshot", "profile": "openclaw" }
 ```
+确认 snapshot 中出现图片缩略图后才继续下一步。
 
 ### Step 4: 填写标题和正文
 
@@ -219,3 +270,25 @@ mkdir -p /tmp/openclaw/uploads/xhs-publish && cp "<用户图片路径>" /tmp/ope
 | 未登录 | 终止，引导用户先用 xiaohongshu-login 登录 |
 | snapshot 显示意外页面 | 截图汇报，建议刷新重试 |
 | act 点击/输入超时 | 重做 snapshot 确认元素 ref 仍有效，重试 1 次 |
+| "No reply from agent" | 清理 session：`rm -rf ~/.openclaw/agents/xhs/sessions/` 后重试 |
+
+## Agent 运行经验
+
+### 图片路径与安全限制
+
+- OpenClaw 的 upload action 要求文件位于 `/tmp/openclaw/uploads/` 下，其他路径会被拒绝
+- 从 `/tmp/xhs/output.png`（头图生成产出）到 upload 目录的 cp 命令必须在 upload 之前执行
+- 多张图片时用通配符：`cp /tmp/xhs/output*.png /tmp/openclaw/uploads/xhs-publish/`
+
+### contenteditable 填写陷阱
+
+- 小红书编辑器使用 ProseMirror（contenteditable div），标准 `fill` action 不生效
+- **正确做法**：先 `click` 聚焦 → `evaluate` 执行 `document.execCommand('insertText', false, '...')`
+- 标题输入框是标准 `<input>`，用 `evaluate` 配合 React native setter 最可靠
+- 如果 `execCommand` 不生效，备用方案：`click` → `press Meta+a` 全选 → `type` 输入
+
+### Opus 模型行为
+
+- Opus 系模型可能在填写步骤中只输出"已填写标题"文字而未实际调用 tool
+- **每步之后做 snapshot 验证**——确认标题/正文确实已出现在页面上
+- 如果验证失败，用"直接调用browser工具"前缀重试该步骤

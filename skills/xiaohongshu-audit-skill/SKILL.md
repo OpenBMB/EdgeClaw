@@ -179,3 +179,59 @@ description: "小红书发布前审核技能。读取发布页当前内容，逐
 | 发布页提取失败 | snapshot 截图，从中读取内容 |
 | 不在发布页 | 尝试打开 `https://creator.xiaohongshu.com/publish/publish` |
 | snapshot 失败 | 标注「⚠️ 无法审核，建议人工确认」 |
+| "No reply from agent" | 清理 session：`rm -rf ~/.openclaw/agents/xhs/sessions/` 后重试 |
+| evaluate 返回空值 | 做 snapshot 查看实际页面状态，可能 DOM 结构有变化 |
+
+## Agent 运行经验
+
+### 审核步骤的模型行为
+
+- 审核是最容易被模型"跳过"的步骤——Opus 系模型倾向于直接在文本中输出审核结论而不先调 evaluate 提取内容
+- **必须先通过 evaluate tool call 提取实际页面内容**，再基于提取结果做审核判断
+- 如果 evaluate 提取的 title/body 为空字符串，说明 DOM selector 不匹配，此时做 snapshot 手动从中读取
+
+### 修改操作的可靠性
+
+- 自动修改标题/正文后，**必须再次 evaluate 验证修改是否生效**
+- ProseMirror 编辑器的 `execCommand('insertText')` 在某些版本不触发内部状态更新，导致看似修改成功但提交时仍是旧内容
+- 如果验证发现修改未生效，用 `click` → `press Meta+a` → `type` 备用方案
+
+### 与发布步骤的衔接
+
+- audit skill 假设浏览器已在发布编辑页（publish skill 停在发布按钮前）
+- 如果从新 session 恢复，需要先 `browser.open` 打开发布页，等待 3 秒后再做 snapshot
+- gateway 重启后 browser profile 的 cookie 仍然有效，但页面 tab 需要重新打开
+
+### evaluate fn 语法（必须遵守）
+
+所有 `evaluate` 的 `fn` 参数必须是箭头函数格式的字符串：
+
+```
+✅ "fn": "() => document.title"
+✅ "fn": "() => { const title = ...; return JSON.stringify({title}); }"
+❌ "fn": "const title = ...; return title;"  ← 缺少箭头函数包装，会报语法错误
+```
+
+实际报错：`Error: Invalid evaluate function: Unexpected token ';'`
+
+### browser ref 格式（必须遵守）
+
+snapshot 返回的元素 ref 格式为 `e数字`（如 `e3`、`e15`、`e42`）。所有 `click`、`type`、`press` 操作的 `ref` 必须使用此 ID。
+
+```
+✅ "ref": "e12"        ← snapshot 返回的数字编号
+❌ "ref": "发布"        ← 文字内容，会 TimeoutError
+❌ "ref": "button.publish"  ← CSS 选择器，不被支持
+```
+
+### 修改操作的顺序
+
+修改标题/正文时，每次只做一个操作，等返回后再做下一个：
+
+```
+1. evaluate 修改标题 → 等待返回
+2. evaluate 修改正文 → 等待返回  
+3. evaluate 验证修改结果 → 等待返回
+```
+
+不要在一次回复中同时发出多个 evaluate 调用。

@@ -1,0 +1,77 @@
+{
+  // ── 模型提供商 ──────────────────────────────────────────────
+
+  "modelProviders": {
+    "anthropic": {
+      "baseURL": "https://api.anthropic.com/v1",
+      "apiKey": "<YOUR_ANTHROPIC_API_KEY>",
+      "models": [
+        {
+          "id": "claude-sonnet-4-5-20250929",
+          "maxTokens": 16384
+        }
+      ]
+    }
+
+    
+  },
+
+  // ── Agent 定义 ──────────────────────────────────────────────
+
+  "agents": {
+    "list": [
+      {
+        "id": "xhs",
+        "name": "XHS Agent",
+        "workspace": "~/.openclaw/workspace-xhs",
+        "model": {
+          // Anthropic 官方: "anthropic/claude-sonnet-4-5-20250929"
+          // OpenAI 兼容代理: "openrouter-api/claude-sonnet-4-5-20250929"
+          "primary": "anthropic/claude-sonnet-4-5-20250929"
+        },
+        "skills": [
+          "xhs-orchestrator",
+          "brief-to-xhs-header",
+          "xiaohongshu-login",
+          "xiaohongshu-publish",
+          "xiaohongshu-audit"
+        ],
+        "identity": {
+          "name": "XHS Designer",
+          "emoji": "🎨"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      }
+    ],
+    "defaults": {
+      "contextInjection": "continuation-skip",
+      "bootstrapMaxChars": 5000,
+      "thinkingDefault": "off"
+    }
+  },
+
+  // ── 插件配置 ────────────────────────────────────────────────
+
+  "plugins": {
+    "entries": {
+      "serp-search": {
+        "config": {
+          "apiKey": "<YOUR_SERP_HK_API_KEY>",
+          "region": "cn"
+        }
+      }
+      // figma-capture 无需配置，首次使用时自动 OAuth
+    }
+  },
+
+  // ── 工具配置 ────────────────────────────────────────────────
+
+  "tools": {
+    "allow": ["read", "exec", "browser", "serp_search", "figma_capture"],
+    "exec": {
+      "backgroundMs": 60000
+    }
+  }
+}

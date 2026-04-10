@@ -1,3 +1,11 @@
 {
-  "id": "figma-capture"
+  "id": "figma-capture",
+  "contracts": {
+    "tools": ["figma_capture"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
 }

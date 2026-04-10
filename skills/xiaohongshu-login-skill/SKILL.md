@@ -89,3 +89,45 @@ browser.open   → url: "https://creator.xiaohongshu.com"
 - `https://creator.xiaohongshu.com/publish/publish` — 发布页（需已登录）
 
 默认使用创作者中心作为登录入口，因为它登录后信息最完整、状态最直观。
+
+## 5) Agent 运行经验
+
+### 浏览器启动时序
+
+- OpenClaw gateway 启动后浏览器控制服务需要额外 3-5 秒初始化
+- 日志中出现 `[browser] control service ready` 后才可执行 browser 操作
+- 首次 `browser.start` 会触发 `🦞 openclaw browser started (chrome) profile "openclaw"`，后续复用
+
+### 模型行为注意
+
+- 使用 Opus 系模型时，login skill 的 evaluate/snapshot 调用可能被模型"省略"——模型输出"已检测登录状态"但实际没有调用工具
+- **必须严格遵守"每步必须真实 tool call"约束**，不可在文本中假装完成了 evaluate 操作
+- 如果发现模型跳过了 tool call，用更明确的指令重试：`直接调用browser工具做snapshot（不要解释）`
+
+### evaluate fn 语法（必须遵守）
+
+所有 `evaluate` 的 `fn` 参数必须是箭头函数格式的字符串：
+
+```
+✅ "fn": "() => document.title"
+✅ "fn": "() => { const el = document.querySelector('.user-name'); return el ? el.textContent : 'not found'; }"
+❌ "fn": "document.title"                    ← 缺少箭头函数
+❌ "fn": "document.querySelector('.x').textContent"  ← 缺少箭头函数
+```
+
+不遵守此格式会导致：`Error: Invalid evaluate function: Unexpected token`
+
+### browser ref 格式（必须遵守）
+
+snapshot 返回的元素 ref 是形如 `e3`、`e15` 的数字编号 ID。所有 `click`、`type`、`press`、`upload` 操作的 `ref` 参数必须使用此 ID，不能用元素文字内容。
+
+```
+✅ "ref": "e7"          ← snapshot 返回的 ID
+❌ "ref": "笔记管理"     ← 元素文字内容，会 TimeoutError
+```
+
+### Session 与 Cookie 复用
+
+- `profile="openclaw"` 的 cookie 在 gateway 进程生命周期内持久化
+- 如果 gateway 被重启（而非 hot reload），cookie 仍保留在 Chrome profile 目录中
+- 长时间不操作后小红书 session 可能过期（通常 24-48 小时），需要重新扫码

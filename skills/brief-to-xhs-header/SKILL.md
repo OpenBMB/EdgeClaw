@@ -640,6 +640,38 @@ From the scraped content, generate all Chinese text fresh each time:
 - **Recipe 8 (产品对比)**: descriptive, comparison-oriented ("古风换背景")
 - Match the emotion of the source content; use emoji sparingly but naturally
 
+### HTML 文件写入方式（Agent exec 环境）
+
+在 OpenClaw agent 的 exec 工具中写入 HTML 文件时，**heredoc 会超时或丢失内容**。
+请使用以下替代方案（按可靠性排序）：
+
+**方案 1（推荐）：Python 写文件**
+```bash
+python3 -c "
+html = '''<!DOCTYPE html>
+<html><head><meta charset=\"utf-8\">
+<style>body{width:1080px;height:1440px;background:#000;color:#fff}</style>
+</head><body><h1>标题</h1></body></html>'''
+with open('/tmp/xhs/header.html','w') as f: f.write(html)
+print('written')
+"
+```
+
+**方案 2：echo 分段写入**
+```bash
+echo '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' > /tmp/xhs/header.html
+echo 'body{width:1080px;height:1440px;background:#000;color:#fff}' >> /tmp/xhs/header.html
+echo '</style></head><body><h1>标题</h1></body></html>' >> /tmp/xhs/header.html
+```
+
+**方案 3（禁止）：heredoc**
+```bash
+# ⛔ 不要用 heredoc——在 agent exec 环境中会超时
+cat > /tmp/xhs/header.html << 'EOF'
+...
+EOF
+```
+
 ### HTML Structure Checklist
 
 Before writing the HTML, verify it includes:
@@ -809,19 +841,38 @@ openclaw agent --agent xhs --message "<your brief>" --local --timeout 300
 {
   models: {
     providers: {
-      openai: {
-        baseUrl: "https://yeysai.com/v1",
+      "openrouter-api": {
+        baseUrl: "https://<your-proxy-host>/v1",  // any OpenAI-compatible proxy
         apiKey: "<your-api-key>",
         api: "openai-completions",
         models: [
           {
-            id: "claude-opus-4-6",
-            name: "Claude Opus 4.6",
+            id: "claude-opus-4-5-20251101",  // recommended for complex tasks
+            name: "Claude Opus 4.5",
             reasoning: false,
-            input: ["text", "image"],
+            input: ["text"],
             contextWindow: 200000,
             maxTokens: 16384,
+            compat: {
+              maxTokensField: "max_tokens",
+              supportsDeveloperRole: true,
+              supportsStrictMode: true,
+            },
           },
+          {
+            id: "claude-sonnet-4-5-20250929",  // recommended for speed
+            name: "Claude Sonnet 4.5",
+            reasoning: false,
+            input: ["text"],
+            contextWindow: 200000,
+            maxTokens: 16384,
+            compat: {
+              maxTokensField: "max_tokens",
+              supportsDeveloperRole: true,
+              supportsStrictMode: true,
+            },
+          },
+          // ⚠️ DO NOT use claude-opus-4-6 — tool calling returns 0 tokens on proxies
         ],
       },
     },
@@ -839,7 +890,7 @@ openclaw agent --agent xhs --message "<your brief>" --local --timeout 300
         id: "xhs",
         name: "XHS Header Agent",
         workspace: "~/.openclaw/workspace-xhs",
-        model: { primary: "openai/claude-opus-4-6" },
+        model: { primary: "openrouter-api/claude-sonnet-4-5-20250929" },
         skills: ["brief-to-xhs-header"],
         sandbox: { mode: "off" }, // Chrome headless needs unsandboxed exec
       },
@@ -883,7 +934,7 @@ Configure in `~/.openclaw/openclaw.json`:
 }
 ```
 
-**Known limitations:**
+**Known limitations & operational lessons:**
 
 - Chrome headless via `exec` can be slower than direct shell (page load timeouts).
   If Chrome hangs, increase the exec `timeout` or use pre-screenshotted assets.
@@ -894,9 +945,37 @@ Configure in `~/.openclaw/openclaw.json`:
   PNG files only.
 - On first `figma_capture` call, a browser window opens for Figma authorization.
   This is one-time only; tokens are stored and auto-refreshed.
-- Clear stale sessions (`rm ~/.openclaw/agents/xhs/sessions/*.jsonl`) if the
+- Clear stale sessions (`rm -rf ~/.openclaw/agents/xhs/sessions/`) if the
   agent returns "No reply" — large session history can cause 0-token responses
   with some model providers.
+
+**Model compatibility (critical for OpenClaw agent mode):**
+
+| Model | Tool Calling | Notes |
+|-------|-------------|-------|
+| `claude-sonnet-4-5-20250929` | ✅ stable | **Recommended** — fast, reliable tool calling |
+| `claude-opus-4-5-20251101` | ✅ works | Slower (~50-70s/turn) but stronger reasoning |
+| `claude-opus-4-6` | ❌ broken | 0 output tokens on third-party proxies |
+| `gemini-2.5-flash` | ⚠️ unstable | Text-only works; tool calling may fail silently |
+
+**Agent prompting tips:**
+
+- Opus models tend to output a text plan instead of executing tools. Use explicit
+  prefixes like `直接调用exec工具（不要解释）：` to force immediate tool invocation.
+- Avoid multi-step instructions in a single `--message`; split into one tool call
+  per agent invocation for reliability.
+- Heredoc (`cat > file << 'EOF'`) in agent `exec` can timeout or lose content.
+  For writing HTML files, prefer shorter `echo` commands or split the write into
+  multiple steps.
+
+**Browser screenshot pixel limit:**
+
+- OpenClaw's browser `snapshot` tool has a 25-million-pixel limit. Full-page
+  screenshots of long pages (e.g. GitHub READMEs) may exceed this and fail.
+- Prefer viewport-only screenshots using Chrome headless `--window-size` instead
+  of browser `snapshot` for source material capture.
+- Use `exec` with Chrome headless for screenshot tasks — it's more reliable than
+  the browser tool's built-in screenshot for large pages.
 
 ## Reference
 
