@@ -105,6 +105,7 @@ button {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   min-height: 100vh;
+  transition: grid-template-columns 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .app-region {
@@ -119,6 +120,7 @@ button {
   background: var(--color-ivory);
   box-shadow: inset -1px 0 0 rgba(20, 20, 19, 0.04);
   z-index: 30;
+  overflow: hidden;
 }
 
 .sidebar__inner {
@@ -127,16 +129,28 @@ button {
   gap: 18px;
   height: 100%;
   padding: 20px 14px;
+  transition: padding 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar__header {
   display: flex;
   align-items: center;
   gap: 10px;
+  transition: gap 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar__brand {
   min-width: 0;
+  flex: 1 1 auto;
+  max-width: 160px;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    max-width 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar__title {
@@ -146,6 +160,7 @@ button {
   font-weight: 500;
   line-height: 1.2;
   color: var(--color-near-black);
+  white-space: nowrap;
 }
 
 .sidebar-toggle {
@@ -210,7 +225,9 @@ button {
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
-    color 150ms ease;
+    color 150ms ease,
+    gap 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar-button:hover {
@@ -228,6 +245,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 24px;
   height: 24px;
   border-radius: var(--radius-comfortable);
@@ -243,9 +261,18 @@ button {
 
 .sidebar-button__label {
   min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  white-space: nowrap;
   font-family: var(--font-sans);
   font-size: 0.9rem;
   font-weight: 600;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    max-width 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .app-frame[data-sidebar-collapsed="true"] {
@@ -254,7 +281,9 @@ button {
 
 .app-frame[data-sidebar-collapsed="true"] .sidebar__brand,
 .app-frame[data-sidebar-collapsed="true"] .sidebar-button__label {
-  display: none;
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(-4px);
 }
 
 .app-frame[data-sidebar-collapsed="true"] .sidebar__inner {
@@ -263,9 +292,11 @@ button {
 
 .app-frame[data-sidebar-collapsed="true"] .sidebar__header {
   justify-content: center;
+  gap: 0;
 }
 
 .app-frame[data-sidebar-collapsed="true"] .sidebar-button {
+  gap: 0;
   justify-content: center;
   padding-inline: 6px;
 }
@@ -329,6 +360,13 @@ button {
 
 .sidebar-overlay {
   display: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar-overlay[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ──────────────────────────────────────────────
@@ -845,6 +883,41 @@ button {
   border-radius: var(--radius-pill);
 }
 
+.button--icon-only {
+  min-width: 42px;
+  padding: 10px;
+}
+
+.button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button__icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.button--spinning .button__icon--refresh {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ──────────────────────────────────────────────
    Status Banner
    ────────────────────────────────────────────── */
@@ -1269,6 +1342,55 @@ button {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.task-browser,
+.activity-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+.task-browser .panel__header,
+.activity-sidebar .panel__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -24px -24px 16px;
+  padding: 24px 24px 16px;
+  background: var(--color-ivory);
+  box-shadow: 0 1px 0 rgba(20, 20, 19, 0.06);
+}
+
+.task-browser .filter-strip {
+  position: sticky;
+  top: 84px;
+  z-index: 1;
+  margin: 0 -24px 16px;
+  padding: 0 24px 16px;
+  background: var(--color-ivory);
+}
+
+.task-browser .task-list,
+.activity-sidebar .activity-task-list {
+  align-content: start;
+}
+
+.task-browser::-webkit-scrollbar,
+.activity-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.task-browser::-webkit-scrollbar-thumb,
+.activity-sidebar::-webkit-scrollbar-thumb {
+  background: var(--color-warm-sand);
+  border-radius: var(--radius-pill);
 }
 
 /* ──────────────────────────────────────────────
@@ -1770,8 +1892,9 @@ button {
     inset: 0 auto 0 0;
     width: min(256px, calc(100vw - 56px));
     transform: translateX(calc(-100% + 56px));
-    transition: transform 180ms ease;
+    transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: var(--shadow-whisper);
+    will-change: transform;
   }
 
   .app-frame[data-sidebar-open="true"] .sidebar {
@@ -1784,6 +1907,7 @@ button {
     inset: 0;
     z-index: 25;
     background: rgba(20, 20, 19, 0.35);
+    transition: opacity 300ms ease;
   }
 
   .topbar__inner,
@@ -1803,6 +1927,11 @@ button {
 
   .queue-panel {
     grid-column: auto;
+  }
+
+  .task-browser,
+  .activity-sidebar {
+    max-height: 50vh;
   }
 }
 

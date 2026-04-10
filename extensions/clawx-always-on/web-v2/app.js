@@ -1,5 +1,6 @@
 const ROUTE_BASE = "/plugins/clawx-always-on";
 const REFRESH_INTERVAL_MS = 5000;
+const MOBILE_CHROME_TRANSITION_MS = 300;
 const DEFAULT_LOG_LIMIT = 80;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "clawx-always-on.sidebar-collapsed";
 const COMPOSE_MODE_STORAGE_KEY = "clawx-always-on.compose-mode";
@@ -228,6 +229,7 @@ function shouldUseMono(value) {
 
 const BANNER_DURATION_MS = { info: 3000, success: 3000, error: 6000 };
 let bannerTimerId = 0;
+let sidebarOverlayTimerId = 0;
 
 function setBanner(message, variant = "info") {
   if (!elements.statusBanner) {
@@ -260,6 +262,40 @@ function isMobileViewport() {
   return window.matchMedia("(max-width: 980px)").matches;
 }
 
+function showSidebarOverlay() {
+  if (!elements.sidebarOverlay) {
+    return;
+  }
+
+  window.clearTimeout(sidebarOverlayTimerId);
+  elements.sidebarOverlay.hidden = false;
+  window.requestAnimationFrame(() => {
+    if (elements.sidebarOverlay && state.sidebarOpen && isMobileViewport()) {
+      elements.sidebarOverlay.dataset.visible = "true";
+    }
+  });
+}
+
+function hideSidebarOverlay({ immediate = false } = {}) {
+  if (!elements.sidebarOverlay) {
+    return;
+  }
+
+  window.clearTimeout(sidebarOverlayTimerId);
+  elements.sidebarOverlay.dataset.visible = "false";
+
+  if (immediate || elements.sidebarOverlay.hidden) {
+    elements.sidebarOverlay.hidden = true;
+    return;
+  }
+
+  sidebarOverlayTimerId = window.setTimeout(() => {
+    if (elements.sidebarOverlay && (!state.sidebarOpen || !isMobileViewport())) {
+      elements.sidebarOverlay.hidden = true;
+    }
+  }, MOBILE_CHROME_TRANSITION_MS);
+}
+
 function syncPlannerStorage(plan) {
   writeStorageValue(PLANNER_PLAN_STORAGE_KEY, plan?.id ?? null);
 }
@@ -272,7 +308,11 @@ function renderChrome() {
   const mobile = isMobileViewport();
   elements.appFrame.dataset.sidebarCollapsed = String(!mobile && state.sidebarCollapsed);
   elements.appFrame.dataset.sidebarOpen = String(mobile && state.sidebarOpen);
-  elements.sidebarOverlay.hidden = !(mobile && state.sidebarOpen);
+  if (mobile && state.sidebarOpen) {
+    showSidebarOverlay();
+  } else {
+    hideSidebarOverlay({ immediate: !mobile });
+  }
   document.body.classList.toggle("body--locked", mobile && state.sidebarOpen);
 
   const expanded = mobile ? state.sidebarOpen : !state.sidebarCollapsed;
@@ -343,7 +383,8 @@ function getVisibleTasks() {
 function updateControls() {
   if (elements.refreshButton) {
     elements.refreshButton.disabled = state.refreshing;
-    elements.refreshButton.textContent = state.refreshing ? "Refreshing..." : "Refresh";
+    elements.refreshButton.classList.toggle("button--spinning", state.refreshing);
+    elements.refreshButton.setAttribute("aria-busy", String(state.refreshing));
   }
 
   const createForm = document.querySelector("#create-form");
