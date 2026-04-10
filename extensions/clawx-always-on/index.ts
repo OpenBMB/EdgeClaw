@@ -46,7 +46,13 @@ export default definePluginEntry({
     const webPlanService = new AlwaysOnWebPlanService(api, store, logger, getConfig);
     const dreamService = new AlwaysOnDreamService(api, store, logger, getConfig);
 
-    const executor = new SubagentExecutor(api.runtime.subagent, store, logger, toolSupport);
+    const executor = new SubagentExecutor(
+      api.runtime.subagent,
+      store,
+      logger,
+      toolSupport,
+      api.config,
+    );
     const worker = new AlwaysOnWorker(
       store,
       logger,
@@ -75,7 +81,7 @@ export default definePluginEntry({
     api.registerTool(completeFactory, { name: COMPLETE_TOOL_NAME });
 
     registerCommands(api, store, logger, getConfig, toolSupport, planService, {
-      runDream: (ctx) => dreamService.runFromCommand(ctx),
+      runDream: (ctx, options) => dreamService.runFromCommand(ctx, options),
     });
     api.registerHttpRoute({
       path: `/plugins/${PLUGIN_ID}`,

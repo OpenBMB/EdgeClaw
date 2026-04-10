@@ -2,6 +2,12 @@ import { randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { OpenClawPluginApi, PluginCommandContext } from "../../api.js";
+import {
+  parseModelRef,
+  resolveAgentDefaultModelSelection,
+  type AlwaysOnDreamCommandOptions,
+  type ResolvedModelSelection,
+} from "../command-options.js";
 import { resolveConfigSource, type AlwaysOnConfigSource } from "../core/config.js";
 import { createAlwaysOnTaskFromUserInput } from "../core/task-factory.js";
 import { summarizeTranscriptMessages } from "../core/transcript-summary.js";
@@ -20,6 +26,7 @@ type TriggerDreamParams = {
   sourceSessionKey?: string;
   sourceConversationKey?: string;
   agentId?: string;
+  modelRef?: string;
 };
 
 type TriggerDreamResult = {
@@ -90,6 +97,22 @@ function buildDreamFailureReply(): string {
   return "⚠️ Always-On dream could not generate task candidates right now. Please try again later.";
 }
 
+function resolveConfiguredModelSelection(
+  provider: string | undefined,
+  model: string | undefined,
+): ResolvedModelSelection | undefined {
+  const trimmedProvider = provider?.trim();
+  const trimmedModel = model?.trim();
+  if (!trimmedProvider || !trimmedModel) {
+    return undefined;
+  }
+  return {
+    modelRef: `${trimmedProvider}/${trimmedModel}`,
+    provider: trimmedProvider,
+    model: trimmedModel,
+  };
+}
+
 async function readOptionalFile(filePath: string): Promise<string | undefined> {
   try {
     const content = await readFile(filePath, "utf8");
@@ -140,7 +163,10 @@ export class AlwaysOnDreamService {
     this.getConfig = resolveConfigSource(config);
   }
 
-  async runFromCommand(ctx: PluginCommandContext): Promise<{ text: string }> {
+  async runFromCommand(
+    ctx: PluginCommandContext,
+    options: AlwaysOnDreamCommandOptions = {},
+  ): Promise<{ text: string }> {
     const peer = resolveCommandPeer(ctx);
     const conversationKey = resolvePlanConversationKeyFromCommand(ctx);
     const route = peer
@@ -158,6 +184,7 @@ export class AlwaysOnDreamService {
         sourceSessionKey: route?.sessionKey,
         sourceConversationKey: conversationKey,
         agentId: route?.agentId,
+        modelRef: options.modelRef,
       });
       return { text: buildDreamReply(result.summary, result.createdTasks) };
     } catch {
@@ -188,6 +215,11 @@ export class AlwaysOnDreamService {
 
   private async triggerDream(params: TriggerDreamParams): Promise<TriggerDreamResult> {
     const currentConfig = this.getConfig();
+    const plannerModel =
+      (params.modelRef ? parseModelRef(params.modelRef) : undefined) ??
+      resolveConfiguredModelSelection(currentConfig.dreamProvider, currentConfig.dreamModel) ??
+      resolveConfiguredModelSelection(currentConfig.defaultProvider, currentConfig.defaultModel) ??
+      resolveAgentDefaultModelSelection(this.api.config);
     const dreamRun: AlwaysOnDreamRun = {
       id: generateDreamRunId(),
       status: "running",
@@ -205,8 +237,8 @@ export class AlwaysOnDreamService {
         api: this.api,
         context,
         maxCandidates: currentConfig.dreamMaxCandidates,
-        provider: currentConfig.dreamProvider ?? currentConfig.defaultProvider,
-        model: currentConfig.dreamModel ?? currentConfig.defaultModel,
+        provider: plannerModel?.provider,
+        model: plannerModel?.model,
       });
 
       const createdTasks = planning.candidates.map((candidate) =>

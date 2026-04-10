@@ -1,3 +1,5 @@
+import type { OpenClawPluginApi } from "../../api.js";
+import { resolveBackgroundModelOverride } from "../background-model-override.js";
 import { ALWAYS_ON_LANE, taskIdempotencyKey, taskSessionKey } from "../core/constants.js";
 import type { AlwaysOnToolSupport } from "../core/tool-compat.js";
 import { buildAlwaysOnExecutionInstructions } from "../core/tool-compat.js";
@@ -29,6 +31,7 @@ export class SubagentExecutor {
     private readonly store: TaskStore,
     private readonly logger: TaskLogger,
     private readonly toolSupport: AlwaysOnToolSupport = { explicitToolsAvailable: true },
+    private readonly runtimeConfig?: OpenClawPluginApi["config"],
   ) {}
 
   async launch(task: AlwaysOnTask): Promise<string> {
@@ -60,16 +63,28 @@ export class SubagentExecutor {
       nextRunCount,
       transcriptSummary,
     });
+    const modelOverride = resolveBackgroundModelOverride({
+      config: this.runtimeConfig,
+      provider: task.provider,
+      model: task.model,
+    });
 
     try {
+      if (modelOverride.error) {
+        throw new Error(modelOverride.error);
+      }
       const { runId } = await this.subagent.run({
         sessionKey,
         message,
         lane: ALWAYS_ON_LANE,
         deliver: false,
         idempotencyKey,
-        provider: task.provider,
-        model: task.model,
+        ...(modelOverride.shouldPassOverride && modelOverride.provider
+          ? { provider: modelOverride.provider }
+          : {}),
+        ...(modelOverride.shouldPassOverride && modelOverride.model
+          ? { model: modelOverride.model }
+          : {}),
       });
 
       this.store.updateTaskRun(task.id, nextRunCount, {

@@ -36,6 +36,14 @@ const defaultConfig: AlwaysOnConfig = {
   logRetentionDays: 30,
 };
 
+const defaultApiConfig = {
+  agents: {
+    defaults: {
+      model: "openai-codex/gpt-5.4",
+    },
+  },
+};
+
 describe("commands", () => {
   let tmpDir: string;
   let db: DatabaseSync;
@@ -59,7 +67,7 @@ describe("commands", () => {
     logger = new TaskLogger(db, defaultConfig);
 
     const mockApi = {
-      config: {},
+      config: defaultApiConfig,
       registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
         commandHandler = cmd.handler;
       }),
@@ -102,11 +110,51 @@ describe("commands", () => {
     expect(tasks[0].status).toBe("queued");
   });
 
+  it("creates a task with explicit model and budget options", async () => {
+    const result = await commandHandler({
+      args: "create Research AI trends --model openai-codex/gpt-5.4 --max-loops 20 --max-cost-usd 2.5 --budget-exceeded-action terminate",
+    });
+
+    expect(result.text).toContain("20 loops");
+    expect(result.text).toContain("$2.5 max cost");
+    expect(result.text).toContain("provider=openai-codex");
+    expect(result.text).toContain("model=gpt-5.4");
+    expect(result.text).toContain("budgetAction=terminate");
+
+    const task = store.listTasks()[0];
+    expect(task?.provider).toBe("openai-codex");
+    expect(task?.model).toBe("gpt-5.4");
+    expect(task?.budgetExceededAction).toBe("terminate");
+    expect(task?.budgetConstraints).toContain('"kind":"max-loops"');
+    expect(task?.budgetConstraints).toContain('"limit":20');
+    expect(task?.budgetConstraints).toContain('"kind":"max-cost-usd"');
+    expect(task?.budgetConstraints).toContain('"limitUsd":2.5');
+  });
+
+  it("shows a usage error for invalid create options", async () => {
+    const result = await commandHandler({
+      args: "create Research AI trends --model invalid-model-ref",
+    });
+
+    expect(result.text).toContain("must be in `provider/model_name` format");
+    expect(result.text).toContain("Usage:");
+  });
+
+  it("rejects create when the requested model differs from the agent default and the plugin is not trusted for background overrides", async () => {
+    const result = await commandHandler({
+      args: "create Research AI trends --model anthropic/claude-sonnet-4-6",
+    });
+
+    expect(result.text).toContain("background model override");
+    expect(result.text).toContain("subagent.allowModelOverride");
+    expect(store.listTasks()).toHaveLength(0);
+  });
+
   it("delegates planning requests to the plan handler", async () => {
     const startPlan = vi.fn().mockResolvedValue({ text: "planning started" });
     const cancelPlan = vi.fn().mockReturnValue({ text: "planning cancelled" });
     const mockApi = {
-      config: {},
+      config: defaultApiConfig,
       registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
         commandHandler = cmd.handler;
       }),
@@ -131,7 +179,51 @@ describe("commands", () => {
         channel: "webchat",
         from: "webchat:user-123",
       }),
-      "Research an always-on market scan",
+      {
+        prompt: "Research an always-on market scan",
+        options: {},
+      },
+    );
+    expect(cancelPlan).not.toHaveBeenCalled();
+  });
+
+  it("parses model and budget options before delegating planning requests", async () => {
+    const startPlan = vi.fn().mockResolvedValue({ text: "planning started" });
+    const cancelPlan = vi.fn().mockReturnValue({ text: "planning cancelled" });
+    const mockApi = {
+      config: {},
+      registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
+        commandHandler = cmd.handler;
+      }),
+    };
+
+    const { registerCommands } = await import("./commands.js");
+    registerCommands(mockApi as never, store, logger, defaultConfig, undefined, {
+      startPlan,
+      cancelPlan,
+    });
+
+    await commandHandler({
+      args: "plan Research an always-on market scan --model openai-codex/gpt-5.4 --max-loops 25 --max-cost-usd 3 --budget-exceeded-action terminate",
+      channel: "webchat",
+      from: "webchat:user-123",
+      to: "webchat:user-123",
+    });
+
+    expect(startPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "webchat",
+        from: "webchat:user-123",
+      }),
+      {
+        prompt: "Research an always-on market scan",
+        options: {
+          modelRef: "openai-codex/gpt-5.4",
+          maxLoops: 25,
+          maxCostUsd: 3,
+          budgetExceededAction: "terminate",
+        },
+      },
     );
     expect(cancelPlan).not.toHaveBeenCalled();
   });
@@ -365,5 +457,72 @@ describe("commands", () => {
 
     expect(result.text).toBe("dreamed tasks");
     expect(runDream).toHaveBeenCalledTimes(1);
+    expect(runDream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "webchat",
+        from: "webchat:user-123",
+      }),
+      {},
+    );
+  });
+
+  it("passes the parsed model to dream", async () => {
+    const runDream = vi.fn().mockResolvedValue({ text: "dreamed tasks" });
+    const mockApi = {
+      config: {},
+      registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
+        commandHandler = cmd.handler;
+      }),
+    };
+
+    const { registerCommands } = await import("./commands.js");
+    registerCommands(mockApi as never, store, logger, defaultConfig, undefined, undefined, {
+      runDream,
+    });
+
+    await commandHandler({
+      args: "dream --model openai-codex/gpt-5.4",
+      channel: "webchat",
+      from: "webchat:user-123",
+      to: "webchat:user-123",
+      config: {} as never,
+    });
+
+    expect(runDream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "webchat",
+        from: "webchat:user-123",
+      }),
+      {
+        modelRef: "openai-codex/gpt-5.4",
+      },
+    );
+  });
+
+  it("rejects unsupported dream options", async () => {
+    const runDream = vi.fn().mockResolvedValue({ text: "dreamed tasks" });
+    const mockApi = {
+      config: {},
+      registerCommand: vi.fn((cmd: { handler: typeof commandHandler }) => {
+        commandHandler = cmd.handler;
+      }),
+    };
+
+    const { registerCommands } = await import("./commands.js");
+    registerCommands(mockApi as never, store, logger, defaultConfig, undefined, undefined, {
+      runDream,
+    });
+
+    const result = await commandHandler({
+      args: "dream --max-loops 20",
+      channel: "webchat",
+      from: "webchat:user-123",
+      to: "webchat:user-123",
+      config: {} as never,
+    });
+
+    expect(result.text).toContain("not supported here");
+    expect(result.text).toContain("Usage:");
+    expect(runDream).not.toHaveBeenCalled();
   });
 });

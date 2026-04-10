@@ -179,8 +179,17 @@ function resolveConfiguredModel(api: OpenClawPluginApi): {
   };
 }
 
-async function callPlanner(api: OpenClawPluginApi, prompt: string): Promise<string> {
-  const { provider, model } = resolveConfiguredModel(api);
+async function callPlanner(
+  api: OpenClawPluginApi,
+  prompt: string,
+  overrides?: {
+    provider?: string;
+    model?: string;
+  },
+): Promise<string> {
+  const configuredModel = resolveConfiguredModel(api);
+  const provider = overrides?.provider ?? configuredModel.provider;
+  const model = overrides?.model ?? configuredModel.model;
   let tempDir: string | null = null;
   try {
     tempDir = await fs.mkdtemp(path.join(tmpdir(), "clawx-always-on-plan-"));
@@ -217,9 +226,14 @@ async function callPlanner(api: OpenClawPluginApi, prompt: string): Promise<stri
 export async function runClarificationStep(params: {
   api: OpenClawPluginApi;
   initialPrompt: string;
+  provider?: string;
+  model?: string;
 }): Promise<PlannerDecision & { action: "ask" }> {
   const prompt = buildClarificationPrompt(params.initialPrompt);
-  const raw = await callPlanner(params.api, prompt);
+  const raw = await callPlanner(params.api, prompt, {
+    provider: params.provider,
+    model: params.model,
+  });
   const decision = parsePlannerDecision(raw);
   if (decision.action !== "ask") {
     throw new Error("planner did not return an ask decision for the clarification step");
@@ -232,9 +246,14 @@ export async function runFinalizationStep(params: {
   initialPrompt: string;
   questions: PlanQuestion[];
   userAnswer: string;
+  provider?: string;
+  model?: string;
 }): Promise<PlannerDecision & { action: "create" }> {
   const prompt = buildFinalizationPrompt(params);
-  const raw = await callPlanner(params.api, prompt);
+  const raw = await callPlanner(params.api, prompt, {
+    provider: params.provider,
+    model: params.model,
+  });
   const decision = parsePlannerDecision(raw);
   if (decision.action !== "create") {
     throw new Error("planner did not return a create decision for the finalization step");

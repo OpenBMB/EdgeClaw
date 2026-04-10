@@ -1,3 +1,5 @@
+import type { AlwaysOnTaskRequestOptions } from "../command-options.js";
+
 export type AlwaysOnPlanStatus = "active" | "completed" | "cancelled" | "failed";
 
 export type AlwaysOnPlanTurn = {
@@ -11,6 +13,7 @@ export type AlwaysOnPlan = {
   conversationKey: string;
   status: AlwaysOnPlanStatus;
   initialPrompt: string;
+  requestOptionsJson?: string;
   turnsJson: string;
   roundCount: number;
   originSessionKey?: string;
@@ -24,6 +27,7 @@ export type AlwaysOnPlan = {
 
 export type AlwaysOnPlanUpdatePatch = {
   status?: AlwaysOnPlanStatus;
+  requestOptionsJson?: string | null;
   turnsJson?: string;
   roundCount?: number;
   originSessionKey?: string | null;
@@ -33,3 +37,5 @@ export type AlwaysOnPlanUpdatePatch = {
   updatedAt?: number;
   completedAt?: number | null;
 };
+
+export type AlwaysOnPlanRequestOptions = AlwaysOnTaskRequestOptions;

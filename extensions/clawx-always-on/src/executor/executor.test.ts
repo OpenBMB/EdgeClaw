@@ -38,6 +38,14 @@ const defaultConfig: AlwaysOnConfig = {
   logRetentionDays: 30,
 };
 
+const defaultApiConfig = {
+  agents: {
+    defaults: {
+      model: "openai-codex/gpt-5.4",
+    },
+  },
+};
+
 describe("SubagentExecutor", () => {
   let tmpDir: string;
   let db: DatabaseSync;
@@ -145,5 +153,54 @@ describe("SubagentExecutor", () => {
     expect(callArgs.message).toContain(
       "Expanded autonomous research prompt with steps and deliverables.",
     );
+  });
+
+  it("does not pass a model override when the task matches the current agent default model", async () => {
+    const mockSubagent = {
+      run: vi.fn().mockResolvedValue({ runId: "run-default-model" }),
+    };
+    const executor = new SubagentExecutor(
+      mockSubagent,
+      store,
+      logger,
+      { explicitToolsAvailable: true },
+      defaultApiConfig,
+    );
+
+    const task = makeTask({
+      provider: "openai-codex",
+      model: "gpt-5.4",
+    });
+    store.createTask(task);
+
+    await executor.launch(task);
+
+    const callArgs = mockSubagent.run.mock.calls[0][0];
+    expect(callArgs.provider).toBeUndefined();
+    expect(callArgs.model).toBeUndefined();
+  });
+
+  it("fails before launch when the task needs an unauthorized background model override", async () => {
+    const mockSubagent = {
+      run: vi.fn().mockResolvedValue({ runId: "run-should-not-happen" }),
+    };
+    const executor = new SubagentExecutor(
+      mockSubagent,
+      store,
+      logger,
+      { explicitToolsAvailable: true },
+      defaultApiConfig,
+    );
+
+    const task = makeTask({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+    });
+    store.createTask(task);
+
+    await expect(executor.launch(task)).rejects.toThrow(/background model override/);
+    expect(mockSubagent.run).not.toHaveBeenCalled();
+    expect(store.getTask("task-001")?.status).toBe("launching");
+    expect(store.getLatestTaskRun(task.id)?.status).toBe("failed");
   });
 });

@@ -23,6 +23,14 @@ const defaultConfig: AlwaysOnConfig = {
   logRetentionDays: 30,
 };
 
+const defaultApiConfig = {
+  agents: {
+    defaults: {
+      model: "openai-codex/gpt-5.4",
+    },
+  },
+};
+
 function makeCommandContext(overrides: Partial<PluginCommandContext> = {}): PluginCommandContext {
   return {
     senderId: "user-123",
@@ -83,7 +91,7 @@ describe("AlwaysOnPlanService", () => {
     logger = new TaskLogger(db, defaultConfig);
     runEmbeddedPiAgent = vi.fn();
     api = {
-      config: {},
+      config: defaultApiConfig,
       runtime: {
         agent: {
           runEmbeddedPiAgent,
@@ -107,10 +115,10 @@ describe("AlwaysOnPlanService", () => {
       explicitToolsAvailable: true,
     });
 
-    const result = await service.startPlan(
-      makeCommandContext(),
-      "Build me a useful always-on competitor monitor",
-    );
+    const result = await service.startPlan(makeCommandContext(), {
+      prompt: "Build me a useful always-on competitor monitor",
+      options: {},
+    });
 
     expect(result.text).toContain("我会帮你把这个想法打磨成一条更好的后台任务");
     expect(result.text).toContain("**1. 你希望关注哪类信息？**");
@@ -134,13 +142,31 @@ describe("AlwaysOnPlanService", () => {
     const service = new AlwaysOnPlanService(configuredApi, store, logger, defaultConfig, {
       explicitToolsAvailable: true,
     });
-    await service.startPlan(makeCommandContext(), "test task");
+    await service.startPlan(makeCommandContext(), { prompt: "test task", options: {} });
     expect(runEmbeddedPiAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: "openai-codex",
         model: "gpt-5.4",
       }),
     );
+  });
+
+  it("rejects planning when the requested background model differs from the agent default and the plugin is not trusted for overrides", async () => {
+    const service = new AlwaysOnPlanService(api, store, logger, defaultConfig, {
+      explicitToolsAvailable: true,
+    });
+
+    const result = await service.startPlan(makeCommandContext(), {
+      prompt: "Build me a useful always-on competitor monitor",
+      options: {
+        modelRef: "anthropic/claude-sonnet-4-6",
+      },
+    });
+
+    expect(result.text).toContain("background model override");
+    expect(result.text).toContain("subagent.allowModelOverride");
+    expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
+    expect(store.getActivePlanByConversationKey("webchat:default:user-123")).toBeUndefined();
   });
 
   it("finalizes the task when user answers via before_dispatch", async () => {
@@ -156,9 +182,23 @@ describe("AlwaysOnPlanService", () => {
       explicitToolsAvailable: true,
     });
 
-    await service.startPlan(makeCommandContext(), "Build me a useful always-on competitor monitor");
+    await service.startPlan(makeCommandContext(), {
+      prompt: "Build me a useful always-on competitor monitor",
+      options: {
+        modelRef: "openai-codex/gpt-5.4",
+        maxLoops: 25,
+        maxCostUsd: 3,
+        budgetExceededAction: "terminate",
+      },
+    });
     const activePlan = store.getActivePlanByConversationKey("webchat:default:user-123");
     expect(activePlan).toBeDefined();
+    expect(JSON.parse(activePlan?.requestOptionsJson ?? "{}")).toEqual({
+      modelRef: "openai-codex/gpt-5.4",
+      maxLoops: 25,
+      maxCostUsd: 3,
+      budgetExceededAction: "terminate",
+    });
 
     const followUp = await service.handleBeforeDispatch(
       { content: "A, A" },
@@ -174,6 +214,11 @@ describe("AlwaysOnPlanService", () => {
     expect(followUp).toEqual(expect.objectContaining({ handled: true }));
     expect(followUp?.text).toContain("created from the planning flow");
     expect(followUp?.text).toContain("Competitor Monitor");
+    expect(followUp?.text).toContain("25 loops");
+    expect(followUp?.text).toContain("$3 max cost");
+    expect(followUp?.text).toContain("provider=openai-codex");
+    expect(followUp?.text).toContain("model=gpt-5.4");
+    expect(followUp?.text).toContain("budgetAction=terminate");
 
     const completedPlan = store.getPlan(activePlan!.id);
     expect(completedPlan?.status).toBe("completed");
@@ -181,6 +226,11 @@ describe("AlwaysOnPlanService", () => {
 
     const task = store.listTasks()[0];
     expect(task.title).toBe("Competitor Monitor");
+    expect(task.provider).toBe("openai-codex");
+    expect(task.model).toBe("gpt-5.4");
+    expect(task.budgetExceededAction).toBe("terminate");
+    expect(task.budgetConstraints).toContain('"limit":25');
+    expect(task.budgetConstraints).toContain('"limitUsd":3');
     expect(parseUserCommandSourceMetadata(task.sourceMetadata)).toEqual({
       mode: "plan",
       prompt:
@@ -189,6 +239,20 @@ describe("AlwaysOnPlanService", () => {
       originConversationKey: "webchat:default:user-123",
       originSessionKey: "agent:main:webchat:dm:user-123",
     });
+    expect(runEmbeddedPiAgent).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        provider: "openai-codex",
+        model: "gpt-5.4",
+      }),
+    );
+    expect(runEmbeddedPiAgent).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        provider: "openai-codex",
+        model: "gpt-5.4",
+      }),
+    );
   });
 
   it("finds active plan via senderId when conversationId is undefined", async () => {
@@ -199,7 +263,7 @@ describe("AlwaysOnPlanService", () => {
       explicitToolsAvailable: true,
     });
 
-    await service.startPlan(makeCommandContext(), "test task");
+    await service.startPlan(makeCommandContext(), { prompt: "test task", options: {} });
 
     runEmbeddedPiAgent.mockResolvedValue({
       payloads: [{ text: JSON.stringify(MOCK_CREATE_RESPONSE) }],

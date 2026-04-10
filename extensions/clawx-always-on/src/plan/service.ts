@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { PluginCommandContext, OpenClawPluginApi } from "../../api.js";
+import { resolveBackgroundModelOverride } from "../background-model-override.js";
+import { parseModelRef, type AlwaysOnTaskRequestOptions } from "../command-options.js";
 import {
   resolveConfigSource,
   type AlwaysOnConfig,
@@ -7,6 +9,7 @@ import {
 } from "../core/config.js";
 import { createAlwaysOnTaskFromUserInput } from "../core/task-factory.js";
 import { buildAlwaysOnCommandNote, type AlwaysOnToolSupport } from "../core/tool-compat.js";
+import type { AlwaysOnTask } from "../core/types.js";
 import type { TaskLogger } from "../storage/logger.js";
 import type { TaskStore } from "../storage/store.js";
 import {
@@ -19,7 +22,7 @@ import {
   type PlanQuestion,
   type PlanDefaultPlan,
 } from "./planner.js";
-import type { AlwaysOnPlan, AlwaysOnPlanTurn } from "./types.js";
+import type { AlwaysOnPlan, AlwaysOnPlanRequestOptions, AlwaysOnPlanTurn } from "./types.js";
 
 type PlanHookEvent = {
   content: string;
@@ -39,6 +42,67 @@ function generatePlanId(): string {
 
 function parsePlanTurns(raw: string): AlwaysOnPlanTurn[] {
   return JSON.parse(raw) as AlwaysOnPlanTurn[];
+}
+
+function normalizePlanRequestOptions(
+  options: AlwaysOnTaskRequestOptions | undefined,
+): AlwaysOnPlanRequestOptions {
+  const normalized: AlwaysOnPlanRequestOptions = {};
+  if (options?.modelRef) {
+    normalized.modelRef = options.modelRef;
+  }
+  if (typeof options?.maxLoops === "number") {
+    normalized.maxLoops = options.maxLoops;
+  }
+  if (typeof options?.maxCostUsd === "number") {
+    normalized.maxCostUsd = options.maxCostUsd;
+  }
+  if (options?.budgetExceededAction) {
+    normalized.budgetExceededAction = options.budgetExceededAction;
+  }
+  return normalized;
+}
+
+function serializePlanRequestOptions(options: AlwaysOnPlanRequestOptions): string | undefined {
+  return Object.keys(options).length > 0 ? JSON.stringify(options) : undefined;
+}
+
+function parsePlanRequestOptions(raw: string | undefined): AlwaysOnPlanRequestOptions {
+  if (!raw) {
+    return {};
+  }
+  try {
+    return normalizePlanRequestOptions(JSON.parse(raw) as AlwaysOnTaskRequestOptions);
+  } catch {
+    return {};
+  }
+}
+
+function resolveTaskBudgetSummary(
+  task: AlwaysOnTask,
+  config: AlwaysOnConfig,
+): {
+  maxLoops: number;
+  maxCostUsd: number;
+} {
+  let maxLoops = config.defaultMaxLoops;
+  let maxCostUsd = config.defaultMaxCostUsd;
+
+  try {
+    const constraints = JSON.parse(task.budgetConstraints) as Array<Record<string, unknown>>;
+    for (const constraint of constraints) {
+      if (constraint.kind === "max-loops" && typeof constraint.limit === "number") {
+        maxLoops = constraint.limit;
+      }
+      if (constraint.kind === "max-cost-usd" && typeof constraint.limitUsd === "number") {
+        maxCostUsd = constraint.limitUsd;
+      }
+    }
+  } catch {
+    // Fall back to config defaults if persisted constraints are malformed.
+  }
+
+  return { maxLoops, maxCostUsd };
 }
 
 function formatQuestionsText(questions: PlanQuestion[]): string {
@@ -86,8 +150,14 @@ export class AlwaysOnPlanService {
     this.getConfig = resolveConfigSource(config);
   }
 
-  async startPlan(ctx: PluginCommandContext, prompt: string): Promise<{ text: string }> {
-    const trimmedPrompt = prompt.trim();
+  async startPlan(
+    ctx: PluginCommandContext,
+    request: {
+      prompt: string;
+      options: AlwaysOnTaskRequestOptions;
+    },
+  ): Promise<{ text: string }> {
+    const trimmedPrompt = request.prompt.trim();
     if (!trimmedPrompt) {
       return { text: "Usage: `/always-on plan <task description>`" };
     }
@@ -107,11 +177,25 @@ export class AlwaysOnPlanService {
     }
 
     const now = Date.now();
+    const currentConfig = this.getConfig();
+    const requestOptions = normalizePlanRequestOptions(request.options);
+    const plannerModel = requestOptions.modelRef
+      ? parseModelRef(requestOptions.modelRef)
+      : undefined;
+    const modelOverride = resolveBackgroundModelOverride({
+      config: this.api.config,
+      provider: plannerModel?.provider ?? currentConfig.defaultProvider,
+      model: plannerModel?.model ?? currentConfig.defaultModel,
+    });
+    if (modelOverride.error) {
+      return { text: modelOverride.error };
+    }
     const plan: AlwaysOnPlan = {
       id: generatePlanId(),
       conversationKey,
       status: "active",
       initialPrompt: trimmedPrompt,
+      requestOptionsJson: serializePlanRequestOptions(requestOptions),
       turnsJson: JSON.stringify([{ role: "user", content: trimmedPrompt, timestamp: now }]),
       roundCount: 0,
       createdAt: now,
@@ -123,6 +207,8 @@ export class AlwaysOnPlanService {
       const decision = await runClarificationStep({
         api: this.api,
         initialPrompt: trimmedPrompt,
+        provider: plannerModel?.provider,
+        model: plannerModel?.model,
       });
 
       const questionsText = formatQuestionsText(decision.questions);
@@ -217,12 +303,27 @@ export class AlwaysOnPlanService {
       if (!clarificationMeta) {
         throw new Error("plan is missing clarification metadata");
       }
+      const requestOptions = parsePlanRequestOptions(activePlan.requestOptionsJson);
+      const plannerModel = requestOptions.modelRef
+        ? parseModelRef(requestOptions.modelRef)
+        : undefined;
+      const currentConfig = this.getConfig();
+      const modelOverride = resolveBackgroundModelOverride({
+        config: this.api.config,
+        provider: plannerModel?.provider ?? currentConfig.defaultProvider,
+        model: plannerModel?.model ?? currentConfig.defaultModel,
+      });
+      if (modelOverride.error) {
+        throw new Error(modelOverride.error);
+      }
 
       const decision = await runFinalizationStep({
         api: this.api,
         initialPrompt: activePlan.initialPrompt,
         questions: clarificationMeta.questions,
         userAnswer: trimmedContent,
+        provider: plannerModel?.provider,
+        model: plannerModel?.model,
       });
 
       const originSessionKey = ctx.sessionKey ?? activePlan.originSessionKey;
@@ -230,6 +331,11 @@ export class AlwaysOnPlanService {
         input: {
           title: decision.taskTitle,
           prompt: decision.taskPrompt,
+          provider: plannerModel?.provider,
+          model: plannerModel?.model,
+          maxLoops: requestOptions.maxLoops,
+          maxCostUsd: requestOptions.maxCostUsd,
+          budgetExceededAction: requestOptions.budgetExceededAction,
           deliverySessionKey: originSessionKey,
           metadata: {
             mode: "plan",
@@ -240,7 +346,7 @@ export class AlwaysOnPlanService {
         },
         store: this.store,
         logger: this.logger,
-        config: this.getConfig(),
+        config: currentConfig,
       });
 
       const now = Date.now();
@@ -255,7 +361,7 @@ export class AlwaysOnPlanService {
 
       return {
         handled: true,
-        text: this.buildPlanCompletionText(task.id, task.title, decision.assumptions),
+        text: this.buildPlanCompletionText(task, decision.assumptions),
       };
     } catch (error) {
       return {
@@ -265,18 +371,16 @@ export class AlwaysOnPlanService {
     }
   }
 
-  private buildPlanCompletionText(
-    taskId: string,
-    taskTitle: string,
-    assumptions: string[],
-  ): string {
+  private buildPlanCompletionText(task: AlwaysOnTask, assumptions: string[]): string {
     const commandNote = buildAlwaysOnCommandNote(this.toolSupport);
     const config = this.getConfig();
+    const budget = resolveTaskBudgetSummary(task, config);
     const lines = [
-      `Task **${taskId}** created from the planning flow and queued for background execution.`,
-      `> ${taskTitle}`,
+      `Task **${task.id}** created from the planning flow and queued for background execution.`,
+      `> ${task.title}`,
       "",
-      `Budget: ${config.defaultMaxLoops} loops, $${config.defaultMaxCostUsd} max cost.`,
+      `Budget: ${budget.maxLoops} loops, $${budget.maxCostUsd} max cost.`,
+      `Execution profile: provider=${task.provider ?? "default"}, model=${task.model ?? "default"}, budgetAction=${task.budgetExceededAction}.`,
       `The worker runs up to ${config.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.`,
       "Planning mode is complete. Your main session is not affected — keep chatting normally.",
     ];

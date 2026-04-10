@@ -1,6 +1,18 @@
 import type { OpenClawPluginApi, PluginCommandContext } from "../../api.js";
+import { resolveBackgroundModelOverride } from "../background-model-override.js";
 import { deserializeBudgetConstraints } from "../budget/registry.js";
-import { resolveConfigSource, type AlwaysOnConfigSource } from "../core/config.js";
+import {
+  parseDreamCommandInput,
+  parseModelRef,
+  parseTaskCommandInput,
+  type AlwaysOnDreamCommandOptions,
+  type AlwaysOnTaskRequestOptions,
+} from "../command-options.js";
+import {
+  resolveConfigSource,
+  type AlwaysOnConfig,
+  type AlwaysOnConfigSource,
+} from "../core/config.js";
 import { createAlwaysOnTaskFromUserInput } from "../core/task-factory.js";
 import {
   buildAlwaysOnCommandNote,
@@ -16,12 +28,21 @@ import type { TaskLogger } from "../storage/logger.js";
 import type { TaskStore } from "../storage/store.js";
 
 export type AlwaysOnPlanCommandHandler = {
-  startPlan: (ctx: PluginCommandContext, prompt: string) => Promise<{ text: string }>;
+  startPlan: (
+    ctx: PluginCommandContext,
+    request: {
+      prompt: string;
+      options: AlwaysOnTaskRequestOptions;
+    },
+  ) => Promise<{ text: string }>;
   cancelPlan: (ctx: PluginCommandContext) => { text: string };
 };
 
 export type AlwaysOnDreamCommandHandler = {
-  runDream: (ctx: PluginCommandContext) => Promise<{ text: string }>;
+  runDream: (
+    ctx: PluginCommandContext,
+    options: AlwaysOnDreamCommandOptions,
+  ) => Promise<{ text: string }>;
 };
 
 export function registerCommands(
@@ -69,7 +90,7 @@ export function registerCommands(
         case "plan":
           return handlePlan(ctx, args);
         case "dream":
-          return handleDream(ctx);
+          return handleDream(ctx, args);
         case "logs":
           return handleLogs(args);
         case "status":
@@ -80,15 +101,34 @@ export function registerCommands(
     },
   });
 
-  async function handleCreate(ctx: PluginCommandContext, title: string) {
-    if (!title) {
-      return { text: "Usage: `/always-on create <task description>`" };
+  async function handleCreate(ctx: PluginCommandContext, rawArgs: string) {
+    const parsed = parseTaskCommandInput(rawArgs, "create");
+    if (!parsed.ok) {
+      return { text: parsed.error };
     }
+
+    const title = parsed.text;
     const currentConfig = getConfig();
     const target = resolveCommandTarget(ctx);
+    const modelSelection = parsed.options.modelRef
+      ? parseModelRef(parsed.options.modelRef)
+      : undefined;
+    const modelOverride = resolveBackgroundModelOverride({
+      config: api.config,
+      provider: modelSelection?.provider ?? currentConfig.defaultProvider,
+      model: modelSelection?.model ?? currentConfig.defaultModel,
+    });
+    if (modelOverride.error) {
+      return { text: modelOverride.error };
+    }
     const task = createAlwaysOnTaskFromUserInput({
       input: {
         title,
+        provider: modelSelection?.provider,
+        model: modelSelection?.model,
+        maxLoops: parsed.options.maxLoops,
+        maxCostUsd: parsed.options.maxCostUsd,
+        budgetExceededAction: parsed.options.budgetExceededAction,
         deliverySessionKey: target.sessionKey,
         metadata: {
           mode: "create",
@@ -100,12 +140,13 @@ export function registerCommands(
       logger,
       config: currentConfig,
     });
+    const budget = resolveTaskBudgetSummary(task, currentConfig);
 
     return {
       text:
         `Task **${task.id}** created and queued for background execution.\n` +
         `> ${title}\n\n` +
-        `Budget: ${currentConfig.defaultMaxLoops} loops, $${currentConfig.defaultMaxCostUsd} max cost.\n` +
+        `Budget: ${budget.maxLoops} loops, $${budget.maxCostUsd} max cost.\n` +
         `Execution profile: provider=${task.provider ?? "default"}, model=${task.model ?? "default"}, budgetAction=${task.budgetExceededAction}.\n` +
         `The worker runs up to ${currentConfig.maxConcurrentTasks} task(s) at once and will start this task when a slot is available.\n` +
         `Your main session is not affected — keep chatting normally.` +
@@ -119,19 +160,32 @@ export function registerCommands(
     }
     const trimmedArgs = args.trim();
     if (!trimmedArgs) {
-      return { text: "Usage: `/always-on plan <task description>` or `/always-on plan cancel`" };
+      return {
+        text: "Usage: `/always-on plan <task description> [--model provider/model_name] [--max-loops N] [--max-cost-usd USD] [--budget-exceeded-action warn|terminate]` or `/always-on plan cancel`",
+      };
     }
     if (trimmedArgs.toLowerCase() === "cancel") {
       return planHandler.cancelPlan(ctx);
     }
-    return planHandler.startPlan(ctx, trimmedArgs);
+    const parsed = parseTaskCommandInput(trimmedArgs, "plan");
+    if (!parsed.ok) {
+      return { text: parsed.error };
+    }
+    return planHandler.startPlan(ctx, {
+      prompt: parsed.text,
+      options: parsed.options,
+    });
   }
 
-  async function handleDream(ctx: PluginCommandContext) {
+  async function handleDream(ctx: PluginCommandContext, rawArgs: string) {
     if (!dreamHandler) {
       return { text: "Dream mode is currently unavailable." };
     }
-    return dreamHandler.runDream(ctx);
+    const parsed = parseDreamCommandInput(rawArgs);
+    if (!parsed.ok) {
+      return { text: parsed.error };
+    }
+    return dreamHandler.runDream(ctx, parsed.options);
   }
 
   function handleList() {
@@ -205,6 +259,14 @@ export function registerCommands(
         text: `Task **${taskId}** is **${task.status}** — only pending tasks can be started.`,
       };
     }
+    const modelOverride = resolveBackgroundModelOverride({
+      config: api.config,
+      provider: task.provider,
+      model: task.model,
+    });
+    if (modelOverride.error) {
+      return { text: modelOverride.error };
+    }
 
     if (!store.startPendingTask(task.id)) {
       return { text: `Task **${taskId}** could not be moved into the queue.` };
@@ -232,6 +294,14 @@ export function registerCommands(
     }
 
     const currentConfig = getConfig();
+    const modelOverride = resolveBackgroundModelOverride({
+      config: api.config,
+      provider: task.provider,
+      model: task.model,
+    });
+    if (modelOverride.error) {
+      return { text: modelOverride.error };
+    }
     store.updateTask(task.id, {
       status: "queued",
       suspendedAt: null,
@@ -335,18 +405,45 @@ export function registerCommands(
 const HELP_TEXT = `## /always-on — Background Task Manager
 
 **Commands:**
-- \`/always-on create <description>\` — Create and queue a task
+- \`/always-on create <description> [--model ...] [--max-loops ...] [--max-cost-usd ...] [--budget-exceeded-action ...]\` — Create and queue a task
 - \`/always-on start <id>\` — Start a pending task
 - \`/always-on list\` — List all tasks
 - \`/always-on show <id>\` — Show task details
 - \`/always-on resume <id>\` — Re-queue a suspended or failed task
 - \`/always-on cancel <id>\` — Cancel a task
-- \`/always-on plan <description>\` — Refine a task before creating it
+- \`/always-on plan <description> [--model ...] [--max-loops ...] [--max-cost-usd ...] [--budget-exceeded-action ...]\` — Refine a task before creating it
 - \`/always-on plan cancel\` — Cancel the active planning flow
-- \`/always-on dream\` — Derive new pending tasks from transcript, memory, and task state
+- \`/always-on dream [--model ...]\` — Derive new pending tasks from transcript, memory, and task state
 - \`/always-on logs <id>\` — View task logs
 - \`/always-on status\` — System status overview`;
 
 const ALWAYS_ON_BOOTSTRAP_PROMPT = `Always-On background tasks can keep working toward a goal over time, follow up later, monitor progress, and summarize results when they matter.
 
 Help me figure out the right Always-On task to create. Start with a brief explanation of what Always-On can do, then ask only the minimum follow-up questions needed to define a concrete task. If the goal already seems clear, propose a concise task description I can confirm or refine.`;
+
+function resolveTaskBudgetSummary(
+  task: AlwaysOnTask,
+  config: AlwaysOnConfig,
+): {
+  maxLoops: number;
+  maxCostUsd: number;
+} {
+  let maxLoops = config.defaultMaxLoops;
+  let maxCostUsd = config.defaultMaxCostUsd;
+
+  try {
+    const constraints = JSON.parse(task.budgetConstraints) as Array<Record<string, unknown>>;
+    for (const constraint of constraints) {
+      if (constraint.kind === "max-loops" && typeof constraint.limit === "number") {
+        maxLoops = constraint.limit;
+      }
+      if (constraint.kind === "max-cost-usd" && typeof constraint.limitUsd === "number") {
+        maxCostUsd = constraint.limitUsd;
+      }
+    }
+  } catch {
+    // Fall back to config defaults if constraints were unexpectedly malformed.
+  }
+
+  return { maxLoops, maxCostUsd };
+}

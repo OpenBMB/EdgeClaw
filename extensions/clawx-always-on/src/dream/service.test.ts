@@ -175,6 +175,75 @@ describe("AlwaysOnDreamService", () => {
     expect(store.listDreamRuns()[0]?.failureReason).toContain("planner timeout");
   });
 
+  it("falls back to agents.defaults.model.primary when plugin dream config is unset", async () => {
+    runEmbeddedPiAgent.mockResolvedValue({
+      payloads: [
+        {
+          text: JSON.stringify({
+            summary: "No dream tasks are needed right now.",
+            candidates: [],
+          }),
+        },
+      ],
+    });
+
+    const configuredApi = {
+      ...api,
+      config: {
+        agents: {
+          defaults: {
+            workspace: tmpDir,
+            model: {
+              primary: "openai-codex/gpt-5.4",
+            },
+          },
+        },
+      },
+    } as never as OpenClawPluginApi;
+    const service = new AlwaysOnDreamService(configuredApi, store, logger, defaultConfig);
+
+    await service.runFromCommand(makeCommandContext(configuredApi.config));
+
+    expect(runEmbeddedPiAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai-codex",
+        model: "gpt-5.4",
+      }),
+    );
+  });
+
+  it("lets the slash model override dream and default plugin config", async () => {
+    runEmbeddedPiAgent.mockResolvedValue({
+      payloads: [
+        {
+          text: JSON.stringify({
+            summary: "No dream tasks are needed right now.",
+            candidates: [],
+          }),
+        },
+      ],
+    });
+
+    const service = new AlwaysOnDreamService(api, store, logger, {
+      ...defaultConfig,
+      dreamProvider: "anthropic",
+      dreamModel: "claude-opus-4-6",
+      defaultProvider: "openai",
+      defaultModel: "gpt-4.1",
+    });
+
+    await service.runFromCommand(makeCommandContext(api.config), {
+      modelRef: "openai-codex/gpt-5.4",
+    });
+
+    expect(runEmbeddedPiAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai-codex",
+        model: "gpt-5.4",
+      }),
+    );
+  });
+
   it("announces scheduled dream candidates back to the latest known session", async () => {
     store.createTask(
       makeTask({

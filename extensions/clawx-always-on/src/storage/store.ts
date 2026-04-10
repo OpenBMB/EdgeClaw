@@ -152,6 +152,13 @@ export class TaskStore {
       `);
       this.setSchemaVersion(3);
     }
+
+    if (version < 4) {
+      this.db.exec(`
+        ALTER TABLE always_on_plans ADD COLUMN requestOptionsJson TEXT;
+      `);
+      this.setSchemaVersion(4);
+    }
   }
 
   private getSchemaVersion(): number {
@@ -502,16 +509,17 @@ export class TaskStore {
     this.db
       .prepare(`
       INSERT INTO always_on_plans
-        (id, conversationKey, status, initialPrompt, turnsJson, roundCount,
+        (id, conversationKey, status, initialPrompt, requestOptionsJson, turnsJson, roundCount,
          originSessionKey, finalPrompt, createdTaskId, failureReason,
          createdAt, updatedAt, completedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .run(
         plan.id,
         plan.conversationKey,
         plan.status,
         plan.initialPrompt,
+        plan.requestOptionsJson ?? null,
         plan.turnsJson,
         plan.roundCount,
         plan.originSessionKey ?? null,
@@ -648,6 +656,7 @@ export class TaskStore {
       conversationKey: row.conversationKey as string,
       status: row.status as AlwaysOnPlan["status"],
       initialPrompt: row.initialPrompt as string,
+      requestOptionsJson: (row.requestOptionsJson as string) ?? undefined,
       turnsJson: row.turnsJson as string,
       roundCount: row.roundCount as number,
       originSessionKey: (row.originSessionKey as string) ?? undefined,

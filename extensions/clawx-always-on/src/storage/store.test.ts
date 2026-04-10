@@ -270,6 +270,24 @@ describe("TaskStore", () => {
     expect(plan?.id).toBe("plan-001");
   });
 
+  it("persists request options for plan flows", () => {
+    store.createPlan(
+      makePlan({
+        requestOptionsJson: JSON.stringify({
+          modelRef: "openai-codex/gpt-5.4",
+          maxLoops: 25,
+          maxCostUsd: 3,
+          budgetExceededAction: "terminate",
+        }),
+      }),
+    );
+
+    const plan = store.getPlan("plan-001");
+    expect(plan?.requestOptionsJson).toBe(
+      '{"modelRef":"openai-codex/gpt-5.4","maxLoops":25,"maxCostUsd":3,"budgetExceededAction":"terminate"}',
+    );
+  });
+
   it("appends turns and updates timestamps for plans", () => {
     store.createPlan(makePlan());
 
