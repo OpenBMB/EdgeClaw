@@ -163,6 +163,84 @@ function getTaskUpdatedAt(task) {
   return task.completedAt || task.suspendedAt || task.startedAt || task.createdAt;
 }
 
+function formatOptionalDateTime(timestamp) {
+  return timestamp ? formatDateTime(timestamp) : "-";
+}
+
+function parseTimestampMs(timestamp) {
+  if (!timestamp) {
+    return null;
+  }
+
+  const value = new Date(timestamp).getTime();
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatDurationMs(durationMs) {
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    return "-";
+  }
+
+  const totalSeconds = Math.round(durationMs / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (totalMinutes < 60) {
+    return seconds === 0 ? `${totalMinutes}m` : `${totalMinutes}m ${seconds}s`;
+  }
+
+  const totalHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (totalHours < 24) {
+    return minutes === 0 ? `${totalHours}h` : `${totalHours}h ${minutes}m`;
+  }
+
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  return hours === 0 ? `${days}d` : `${days}d ${hours}h`;
+}
+
+function getTaskBudgetConstraint(task, kind) {
+  return task.budgetConstraints.find((constraint) => constraint.kind === kind);
+}
+
+function formatTaskLoops(task) {
+  const loopBudget = getTaskBudgetConstraint(task, "max-loops");
+  const loopsUsed = task.budgetUsage.loopsUsed ?? 0;
+  return typeof loopBudget?.limit === "number"
+    ? `${loopsUsed} / ${loopBudget.limit}`
+    : String(loopsUsed);
+}
+
+function formatTaskCost(task) {
+  const costBudget = getTaskBudgetConstraint(task, "max-cost-usd");
+  const costUsed = formatCurrency(task.budgetUsage.costUsedUsd, true);
+  return typeof costBudget?.limitUsd === "number"
+    ? `${costUsed} / ${formatCurrency(costBudget.limitUsd)}`
+    : costUsed;
+}
+
+function formatTaskModel(task) {
+  if (task.provider && task.model) {
+    return `${task.provider}/${task.model}`;
+  }
+
+  return task.provider || task.model || "-";
+}
+
+function formatTaskDuration(task) {
+  const createdAt = parseTimestampMs(task.createdAt);
+  const finishedAt = parseTimestampMs(task.completedAt || task.suspendedAt);
+  if (createdAt === null || finishedAt === null || finishedAt < createdAt) {
+    return "-";
+  }
+
+  return formatDurationMs(finishedAt - createdAt);
+}
+
 function pickDefaultTaskId(tasks) {
   for (const status of ["active", "launching", "queued", "pending", "suspended", "failed"]) {
     const match = tasks.find((task) => task.status === status);
@@ -377,6 +455,29 @@ function getVisibleTasks() {
   }
 
   return state.tasks.filter((task) => task.status === state.activeFilter);
+}
+
+function normalizeTaskFilter(value) {
+  return STATUS_ORDER.includes(value) ? value : "all";
+}
+
+function applyTaskFilter(filter) {
+  state.activeFilter = normalizeTaskFilter(filter);
+  const visibleTasks = getVisibleTasks();
+  if (visibleTasks.length === 0) {
+    state.selectedTaskId = null;
+    state.selectedTask = null;
+    state.logs = [];
+    render();
+    return;
+  }
+
+  if (!visibleTasks.some((task) => task.id === state.selectedTaskId)) {
+    void selectTask(visibleTasks[0].id, { silent: true });
+    return;
+  }
+
+  render();
 }
 
 function updateControls() {
@@ -1046,19 +1147,23 @@ function renderFilters() {
     return;
   }
 
-  elements.filterStrip.innerHTML = STATUS_ORDER.map((status) => {
+  const activeFilter = normalizeTaskFilter(state.activeFilter);
+  const options = STATUS_ORDER.map((status) => {
     const count = getFilterCount(status);
-    return `
-      <button
-        class="filter-pill"
-        type="button"
-        data-filter="${status}"
-        data-active="${String(state.activeFilter === status)}"
-      >
-        ${escapeHtml(`${STATUS_LABELS[status]} (${count})`)}
-      </button>
-    `;
+    const selected = activeFilter === status ? " selected" : "";
+    return `<option value="${escapeHtml(status)}"${selected}>${escapeHtml(
+      `${STATUS_LABELS[status]} (${count})`,
+    )}</option>`;
   }).join("");
+
+  elements.filterStrip.innerHTML = `
+    <div class="filter-select-wrap">
+      <label class="filter-select__label" for="task-filter-select">Status</label>
+      <select id="task-filter-select" class="filter-select" aria-label="Task filters">
+        ${options}
+      </select>
+    </div>
+  `;
 }
 
 function renderTaskList() {
@@ -1076,39 +1181,73 @@ function renderTaskList() {
     return;
   }
 
-  elements.taskList.innerHTML = tasks
+  const rows = tasks
     .map((task) => {
-      const summary = truncate(task.progressSummary || task.resultSummary || task.title, 120);
-      const loopBudget = task.budgetConstraints.find(
-        (constraint) => constraint.kind === "max-loops",
-      );
-      const costBudget = task.budgetConstraints.find(
-        (constraint) => constraint.kind === "max-cost-usd",
-      );
-      const budgetLabel = `${loopBudget?.label ?? "No loop cap"} · ${costBudget?.label ?? "No cost cap"}`;
+      const summarySource = task.progressSummary || task.resultSummary;
+      const summaryMarkup = summarySource
+        ? `<p class="task-table__summary">${escapeHtml(truncate(summarySource, 120))}</p>`
+        : "";
 
       return `
-        <button
-          class="task-row"
-          type="button"
+        <tr
+          class="task-table__row"
           data-task-id="${escapeHtml(task.id)}"
           data-selected="${String(state.selectedTaskId === task.id)}"
         >
-          <div class="task-row__main">
-            <div class="task-row__topline">
-              <h3 class="task-row__title">${escapeHtml(task.title)}</h3>
-              ${renderStatusPill(task.status)}
-            </div>
-            <p class="task-row__summary">${escapeHtml(summary)}</p>
-          </div>
-          <div class="task-row__meta">
-            <span class="task-row__budget">${escapeHtml(budgetLabel)}</span>
-            <time class="task-row__updated">${escapeHtml(formatDateTime(getTaskUpdatedAt(task)))}</time>
-          </div>
-        </button>
+          <td class="task-table__cell task-table__cell--title">
+            <button
+              class="task-table__title-button"
+              type="button"
+              data-task-id="${escapeHtml(task.id)}"
+              aria-label="${escapeHtml(`Open task ${task.title}`)}"
+            >
+              <span class="task-table__title">${escapeHtml(task.title)}</span>
+              ${summaryMarkup}
+            </button>
+          </td>
+          <td class="task-table__cell task-table__cell--status">${renderStatusPill(task.status)}</td>
+          <td class="task-table__cell task-table__cell--mono mono">${escapeHtml(formatTaskCost(task))}</td>
+          <td class="task-table__cell task-table__cell--mono mono">${escapeHtml(formatTaskLoops(task))}</td>
+          <td class="task-table__cell task-table__cell--mono mono">${escapeHtml(formatTaskModel(task))}</td>
+          <td class="task-table__cell task-table__cell--time">${escapeHtml(
+            formatOptionalDateTime(task.createdAt),
+          )}</td>
+          <td class="task-table__cell task-table__cell--time">${escapeHtml(
+            formatOptionalDateTime(task.completedAt),
+          )}</td>
+          <td class="task-table__cell task-table__cell--time">${escapeHtml(
+            formatOptionalDateTime(task.suspendedAt),
+          )}</td>
+          <td class="task-table__cell task-table__cell--mono mono">${escapeHtml(
+            formatTaskDuration(task),
+          )}</td>
+        </tr>
       `;
     })
     .join("");
+
+  elements.taskList.innerHTML = `
+    <div class="task-table-wrap">
+      <table class="task-table">
+        <thead>
+          <tr>
+            <th scope="col">Task title</th>
+            <th scope="col">Status</th>
+            <th scope="col">Cost</th>
+            <th scope="col">Loops</th>
+            <th scope="col">Model</th>
+            <th scope="col">Created</th>
+            <th scope="col">Completed</th>
+            <th scope="col">Suspended</th>
+            <th scope="col">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderTaskActionButtons({ includeOpenActivity = false } = {}) {
@@ -2041,6 +2180,16 @@ function registerEvents() {
     }
   });
 
+  document.addEventListener("change", (event) => {
+    if (!(event.target instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    if (event.target.id === "task-filter-select") {
+      applyTaskFilter(event.target.value);
+    }
+  });
+
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) {
       return;
@@ -2055,27 +2204,6 @@ function registerEvents() {
     const modeButton = event.target.closest("[data-compose-mode]");
     if (modeButton?.dataset.composeMode) {
       setComposeMode(modeButton.dataset.composeMode);
-      return;
-    }
-
-    const button = event.target.closest("[data-filter]");
-    if (button) {
-      state.activeFilter = button.dataset.filter ?? "all";
-      const visibleTasks = getVisibleTasks();
-      if (visibleTasks.length === 0) {
-        state.selectedTaskId = null;
-        state.selectedTask = null;
-        state.logs = [];
-        render();
-        return;
-      }
-
-      if (!visibleTasks.some((task) => task.id === state.selectedTaskId)) {
-        void selectTask(visibleTasks[0].id, { silent: true });
-        return;
-      }
-
-      render();
       return;
     }
 
