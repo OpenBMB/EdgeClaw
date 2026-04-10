@@ -86,6 +86,10 @@ function buildDreamReply(summary: string, tasks: AlwaysOnTask[]): string {
   return lines.join("\n");
 }
 
+function buildDreamFailureReply(): string {
+  return "⚠️ Always-On dream could not generate task candidates right now. Please try again later.";
+}
+
 async function readOptionalFile(filePath: string): Promise<string | undefined> {
   try {
     const content = await readFile(filePath, "utf8");
@@ -148,13 +152,17 @@ export class AlwaysOnDreamService {
         })
       : undefined;
 
-    const result = await this.triggerDream({
-      trigger: "manual",
-      sourceSessionKey: route?.sessionKey,
-      sourceConversationKey: conversationKey,
-      agentId: route?.agentId,
-    });
-    return { text: buildDreamReply(result.summary, result.createdTasks) };
+    try {
+      const result = await this.triggerDream({
+        trigger: "manual",
+        sourceSessionKey: route?.sessionKey,
+        sourceConversationKey: conversationKey,
+        agentId: route?.agentId,
+      });
+      return { text: buildDreamReply(result.summary, result.createdTasks) };
+    } catch {
+      return { text: buildDreamFailureReply() };
+    }
   }
 
   async runScheduled(): Promise<void> {

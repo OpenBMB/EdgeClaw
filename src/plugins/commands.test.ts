@@ -77,7 +77,7 @@ function expectProviderCommandSpecCases(
   });
 }
 
-function expectUnsupportedBindingApiResult(result: { text?: string }) {
+function expectUnsupportedBindingApiResult(result: { text?: string; continueWithBody?: string }) {
   expect(result.text).toBe(
     JSON.stringify({
       requested: {
@@ -384,5 +384,35 @@ describe("registerPluginCommand", () => {
     });
 
     expectUnsupportedBindingApiResult(result);
+  });
+
+  it("returns continuation results without converting them to replies", async () => {
+    registerPluginCommand("demo-plugin", {
+      name: "bootstrap",
+      description: "Bootstrap command",
+      handler: async () => ({
+        continueWithBody: "Help me create an always-on task.",
+      }),
+    });
+
+    const match = matchPluginCommand("/bootstrap");
+    expect(match).not.toBeNull();
+
+    const result = await executePluginCommand({
+      command: match!.command,
+      args: match?.args,
+      channel: "whatsapp",
+      senderId: "123",
+      isAuthorizedSender: true,
+      commandBody: "/bootstrap",
+      config: {} as never,
+      from: "whatsapp:123",
+      to: "whatsapp:123",
+      accountId: "default",
+    });
+
+    expect(result).toEqual({
+      continueWithBody: "Help me create an always-on task.",
+    });
   });
 });

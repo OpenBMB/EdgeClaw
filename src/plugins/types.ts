@@ -1383,7 +1383,13 @@ export type PluginConversationBindingResolvedEvent = {
 /**
  * Result returned by a plugin command handler.
  */
-export type PluginCommandResult = ReplyPayload;
+export type PluginCommandResult = ReplyPayload & {
+  /**
+   * Rewrite the inbound message body and continue the same turn through the
+   * normal agent flow instead of sending an immediate command reply.
+   */
+  continueWithBody?: string;
+};
 
 /**
  * Handler function for plugin commands.

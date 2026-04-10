@@ -41,6 +41,7 @@ describe("commands", () => {
   let db: DatabaseSync;
   let store: TaskStore;
   let logger: TaskLogger;
+  type CommandResult = { text?: string; continueWithBody?: string };
   let commandHandler: (ctx: {
     args?: string;
     channel?: string;
@@ -49,7 +50,7 @@ describe("commands", () => {
     accountId?: string;
     messageThreadId?: string | number;
     config?: unknown;
-  }) => Promise<{ text: string }> | { text: string };
+  }) => Promise<CommandResult> | CommandResult;
 
   beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "commands-test-"));
@@ -73,10 +74,21 @@ describe("commands", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("shows help for empty args", async () => {
+  it("continues bare /always-on with a bootstrap prompt", async () => {
     const result = await commandHandler({ args: "" });
-    expect(result.text).toContain("/always-on");
-    expect(result.text).toContain("create");
+    expect(result).toMatchObject({
+      continueWithBody: expect.stringContaining("Always-On background tasks can keep working"),
+    });
+  });
+
+  it("shows help for unknown subcommands", async () => {
+    const result = await commandHandler({ args: "wat" });
+    expect(result).toMatchObject({
+      text: expect.stringContaining("/always-on"),
+    });
+    expect(result).toMatchObject({
+      text: expect.stringContaining("create"),
+    });
   });
 
   it("creates a task", async () => {
@@ -226,6 +238,16 @@ describe("commands", () => {
     expect(task!.suspendedAt).toBeUndefined();
   });
 
+  it("resumes a failed task", async () => {
+    store.createTask(makeTask({ id: "t1", status: "failed" }));
+
+    const result = await commandHandler({ args: "resume t1" });
+    expect(result.text).toContain("queued to resume");
+
+    const task = store.getTask("t1");
+    expect(task!.status).toBe("queued");
+  });
+
   it("starts a pending task", async () => {
     store.createTask(makeTask({ id: "t1", status: "pending" }));
 
@@ -295,7 +317,7 @@ describe("commands", () => {
     store.createTask(makeTask({ id: "t1", status: "pending" }));
 
     const result = await commandHandler({ args: "resume t1" });
-    expect(result.text).toContain("only suspended");
+    expect(result.text).toContain("only suspended or failed");
   });
 
   it("shows task logs", async () => {

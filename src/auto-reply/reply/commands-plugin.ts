@@ -8,6 +8,23 @@
 import { matchPluginCommand, executePluginCommand } from "../../plugins/commands.js";
 import type { CommandHandler, CommandHandlerResult } from "./commands-types.js";
 
+function isPluginCommandContinuationResult(
+  result: Awaited<ReturnType<typeof executePluginCommand>>,
+): result is { continueWithBody: string } {
+  const candidate = result as { continueWithBody?: unknown } | null;
+  return (
+    typeof result === "object" && result !== null && typeof candidate?.continueWithBody === "string"
+  );
+}
+
+function applyContinuationBody(target: Record<string, unknown>, body: string): void {
+  target.Body = body;
+  target.BodyForAgent = body;
+  target.BodyStripped = body;
+  target.CommandBody = body;
+  target.RawBody = body;
+}
+
 /**
  * Handle plugin-registered commands.
  * Returns a result if a plugin command was matched and executed,
@@ -50,6 +67,18 @@ export const handlePluginCommand: CommandHandler = async (
         : undefined,
     threadParentId: params.ctx.ThreadParentId?.trim() || undefined,
   });
+
+  if (isPluginCommandContinuationResult(result)) {
+    applyContinuationBody(params.ctx as Record<string, unknown>, result.continueWithBody);
+    if (params.rootCtx && params.rootCtx !== params.ctx) {
+      applyContinuationBody(params.rootCtx as Record<string, unknown>, result.continueWithBody);
+    }
+    command.rawBodyNormalized = result.continueWithBody;
+    command.commandBodyNormalized = result.continueWithBody;
+    return {
+      shouldContinue: true,
+    };
+  }
 
   return {
     shouldContinue: false,

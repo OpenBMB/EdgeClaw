@@ -1,7 +1,7 @@
 import type { OpenClawPluginApi } from "../../api.js";
 import { deserializeBudgetConstraints } from "../budget/registry.js";
 import { isAlwaysOnSession } from "../core/constants.js";
-import type { BudgetUsage } from "../core/types.js";
+import type { AlwaysOnTask, BudgetUsage } from "../core/types.js";
 import type { TaskLogger } from "../storage/logger.js";
 import type { TaskStore } from "../storage/store.js";
 import { deriveTaskOutcomeFromMessages } from "./task-finalization.js";
@@ -35,6 +35,97 @@ function getBudgetExceededReason(
   return result.ok ? undefined : result.reason;
 }
 
+function syncLatestRunBudgetSnapshot(
+  store: TaskStore,
+  task: Pick<AlwaysOnTask, "id" | "runCount">,
+  usage: BudgetUsage,
+): void {
+  const latestRun = store.getLatestTaskRun(task.id);
+  const runOrdinal = latestRun?.runOrdinal ?? task.runCount;
+  if (runOrdinal <= 0) {
+    return;
+  }
+  store.updateTaskRun(task.id, runOrdinal, {
+    budgetUsageSnapshot: serializeBudgetUsage(usage),
+  });
+}
+
+function suspendTaskForBudgetExceeded(params: {
+  api: OpenClawPluginApi;
+  store: TaskStore;
+  logger: TaskLogger;
+  taskId: string;
+  usage: BudgetUsage;
+  exceededReason: string;
+}): void {
+  const task = params.store.getTask(params.taskId);
+  if (!task || task.status !== "active" || task.budgetExceededAction !== "terminate") {
+    return;
+  }
+
+  const latestRun = params.store.getLatestTaskRun(task.id);
+  const suspendedAt = Date.now();
+  const budgetUsageSnapshot = serializeBudgetUsage(params.usage);
+  const suspensionSummary =
+    task.progressSummary?.trim() ||
+    `Suspended automatically after budget exceeded: ${params.exceededReason}`;
+  const checkpointContent = `Budget exceeded; task suspended automatically: ${params.exceededReason}`;
+
+  params.store.updateTask(task.id, {
+    status: "suspended",
+    progressSummary: suspensionSummary,
+    suspendedAt,
+  });
+  if (latestRun) {
+    params.store.updateTaskRun(task.id, latestRun.runOrdinal, {
+      status: "suspended",
+      error: `Budget exceeded: ${params.exceededReason}`,
+      endedAt: suspendedAt,
+      budgetUsageSnapshot,
+    });
+  }
+  const checkpointRunOrdinal = latestRun?.runOrdinal ?? task.runCount;
+  if (checkpointRunOrdinal > 0) {
+    params.store.appendTaskCheckpoint({
+      taskId: task.id,
+      runOrdinal: checkpointRunOrdinal,
+      kind: "system",
+      content: checkpointContent,
+      createdAt: suspendedAt,
+    });
+  }
+
+  params.logger.warn(task.id, `Task suspended after budget exceeded: ${params.exceededReason}`, {
+    runId: latestRun?.runId,
+    runOrdinal: checkpointRunOrdinal,
+  });
+
+  if (!latestRun?.runId) {
+    params.logger.warn(task.id, "Budget exceeded without an active run id; task was suspended.");
+    return;
+  }
+
+  void params.api.runtime.subagent
+    .cancelRun({
+      sessionKey: latestRun.sessionKey,
+      runId: latestRun.runId,
+    })
+    .then((result) => {
+      if (result.aborted) {
+        params.logger.info(task.id, `Budget-triggered run cancel requested for ${latestRun.runId}`);
+        return;
+      }
+      params.logger.warn(
+        task.id,
+        `Budget-triggered run cancel found no active run for ${latestRun.runId}`,
+      );
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      params.logger.warn(task.id, `Budget-triggered run cancel failed: ${message}`);
+    });
+}
+
 export function registerLifecycleHooks(
   api: OpenClawPluginApi,
   store: TaskStore,
@@ -53,20 +144,20 @@ export function registerLifecycleHooks(
     });
     if (!usage) return;
 
-    if (task.runCount > 0) {
-      store.updateTaskRun(task.id, task.runCount, {
-        budgetUsageSnapshot: serializeBudgetUsage(usage),
-      });
-    }
+    syncLatestRunBudgetSnapshot(store, task, usage);
 
     const exceededReason = getBudgetExceededReason(task, usage);
     if (exceededReason) {
       logger.warn(task.id, `Budget constraint exceeded: ${exceededReason}`);
       if (task.budgetExceededAction === "terminate") {
-        logger.warn(
-          task.id,
-          "Budget action is terminate; the next prompt will force a summary and stop.",
-        );
+        suspendTaskForBudgetExceeded({
+          api,
+          store,
+          logger,
+          taskId: task.id,
+          usage,
+          exceededReason,
+        });
       }
     }
   });
@@ -88,20 +179,20 @@ export function registerLifecycleHooks(
     });
     if (!usage) return;
 
-    if (task.runCount > 0) {
-      store.updateTaskRun(task.id, task.runCount, {
-        budgetUsageSnapshot: serializeBudgetUsage(usage),
-      });
-    }
+    syncLatestRunBudgetSnapshot(store, task, usage);
 
     const exceededReason = getBudgetExceededReason(task, usage);
     if (exceededReason) {
       logger.warn(task.id, `Budget constraint exceeded: ${exceededReason}`);
       if (task.budgetExceededAction === "terminate") {
-        logger.warn(
-          task.id,
-          "Budget action is terminate; the next prompt will force a summary and stop.",
-        );
+        suspendTaskForBudgetExceeded({
+          api,
+          store,
+          logger,
+          taskId: task.id,
+          usage,
+          exceededReason,
+        });
       }
     }
   });

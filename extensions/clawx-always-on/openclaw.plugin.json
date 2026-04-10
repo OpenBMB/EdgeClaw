@@ -95,7 +95,7 @@
     },
     "defaultBudgetExceededAction": {
       "label": "Budget Exceeded Action",
-      "help": "What to do when an always-on task exceeds budget: warn only or terminate the run (default: warn)"
+      "help": "What to do when an always-on task exceeds budget: warn only or forcibly suspend the current task run (default: warn)"
     },
     "defaultProvider": {
       "label": "Default Provider",

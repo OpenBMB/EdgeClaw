@@ -363,6 +363,24 @@ export function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
         ...(typeof payload?.error === "string" && payload.error && { error: payload.error }),
       };
     },
+    async cancelRun(params) {
+      const payload = await dispatchGatewayMethod<{ aborted?: unknown; runIds?: unknown[] }>(
+        "chat.abort",
+        {
+          sessionKey: params.sessionKey,
+          runId: params.runId,
+        },
+      );
+      const runIds = Array.isArray(payload?.runIds)
+        ? payload.runIds.filter(
+            (runId): runId is string => typeof runId === "string" && runId.trim().length > 0,
+          )
+        : [];
+      return {
+        aborted: payload?.aborted === true,
+        ...(runIds.length > 0 && { runIds }),
+      };
+    },
     getSessionMessages,
     async getSession(params) {
       return getSessionMessages(params);

@@ -164,7 +164,7 @@ function getTaskUpdatedAt(task) {
 }
 
 function pickDefaultTaskId(tasks) {
-  for (const status of ["active", "launching", "queued", "pending", "suspended"]) {
+  for (const status of ["active", "launching", "queued", "pending", "suspended", "failed"]) {
     const match = tasks.find((task) => task.status === status);
     if (match) {
       return match.id;
@@ -1139,7 +1139,7 @@ function renderTaskActionButtons({ includeOpenActivity = false } = {}) {
     `);
   }
 
-  if (state.selectedTask.status === "suspended") {
+  if (state.selectedTask.status === "suspended" || state.selectedTask.status === "failed") {
     buttons.push(`
       <button
         class="button button--primary"

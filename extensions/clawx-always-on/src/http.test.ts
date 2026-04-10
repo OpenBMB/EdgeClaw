@@ -248,6 +248,27 @@ describe("createAlwaysOnHttpHandler", () => {
     expect(store.getTask("task-resume")?.status).toBe("queued");
   });
 
+  it("resumes failed tasks", async () => {
+    store.createTask(
+      makeTask({
+        id: "task-failed-resume",
+        status: "failed",
+      }),
+    );
+
+    const response = await fetch(
+      `${baseUrl}/plugins/clawx-always-on/api/tasks/task-failed-resume/resume`,
+      {
+        method: "POST",
+      },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.task.status).toBe("queued");
+    expect(store.getTask("task-failed-resume")?.status).toBe("queued");
+  });
+
   it("starts pending tasks", async () => {
     store.createTask(
       makeTask({

@@ -45,8 +45,15 @@ export function registerCommands(
       const spaceIdx = raw.indexOf(" ");
       const subcommand = spaceIdx === -1 ? raw : raw.slice(0, spaceIdx);
       const args = spaceIdx === -1 ? "" : raw.slice(spaceIdx + 1).trim();
+      const normalizedSubcommand = subcommand.toLowerCase();
 
-      switch (subcommand.toLowerCase()) {
+      if (!normalizedSubcommand) {
+        return {
+          continueWithBody: ALWAYS_ON_BOOTSTRAP_PROMPT,
+        };
+      }
+
+      switch (normalizedSubcommand) {
         case "create":
           return handleCreate(ctx, args);
         case "list":
@@ -216,9 +223,11 @@ export function registerCommands(
 
     const task = store.getTask(taskId);
     if (!task) return { text: `Task **${taskId}** not found.` };
-    if (task.status !== "suspended") {
+    if (task.status !== "suspended" && task.status !== "failed") {
       return {
-        text: `Task **${taskId}** is **${task.status}** — only suspended tasks can be resumed.`,
+        text:
+          `Task **${taskId}** is **${task.status}** — ` +
+          `only suspended or failed tasks can be resumed.`,
       };
     }
 
@@ -330,10 +339,14 @@ const HELP_TEXT = `## /always-on — Background Task Manager
 - \`/always-on start <id>\` — Start a pending task
 - \`/always-on list\` — List all tasks
 - \`/always-on show <id>\` — Show task details
-- \`/always-on resume <id>\` — Re-queue a suspended task
+- \`/always-on resume <id>\` — Re-queue a suspended or failed task
 - \`/always-on cancel <id>\` — Cancel a task
 - \`/always-on plan <description>\` — Refine a task before creating it
 - \`/always-on plan cancel\` — Cancel the active planning flow
 - \`/always-on dream\` — Derive new pending tasks from transcript, memory, and task state
 - \`/always-on logs <id>\` — View task logs
 - \`/always-on status\` — System status overview`;
+
+const ALWAYS_ON_BOOTSTRAP_PROMPT = `Always-On background tasks can keep working toward a goal over time, follow up later, monitor progress, and summarize results when they matter.
+
+Help me figure out the right Always-On task to create. Start with a brief explanation of what Always-On can do, then ask only the minimum follow-up questions needed to define a concrete task. If the goal already seems clear, propose a concise task description I can confirm or refine.`;

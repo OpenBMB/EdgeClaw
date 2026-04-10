@@ -30,6 +30,16 @@ export type SubagentWaitResult = {
   error?: string;
 };
 
+export type SubagentCancelRunParams = {
+  sessionKey: string;
+  runId: string;
+};
+
+export type SubagentCancelRunResult = {
+  aborted: boolean;
+  runIds?: string[];
+};
+
 export type SubagentGetSessionMessagesParams = {
   sessionKey: string;
   limit?: number;
@@ -55,6 +65,7 @@ export type PluginRuntime = PluginRuntimeCore & {
   subagent: {
     run: (params: SubagentRunParams) => Promise<SubagentRunResult>;
     waitForRun: (params: SubagentWaitParams) => Promise<SubagentWaitResult>;
+    cancelRun: (params: SubagentCancelRunParams) => Promise<SubagentCancelRunResult>;
     getSessionMessages: (
       params: SubagentGetSessionMessagesParams,
     ) => Promise<SubagentGetSessionMessagesResult>;

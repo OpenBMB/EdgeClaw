@@ -162,6 +162,19 @@ describe("AlwaysOnDreamService", () => {
     expect(store.listDreamRuns()[0]?.status).toBe("completed");
   });
 
+  it("returns a plugin-scoped failure reply when manual dream planning fails", async () => {
+    runEmbeddedPiAgent.mockRejectedValue(new Error("planner timeout"));
+
+    const service = new AlwaysOnDreamService(api, store, logger, defaultConfig);
+    const result = await service.runFromCommand(makeCommandContext(api.config));
+
+    expect(result.text).toContain("Always-On dream could not generate task candidates");
+    expect(result.text).not.toContain("Command failed");
+    expect(store.listDreamRuns()).toHaveLength(1);
+    expect(store.listDreamRuns()[0]?.status).toBe("failed");
+    expect(store.listDreamRuns()[0]?.failureReason).toContain("planner timeout");
+  });
+
   it("announces scheduled dream candidates back to the latest known session", async () => {
     store.createTask(
       makeTask({

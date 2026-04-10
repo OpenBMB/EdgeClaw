@@ -299,7 +299,11 @@ export class TaskStore {
 
   getResumableTasks(): AlwaysOnTask[] {
     const rows = this.db
-      .prepare("SELECT * FROM always_on_tasks WHERE status = 'suspended' ORDER BY suspendedAt DESC")
+      .prepare(`
+        SELECT * FROM always_on_tasks
+        WHERE status IN ('suspended', 'failed')
+        ORDER BY COALESCE(suspendedAt, createdAt) DESC
+      `)
       .all() as Record<string, unknown>[];
     return rows.map((r) => this.rowToTask(r));
   }

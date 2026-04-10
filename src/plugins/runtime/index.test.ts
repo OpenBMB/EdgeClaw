@@ -28,6 +28,7 @@ function createGatewaySubagentRuntime() {
   return {
     run: vi.fn(),
     waitForRun: vi.fn(),
+    cancelRun: vi.fn(),
     getSessionMessages: vi.fn(),
     getSession: vi.fn(),
     deleteSession: vi.fn(),
@@ -50,6 +51,15 @@ function expectGatewaySubagentRunFailure(
   );
 }
 
+function expectGatewaySubagentCancelFailure(
+  runtime: ReturnType<typeof createPluginRuntime>,
+  params: { sessionKey: string; runId: string },
+) {
+  expect(() => runtime.subagent.cancelRun(params)).toThrow(
+    "Plugin runtime subagent methods are only available during a gateway request.",
+  );
+}
+
 function expectRuntimeValue<T>(
   readValue: (runtime: ReturnType<typeof createPluginRuntime>) => T,
   expected: T,
@@ -62,6 +72,13 @@ function expectRuntimeSubagentRun(
   params: { sessionKey: string; message: string },
 ) {
   return runtime.subagent.run(params);
+}
+
+function expectRuntimeSubagentCancel(
+  runtime: ReturnType<typeof createPluginRuntime>,
+  params: { sessionKey: string; runId: string },
+) {
+  return runtime.subagent.cancelRun(params);
 }
 
 function createGatewaySubagentRunFixture(params?: { allowGatewaySubagentBinding?: boolean }) {
@@ -233,11 +250,18 @@ describe("plugin runtime command execution", () => {
     const { runtime } = createGatewaySubagentRunFixture();
 
     expectGatewaySubagentRunFailure(runtime, { sessionKey: "s-1", message: "hello" });
+    expectGatewaySubagentCancelFailure(runtime, { sessionKey: "s-1", runId: "run-1" });
   });
 
   it("late-binds to the gateway subagent when explicitly enabled", async () => {
-    const { run, runtime } = createGatewaySubagentRunFixture({
-      allowGatewaySubagentBinding: true,
+    const run = vi.fn().mockResolvedValue({ runId: "run-1" });
+    const cancelRun = vi.fn().mockResolvedValue({ aborted: true, runIds: ["run-1"] });
+    const runtime = createPluginRuntime({ allowGatewaySubagentBinding: true });
+
+    setGatewaySubagentRuntime({
+      ...createGatewaySubagentRuntime(),
+      run,
+      cancelRun,
     });
 
     await expect(
@@ -246,5 +270,13 @@ describe("plugin runtime command execution", () => {
       runId: "run-1",
     });
     expect(run).toHaveBeenCalledWith({ sessionKey: "s-2", message: "hello" });
+
+    await expect(
+      expectRuntimeSubagentCancel(runtime, { sessionKey: "s-2", runId: "run-1" }),
+    ).resolves.toEqual({
+      aborted: true,
+      runIds: ["run-1"],
+    });
+    expect(cancelRun).toHaveBeenCalledWith({ sessionKey: "s-2", runId: "run-1" });
   });
 });

@@ -202,6 +202,16 @@ beforeEach(() => {
       case "agent.wait":
         opts.respond(true, { status: "ok" });
         return;
+      case "chat.abort":
+        const abortParams = (opts.req.params ?? {}) as { runId?: unknown };
+        opts.respond(true, {
+          aborted: true,
+          runIds:
+            typeof abortParams.runId === "string" && abortParams.runId.trim()
+              ? [abortParams.runId]
+              : [],
+        });
+        return;
       case "sessions.get":
         opts.respond(true, { messages: [] });
         return;
@@ -510,6 +520,30 @@ describe("loadGatewayPlugins", () => {
       messages: [{ id: "m-1" }],
     });
 
+    expect(getLastDispatchedClientScopes()).toEqual(["operator.write"]);
+    expect(getLastDispatchedClientScopes()).not.toContain("operator.admin");
+  });
+
+  test("allows run cancellation with synthetic write scope", async () => {
+    const serverPlugins = serverPluginsModule;
+    const runtime = await createSubagentRuntime(serverPlugins);
+    serverPlugins.setFallbackGatewayContext(createTestContext("synthetic-cancel-run"));
+
+    await expect(
+      runtime.cancelRun({
+        sessionKey: "s-cancel",
+        runId: "run-cancel-1",
+      }),
+    ).resolves.toEqual({
+      aborted: true,
+      runIds: ["run-cancel-1"],
+    });
+
+    expect(handleGatewayRequest.mock.calls.at(-1)?.[0]?.req?.method).toBe("chat.abort");
+    expect(getLastDispatchedParams()).toMatchObject({
+      sessionKey: "s-cancel",
+      runId: "run-cancel-1",
+    });
     expect(getLastDispatchedClientScopes()).toEqual(["operator.write"]);
     expect(getLastDispatchedClientScopes()).not.toContain("operator.admin");
   });

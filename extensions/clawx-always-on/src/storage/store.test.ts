@@ -157,14 +157,16 @@ describe("TaskStore", () => {
     expect(store.getActiveTask()).toBeUndefined();
   });
 
-  it("gets resumable (suspended) tasks", () => {
+  it("gets resumable suspended and failed tasks", () => {
     store.createTask(makeTask({ id: "t1", status: "suspended", suspendedAt: 100 }));
     store.createTask(makeTask({ id: "t2", status: "suspended", suspendedAt: 200 }));
-    store.createTask(makeTask({ id: "t3", status: "completed" }));
+    store.createTask(makeTask({ id: "t3", status: "failed", createdAt: 300 }));
+    store.createTask(makeTask({ id: "t4", status: "completed" }));
 
     const resumable = store.getResumableTasks();
-    expect(resumable).toHaveLength(2);
-    expect(resumable[0].id).toBe("t2");
+    expect(resumable).toHaveLength(3);
+    expect(resumable[0].id).toBe("t3");
+    expect(resumable[1].id).toBe("t2");
   });
 
   it("lists tasks with status filter", () => {

@@ -477,9 +477,9 @@ async function handleApi(
       return true;
     }
 
-    if (task.status !== "suspended") {
+    if (task.status !== "suspended" && task.status !== "failed") {
       respondJson(res, 409, {
-        error: "Only suspended tasks can be resumed",
+        error: "Only suspended or failed tasks can be resumed",
         task: serializeTask(task),
       });
       return true;

@@ -44,6 +44,7 @@ describe("lifecycle hooks", () => {
   let db: DatabaseSync;
   let store: TaskStore;
   let logger: TaskLogger;
+  let cancelRun: ReturnType<typeof vi.fn>;
   let hooks: Record<string, (event: Record<string, unknown>, ctx: Record<string, unknown>) => void>;
 
   beforeEach(async () => {
@@ -51,9 +52,15 @@ describe("lifecycle hooks", () => {
     db = openDatabase(join(tmpDir, "test.sqlite"));
     store = new TaskStore(db);
     logger = new TaskLogger(db, defaultConfig);
+    cancelRun = vi.fn().mockResolvedValue({ aborted: true, runIds: ["run-123"] });
     hooks = {};
 
     const mockApi = {
+      runtime: {
+        subagent: {
+          cancelRun,
+        },
+      },
       on: vi.fn(
         (
           name: string,
@@ -113,6 +120,50 @@ describe("lifecycle hooks", () => {
       const usage = JSON.parse(task!.budgetUsage);
       expect(usage.loopsUsed).toBe(0);
     });
+
+    it("hard-suspends tasks when loop budget exceeds terminate policy", () => {
+      store.createTask(
+        makeTask({
+          budgetExceededAction: "terminate",
+          budgetConstraints: JSON.stringify([{ kind: "max-loops", limit: 0 }]),
+        }),
+      );
+      store.createTaskRun({
+        taskId: "task-001",
+        runOrdinal: 1,
+        runId: "run-123",
+        sessionKey: "always-on:task-001",
+        status: "active",
+        startedAt: Date.now(),
+        createdAt: Date.now(),
+      });
+
+      hooks.before_message_write!(
+        {
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Working on the task" }],
+          },
+        },
+        { sessionKey: "always-on:task-001" },
+      );
+
+      const task = store.getTask("task-001");
+      const latestRun = store.getLatestTaskRun("task-001");
+      const checkpoints = store.listTaskCheckpoints("task-001");
+
+      expect(task!.status).toBe("suspended");
+      expect(task!.suspendedAt).toBeDefined();
+      expect(task!.progressSummary).toContain("budget exceeded");
+      expect(latestRun?.status).toBe("suspended");
+      expect(latestRun?.endedAt).toBeDefined();
+      expect(latestRun?.error).toContain("Loop limit");
+      expect(checkpoints[0]?.content).toContain("Budget exceeded; task suspended automatically");
+      expect(cancelRun).toHaveBeenCalledWith({
+        sessionKey: "always-on:task-001",
+        runId: "run-123",
+      });
+    });
   });
 
   describe("llm_output hook", () => {
@@ -168,6 +219,41 @@ describe("lifecycle hooks", () => {
         expect(usage.costUsedUsd).toBeGreaterThan(0);
       },
     );
+
+    it("hard-suspends tasks when cost budget exceeds terminate policy", () => {
+      store.createTask(
+        makeTask({
+          budgetExceededAction: "terminate",
+          budgetConstraints: JSON.stringify([{ kind: "max-cost-usd", limitUsd: 0.000001 }]),
+        }),
+      );
+      store.createTaskRun({
+        taskId: "task-001",
+        runOrdinal: 1,
+        runId: "run-123",
+        sessionKey: "always-on:task-001",
+        status: "active",
+        startedAt: Date.now(),
+        createdAt: Date.now(),
+      });
+
+      hooks.llm_output!(
+        { usage: { input: 1000, output: 500 } },
+        { sessionKey: "always-on:task-001" },
+      );
+
+      const task = store.getTask("task-001");
+      const latestRun = store.getLatestTaskRun("task-001");
+
+      expect(task!.status).toBe("suspended");
+      expect(task!.suspendedAt).toBeDefined();
+      expect(latestRun?.status).toBe("suspended");
+      expect(latestRun?.error).toContain("Cost limit");
+      expect(cancelRun).toHaveBeenCalledWith({
+        sessionKey: "always-on:task-001",
+        runId: "run-123",
+      });
+    });
   });
 
   describe("agent_end hook", () => {

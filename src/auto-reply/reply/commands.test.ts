@@ -2280,6 +2280,36 @@ describe("handleCommands plugin commands", () => {
     expect(commandResult.reply?.text).toBe("from plugin");
     clearPluginCommands();
   });
+
+  it("continues into the agent flow when a plugin rewrites the body", async () => {
+    clearPluginCommands();
+    const result = registerPluginCommand("test-plugin", {
+      name: "always-on",
+      description: "Always-On bootstrap",
+      acceptsArgs: true,
+      handler: async () => ({
+        continueWithBody: "Help me define an always-on task for monitoring regressions.",
+      }),
+    });
+    expect(result.ok).toBe(true);
+
+    const cfg = {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("/always-on", cfg);
+    const commandResult = await handleCommands(params);
+
+    expect(commandResult).toEqual({ shouldContinue: true });
+    expect(params.ctx.Body).toBe("Help me define an always-on task for monitoring regressions.");
+    expect(params.ctx.CommandBody).toBe(
+      "Help me define an always-on task for monitoring regressions.",
+    );
+    expect(params.command.commandBodyNormalized).toBe(
+      "Help me define an always-on task for monitoring regressions.",
+    );
+    clearPluginCommands();
+  });
 });
 
 describe("handleCommands identity", () => {
