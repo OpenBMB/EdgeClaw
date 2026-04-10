@@ -960,6 +960,10 @@ button {
     transform 300ms ease;
 }
 
+.status-banner[hidden] {
+  display: none;
+}
+
 .status-banner::before {
   content: "";
   flex: 0 0 auto;
