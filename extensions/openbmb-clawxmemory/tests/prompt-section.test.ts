@@ -8,7 +8,7 @@ describe("buildMemoryPromptSection", () => {
 
   it("mentions browse, retrieval, and flush tools when they are available", () => {
     const lines = buildMemoryPromptSection({
-      availableTools: new Set(["memory_overview", "memory_list", "memory_search", "memory_get", "memory_flush"]),
+      availableTools: new Set(["memory_overview", "memory_list", "memory_search", "memory_get", "memory_flush", "memory_dream"]),
     });
 
     expect(lines.join("\n")).toContain("memory_overview");
@@ -16,6 +16,8 @@ describe("buildMemoryPromptSection", () => {
     expect(lines.join("\n")).toContain("memory_search");
     expect(lines.join("\n")).toContain("memory_get");
     expect(lines.join("\n")).toContain("memory_flush");
-    expect(lines.join("\n")).toContain("authoritative dynamic memory source");
+    expect(lines.join("\n")).toContain("memory_dream");
+    expect(lines.join("\n")).toContain("authoritative long-term memory source");
+    expect(lines.join("\n")).toContain("Never call write, edit, move, rename, or delete tools on workspace memory files");
   });
 });

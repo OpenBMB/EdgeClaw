@@ -1,36 +1,24 @@
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import type { InternalHookEvent } from "openclaw/plugin-sdk/hook-runtime";
-import type {
-  PluginHookAgentEndEvent,
-  PluginHookAgentContext,
-  PluginHookBeforeMessageWriteEvent,
-  PluginHookBeforeMessageWriteResult,
-  PluginHookBeforePromptBuildEvent,
-  PluginHookBeforePromptBuildResult,
-  PluginHookBeforeResetEvent,
-  PluginHookBeforeToolCallEvent,
-  PluginHookAfterToolCallEvent,
-  PluginLogger,
-  PluginRuntime,
-  PluginHookToolContext,
-} from "openclaw/plugin-sdk/plugin-runtime";
-import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
-import { buildPluginConfig, type PluginRuntimeConfig } from "./config.js";
 import {
+  type ClearMemoryResult,
   type CaseToolEvent,
   type CaseTraceRecord,
-  type DashboardOverview,
+  type DreamTraceRecord,
   DreamRewriteRunner,
   HeartbeatIndexer,
+  type IndexTraceRecord,
   LlmMemoryExtractor,
+  type ManagedBoundaryStatus,
+  type ManagedWorkspaceBoundaryState,
+  type ManagedWorkspaceFileName,
+  type ManagedWorkspaceFileState,
   MemoryRepository,
   ReasoningRetriever,
-  loadSkillsRuntime,
   type DreamRunResult,
   type HeartbeatStats,
   type IndexingSettings,
+  type MemoryActionRequest,
+  type MemoryActionResult,
+  type MemoryImportableBundle,
   type MemoryMessage,
   type MemoryExportBundle,
   type MemoryImportResult,
@@ -41,16 +29,35 @@ import {
   hashText,
   nowIso,
 } from "./core/index.js";
+import type { InternalHookEvent } from "openclaw/plugin-sdk/hook-runtime";
+import type {
+  PluginHookAgentEndEvent,
+  PluginHookAgentContext,
+  PluginHookBeforeMessageWriteEvent,
+  PluginHookBeforeMessageWriteResult,
+  PluginHookBeforePromptBuildEvent,
+  PluginHookBeforePromptBuildResult,
+  PluginHookBeforeResetEvent,
+  PluginHookBeforeToolCallEvent,
+  PluginHookBeforeToolCallResult,
+  PluginHookAfterToolCallEvent,
+  PluginLogger,
+  PluginRuntime,
+  PluginHookToolContext,
+} from "openclaw/plugin-sdk/plugin-runtime";
+import { buildPluginConfig, type PluginRuntimeConfig } from "./config.js";
+import { traceI18n } from "./core/trace-i18n.js";
+import { hasExplicitRememberIntent, inspectTranscriptMessage, isCommandOnlyUserText, isSessionBoundaryMarkerMessage, isSessionStartupMarkerText, normalizeMessages, normalizeTranscriptMessage } from "./message-utils.js";
 import {
-  inspectTranscriptMessage,
-  isCommandOnlyUserText,
-  isSessionBoundaryMarkerMessage,
-  isSessionStartupMarkerText,
-  normalizeMessages,
-  normalizeTranscriptMessage,
-} from "./message-utils.js";
+  containsDefaultWorkspaceMarker,
+  resolveDefaultOpenClawConfigPath,
+  resolveDefaultWorkspaceDir,
+} from "./state-paths.js";
 import { buildPluginTools } from "./tools.js";
 import { LocalUiServer } from "./ui-server.js";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 
 const MEMORY_REPAIR_VERSION = "2026-04-03-strict-user-io-cleanup-v16";
 const INDEXING_SETTINGS_MIGRATION_VERSION = "2026-04-02-auto-dream-settings-v3";
@@ -59,17 +66,38 @@ const NATIVE_MEMORY_PLUGIN_ID = "memory-core";
 const LAST_DREAM_AT_STATE_KEY = "lastDreamAt";
 const LAST_DREAM_STATUS_STATE_KEY = "lastDreamStatus";
 const LAST_DREAM_SUMMARY_STATE_KEY = "lastDreamSummary";
-const LAST_DREAM_L1_ENDED_AT_STATE_KEY = "lastDreamL1EndedAt";
-const CHAT_FACING_MEMORY_TOOLS = ["memory_overview", "memory_list", "memory_flush"] as const;
+const CHAT_FACING_MEMORY_TOOLS = ["memory_overview", "memory_list", "memory_flush", "memory_dream"] as const;
 const MANAGED_BOUNDARY_RESTART_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 8_000;
 const RECENT_INBOUND_TTL_MS = 30_000;
 const COMMAND_REPLY_TTL_MS = 10_000;
 const NON_MEMORY_TURN_TTL_MS = 15_000;
 const STARTUP_REPAIR_SNAPSHOT_LIMIT = 200;
 const RECENT_CASE_LIMIT = 30;
+const RECENT_DREAM_TRACE_LIMIT = 30;
 const STARTUP_FALLBACK_GREETING = "I'm ready. What would you like to do?";
-const STARTUP_BOUNDARY_RUNNING_MESSAGE =
-  "Applying managed OpenClaw memory config and requesting a gateway restart.";
+const STARTUP_BOUNDARY_RUNNING_MESSAGE = "Applying managed OpenClaw memory config and requesting a gateway restart.";
+const MANAGED_BOUNDARY_STATE_VERSION = 1 as const;
+const MANAGED_BOUNDARY_DIRNAME = "managed-boundary";
+const MANAGED_BOUNDARY_STATE_FILENAME = "workspace-memory-boundary.json";
+const MANAGED_WORKSPACE_FILES = ["USER.md", "MEMORY.md"] as const satisfies readonly ManagedWorkspaceFileName[];
+const BLOCKED_WORKSPACE_MEMORY_TOOL_NAMES = new Set(["write", "edit", "delete", "move", "rename", "remove"]);
+const TOOL_PATH_PARAM_KEYS = new Set([
+  "path",
+  "file",
+  "file_path",
+  "filepath",
+  "target_file",
+  "source_path",
+  "destination_path",
+  "destination",
+  "source",
+  "old_path",
+  "new_path",
+  "to",
+  "from",
+]);
+
+type ManagedBoundaryAction = "none" | "isolated" | "restored" | "conflict";
 
 interface MemoryBoundaryDiagnostics {
   slotOwner: string;
@@ -78,6 +106,15 @@ interface MemoryBoundaryDiagnostics {
   memoryRuntimeHealthy: boolean;
   runtimeIssues: string[];
   managedConfigIssues: string[];
+  managedWorkspaceFiles: ManagedWorkspaceFileState[];
+  boundaryStatus: ManagedBoundaryStatus;
+  lastBoundaryAction: string;
+}
+
+interface RuntimeOverviewDiagnostics {
+  runtimeIssues: string[];
+  managedWorkspaceFiles: ManagedWorkspaceFileState[];
+  startupRepairMessage?: string;
 }
 
 export interface ManagedMemoryBoundaryApplyResult {
@@ -96,18 +133,18 @@ interface LoggerLike {
 function safeLog(logger: PluginLogger | undefined): LoggerLike {
   if (!logger) return console;
 
-  const wrap =
-    (method: ((message: string, meta?: Record<string, unknown>) => void) | undefined) =>
-    (...args: unknown[]): void => {
-      if (!method) return;
-      const [message, meta] = args;
-      const rendered = typeof message === "string" ? message : String(message);
-      if (meta && typeof meta === "object" && !Array.isArray(meta)) {
-        method(rendered, meta as Record<string, unknown>);
-        return;
-      }
-      method(rendered);
-    };
+  const wrap = (method: ((message: string, meta?: Record<string, unknown>) => void) | undefined) => (
+    ...args: unknown[]
+  ): void => {
+    if (!method) return;
+    const [message, meta] = args;
+    const rendered = typeof message === "string" ? message : String(message);
+    if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+      method(rendered, meta as Record<string, unknown>);
+      return;
+    }
+    method(rendered);
+  };
 
   return {
     debug: wrap(logger.debug),
@@ -119,7 +156,7 @@ function safeLog(logger: PluginLogger | undefined): LoggerLike {
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+    ? value as Record<string, unknown>
     : undefined;
 }
 
@@ -177,10 +214,7 @@ export function applyManagedMemoryBoundaryConfig(
   const pluginEntry = ensureObject(entries, PLUGIN_ID);
   const pluginHooks = ensureObject(pluginEntry, "hooks");
   const memoryCore = ensureObject(entries, NATIVE_MEMORY_PLUGIN_ID);
-  const internalHooks = ensureObject(
-    ensureObject(ensureObject(config, "hooks"), "internal"),
-    "entries",
-  );
+  const internalHooks = ensureObject(ensureObject(ensureObject(config, "hooks"), "internal"), "entries");
   const sessionMemory = ensureObject(internalHooks, "session-memory");
   const agents = ensureObject(config, "agents");
   const defaults = ensureObject(agents, "defaults");
@@ -190,13 +224,7 @@ export function applyManagedMemoryBoundaryConfig(
   const tools = ensureObject(config, "tools");
 
   setManagedValue(slots, "memory", PLUGIN_ID, "plugins.slots.memory", changedPaths);
-  setManagedValue(
-    pluginEntry,
-    "enabled",
-    true,
-    `plugins.entries.${PLUGIN_ID}.enabled`,
-    changedPaths,
-  );
+  setManagedValue(pluginEntry, "enabled", true, `plugins.entries.${PLUGIN_ID}.enabled`, changedPaths);
   setManagedValue(
     pluginHooks,
     "allowPromptInjection",
@@ -233,9 +261,7 @@ export function applyManagedMemoryBoundaryConfig(
     changedPaths,
   );
 
-  const currentAlsoAllow = Array.isArray(tools.alsoAllow)
-    ? normalizeStringList(tools.alsoAllow)
-    : [];
+  const currentAlsoAllow = Array.isArray(tools.alsoAllow) ? normalizeStringList(tools.alsoAllow) : [];
   const nextAlsoAllow = normalizeStringList([...currentAlsoAllow, ...CHAT_FACING_MEMORY_TOOLS]);
   if (!arraysEqual(currentAlsoAllow, nextAlsoAllow)) {
     tools.alsoAllow = nextAlsoAllow;
@@ -247,6 +273,26 @@ export function applyManagedMemoryBoundaryConfig(
     changedPaths,
     config,
   };
+}
+
+function resolveOpenClawConfigPath(): string {
+  return resolveDefaultOpenClawConfigPath();
+}
+
+function readOpenClawConfigFromDisk(): Record<string, unknown> | undefined {
+  try {
+    const raw = readFileSync(resolveOpenClawConfigPath(), "utf-8");
+    const parsed = JSON.parse(raw);
+    return asObject(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeManagedActionLabel(action: ManagedBoundaryAction, files: ManagedWorkspaceFileState[]): string {
+  if (action === "none") return "none";
+  const names = files.map((file) => file.name).join(", ") || "none";
+  return `${action}:${names}`;
 }
 
 function getConfigValue(root: Record<string, unknown> | undefined, path: string[]): unknown {
@@ -264,10 +310,7 @@ function getConfigString(root: Record<string, unknown> | undefined, path: string
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getConfigBoolean(
-  root: Record<string, unknown> | undefined,
-  path: string[],
-): boolean | undefined {
+function getConfigBoolean(root: Record<string, unknown> | undefined, path: string[]): boolean | undefined {
   const value = getConfigValue(root, path);
   return typeof value === "boolean" ? value : undefined;
 }
@@ -283,11 +326,9 @@ function shouldSkipCapture(event: Record<string, unknown>, ctx: Record<string, u
   const provider = typeof ctx.messageProvider === "string" ? ctx.messageProvider : "";
   const trigger = typeof ctx.trigger === "string" ? ctx.trigger : "";
   const sessionKey = resolveSessionKey(ctx);
-  return (
-    ["exec-event", "cron-event"].includes(provider) ||
-    ["heartbeat", "cron", "memory"].includes(trigger) ||
-    sessionKey.startsWith("temp:")
-  );
+  return ["exec-event", "cron-event"].includes(provider)
+    || ["heartbeat", "cron", "memory"].includes(trigger)
+    || sessionKey.startsWith("temp:");
 }
 
 function isControlCommandText(text: string): boolean {
@@ -318,6 +359,40 @@ function canonicalizeUserQuery(text: string): string {
   return normalized || text.trim();
 }
 
+function normalizeFsComparePath(value: string): string {
+  const normalized = resolve(value).replace(/\\/g, "/");
+  return process.platform === "win32" || process.platform === "darwin"
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+function isPathWithinRoot(targetPath: string, rootPath: string): boolean {
+  const normalizedTarget = normalizeFsComparePath(targetPath);
+  const normalizedRoot = normalizeFsComparePath(rootPath);
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`);
+}
+
+function collectToolPathParams(value: unknown, keyHint = "", depth = 0): string[] {
+  if (depth > 6 || value == null) return [];
+  if (typeof value === "string") {
+    return TOOL_PATH_PARAM_KEYS.has(keyHint.toLowerCase()) ? [value] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectToolPathParams(item, keyHint, depth + 1));
+  }
+  if (typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>)
+    .flatMap(([key, item]) => collectToolPathParams(item, key, depth + 1));
+}
+
+function resolveToolPath(rawPath: string, workspaceDir: string): string {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return resolve(workspaceDir);
+  if (trimmed === "~") return homedir();
+  if (trimmed.startsWith("~/")) return resolve(homedir(), trimmed.slice(2));
+  return resolve(workspaceDir, trimmed);
+}
+
 function buildCaseId(sessionKey: string, query: string): string {
   return `case_${hashText(`${sessionKey}:${query}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`)}`;
 }
@@ -329,6 +404,9 @@ function buildToolEventId(sessionKey: string, toolName: string, occurredAt: stri
 function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace {
   const startedAt = nowIso();
   const traceId = `trace_${hashText(`${reason}:${query}:${startedAt}`)}`;
+  const outputSummary = reason === "memory_write_turn"
+    ? "Automatic recall did not run because this turn is a memory write request."
+    : `Automatic recall did not run because ${reason}.`;
   return {
     traceId,
     query,
@@ -340,15 +418,23 @@ function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace 
         stepId: `${traceId}:step:1`,
         kind: "recall_start",
         title: "Recall Started",
+        titleI18n: traceI18n("trace.step.recall_start", "Recall Started"),
         status: "info",
         inputSummary: previewText(query, 220),
         outputSummary: "Runtime inspected this turn before attempting retrieval.",
+        outputSummaryI18n: traceI18n(
+          "trace.text.recall_start.output.runtime_inspected",
+          "Runtime inspected this turn before attempting retrieval.",
+        ),
         details: [
           {
             key: "recall-query",
             label: "Recall Query",
+            labelI18n: traceI18n("trace.detail.recall_query", "Recall Query"),
             kind: "kv",
-            entries: [{ label: "query", value: query }],
+            entries: [
+              { label: "query", value: query },
+            ],
           },
         ],
       },
@@ -356,16 +442,30 @@ function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace 
         stepId: `${traceId}:step:2`,
         kind: "recall_skipped",
         title: "Recall Skipped",
+        titleI18n: traceI18n("trace.step.recall_skipped", "Recall Skipped"),
         status: "skipped",
         inputSummary: `reason=${reason}`,
-        outputSummary: `Automatic recall did not run because ${reason}.`,
+        outputSummary,
+        outputSummaryI18n: reason === "memory_write_turn"
+          ? traceI18n(
+              "trace.text.recall_skipped.output.memory_write_turn",
+              "Automatic recall did not run because this turn is a memory write request.",
+            )
+          : traceI18n(
+              "trace.text.recall_skipped.output.reason",
+              "Automatic recall did not run because {0}.",
+              reason,
+            ),
         refs: { reason },
         details: [
           {
             key: "skip-reason",
             label: "Skip Reason",
+            labelI18n: traceI18n("trace.detail.skip_reason", "Skip Reason"),
             kind: "kv",
-            entries: [{ label: "reason", value: reason }],
+            entries: [
+              { label: "reason", value: reason },
+            ],
           },
         ],
       },
@@ -373,18 +473,34 @@ function buildRecallSkippedTrace(query: string, reason: string): RetrievalTrace 
   };
 }
 
-function deriveCasePathSummary(
-  trace: RetrievalTrace | null | undefined,
-  enoughAt: RetrievalResult["enoughAt"] | undefined,
-): string {
-  if (enoughAt === "profile") return "profile";
-  if (!trace?.steps?.length) return enoughAt ?? "none";
-  const stepKinds = new Set(trace.steps.map((step) => step.kind));
-  if (stepKinds.has("hop4_decision") || stepKinds.has("l0_candidates")) return "l2->l1->l0";
-  if (stepKinds.has("hop3_decision") || stepKinds.has("l1_candidates")) return "l2->l1";
-  if (stepKinds.has("hop2_decision") || stepKinds.has("l2_candidates")) return "l2";
-  if (stepKinds.has("recall_skipped")) return "none";
-  return enoughAt ?? "none";
+function isNoiseCaseQuery(query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized.startsWith("run: openclaw doctor")
+    || normalized.includes("heartbeat.md")
+    || normalized.startsWith("notice-")
+    || normalized.startsWith("请直接回复一句")
+    || normalized.startsWith("请简短回复")
+    || normalized.startsWith("请用两句话回复");
+}
+
+function shouldHideCaseTrace(record: CaseTraceRecord | undefined): boolean {
+  if (!record) return true;
+  const sessionKey = record.sessionKey.trim().toLowerCase();
+  const query = record.query.trim().replace(/\\/g, "/").toLowerCase();
+  return isNoiseCaseQuery(record.query)
+    || sessionKey.startsWith("notice-")
+    || sessionKey.startsWith("notice_")
+    || query.startsWith("reply only")
+    || query.includes("overflow-check segment")
+    || query.includes("workspace context")
+    || query.includes("do not infer or repeat old tasks")
+    || query.includes("clawxcontext-smoke")
+    || containsDefaultWorkspaceMarker(query)
+    || query.includes("then reply only")
+    || query.includes("no prose")
+    || query.includes("use context_suggest exactly once")
+    || query.includes("use the read tool exactly once");
 }
 
 function extractAssistantReply(messages: MemoryMessage[]): string {
@@ -405,16 +521,15 @@ function sanitizeStoredMessages(messages: MemoryMessage[]): MemoryMessage[] {
     if (!message.content.trim()) continue;
     const next = messages[index + 1];
     if (
-      message.role === "assistant" &&
-      next?.role === "assistant" &&
-      !message.content.includes("\n") &&
-      !/[你您?？]/.test(message.content)
+      message.role === "assistant"
+      && next?.role === "assistant"
+      && !message.content.includes("\n")
+      && !/[你您?？]/.test(message.content)
     ) {
       continue;
     }
     const previous = cleaned[cleaned.length - 1];
-    if (previous && previous.role === message.role && previous.content === message.content)
-      continue;
+    if (previous && previous.role === message.role && previous.content === message.content) continue;
     cleaned.push(message);
   }
   return cleaned;
@@ -425,13 +540,11 @@ function sanitizeL0Record(
   config: { includeAssistant: boolean; maxMessageChars: number },
 ): MemoryMessage[] {
   if (record.sessionKey.startsWith("temp:")) return [];
-  return sanitizeStoredMessages(
-    normalizeMessages(record.messages, {
-      captureStrategy: "last_turn",
-      includeAssistant: config.includeAssistant,
-      maxMessageChars: config.maxMessageChars,
-    }),
-  ).filter((message, index, all) => {
+  return sanitizeStoredMessages(normalizeMessages(record.messages, {
+    captureStrategy: "last_turn",
+    includeAssistant: config.includeAssistant,
+    maxMessageChars: config.maxMessageChars,
+  })).filter((message, index, all) => {
     if (message.role === "assistant") {
       return all.slice(0, index).some((item) => item.role === "user");
     }
@@ -445,13 +558,11 @@ function buildRecentMessagesForRecall(
   config: { includeAssistant: boolean; maxMessageChars: number },
 ): MemoryMessage[] {
   const normalizedPrompt = canonicalizeUserQuery(currentPrompt);
-  const normalized = sanitizeStoredMessages(
-    normalizeMessages(rawMessages, {
-      captureStrategy: "full_session",
-      includeAssistant: config.includeAssistant,
-      maxMessageChars: config.maxMessageChars,
-    }),
-  );
+  const normalized = sanitizeStoredMessages(normalizeMessages(rawMessages, {
+    captureStrategy: "full_session",
+    includeAssistant: config.includeAssistant,
+    maxMessageChars: config.maxMessageChars,
+  }));
 
   if (normalizedPrompt) {
     while (normalized.length > 0) {
@@ -466,42 +577,38 @@ function buildRecentMessagesForRecall(
 }
 
 function shouldLogStats(stats: HeartbeatStats): boolean {
-  return (
-    stats.l0Captured > 0 ||
-    stats.l1Created > 0 ||
-    stats.l2TimeUpdated > 0 ||
-    stats.l2ProjectUpdated > 0 ||
-    stats.profileUpdated > 0 ||
-    stats.failed > 0
-  );
+  return stats.capturedSessions > 0
+    || stats.writtenFiles > 0
+    || stats.userProfilesUpdated > 0
+    || stats.failedSessions > 0;
 }
 
 function logIndexStats(logger: LoggerLike, reason: string, stats: HeartbeatStats): void {
   if (!shouldLogStats(stats)) return;
   logger.info?.(
-    `[clawxmemory] indexed reason=${reason} l0=${stats.l0Captured}, l1=${stats.l1Created}, l2_time=${stats.l2TimeUpdated}, l2_project=${stats.l2ProjectUpdated}, profile=${stats.profileUpdated}, failed=${stats.failed}`,
+    `[clawxmemory] indexed reason=${reason} captured=${stats.capturedSessions}, written=${stats.writtenFiles}, project=${stats.writtenProjectFiles}, feedback=${stats.writtenFeedbackFiles}, user=${stats.userProfilesUpdated}, failed=${stats.failedSessions}`,
   );
 }
 
 function emptyStats(): HeartbeatStats {
   return {
-    l0Captured: 0,
-    l1Created: 0,
-    l2TimeUpdated: 0,
-    l2ProjectUpdated: 0,
-    profileUpdated: 0,
-    failed: 0,
+    capturedSessions: 0,
+    writtenFiles: 0,
+    writtenProjectFiles: 0,
+    writtenFeedbackFiles: 0,
+    userProfilesUpdated: 0,
+    failedSessions: 0,
   };
 }
 
 function mergeStats(left: HeartbeatStats, right: HeartbeatStats): HeartbeatStats {
   return {
-    l0Captured: left.l0Captured + right.l0Captured,
-    l1Created: left.l1Created + right.l1Created,
-    l2TimeUpdated: left.l2TimeUpdated + right.l2TimeUpdated,
-    l2ProjectUpdated: left.l2ProjectUpdated + right.l2ProjectUpdated,
-    profileUpdated: left.profileUpdated + right.profileUpdated,
-    failed: left.failed + right.failed,
+    capturedSessions: left.capturedSessions + right.capturedSessions,
+    writtenFiles: left.writtenFiles + right.writtenFiles,
+    writtenProjectFiles: left.writtenProjectFiles + right.writtenProjectFiles,
+    writtenFeedbackFiles: left.writtenFeedbackFiles + right.writtenFeedbackFiles,
+    userProfilesUpdated: left.userProfilesUpdated + right.userProfilesUpdated,
+    failedSessions: left.failedSessions + right.failedSessions,
   };
 }
 
@@ -509,11 +616,7 @@ function sliceUiSnapshot(snapshot: MemoryUiSnapshot, limit: number): MemoryUiSna
   return {
     overview: { ...snapshot.overview },
     settings: { ...snapshot.settings },
-    recentTimeIndexes: snapshot.recentTimeIndexes.slice(0, limit),
-    recentProjectIndexes: snapshot.recentProjectIndexes.slice(0, limit),
-    recentL1Windows: snapshot.recentL1Windows.slice(0, limit),
-    recentSessions: snapshot.recentSessions.slice(0, limit),
-    globalProfile: { ...snapshot.globalProfile },
+    ...(snapshot.recentMemoryFiles ? { recentMemoryFiles: snapshot.recentMemoryFiles.slice(0, limit) } : {}),
   };
 }
 
@@ -546,9 +649,7 @@ function buildMemoryRecallSystemContext(evidenceBlock: string): string {
     "## ClawXMemory Recall",
     "Use the following retrieved ClawXMemory evidence for this turn.",
     evidenceBlock.trim(),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 export interface MemoryPluginRuntimeOptions {
@@ -604,33 +705,34 @@ export class MemoryPluginRuntime {
     this.currentApiConfig = options.apiConfig;
     this.config = buildPluginConfig(options.pluginConfig);
 
-    const skills = this.config.skillsDir
-      ? loadSkillsRuntime({ skillsDir: this.config.skillsDir, logger: this.logger })
-      : loadSkillsRuntime({ logger: this.logger });
-    this.repository = new MemoryRepository(this.config.dbPath);
-    const persistedSettings = this.repository.getIndexingSettings(
-      this.config.defaultIndexingSettings,
-    );
+    this.repository = new MemoryRepository(this.config.dbPath, { memoryDir: this.config.memoryDir });
+    const persistedSettings = this.repository.getIndexingSettings(this.config.defaultIndexingSettings);
     const migratedSettings = this.maybeUpgradeIndexingSettings(persistedSettings);
     const extractor = new LlmMemoryExtractor(
       options.apiConfig ?? {},
       options.pluginRuntime as Record<string, unknown> | undefined,
       this.logger,
     );
-    this.indexer = new HeartbeatIndexer(this.repository, extractor, {
-      batchSize: this.config.heartbeatBatchSize,
-      source: "openclaw",
-      settings: migratedSettings,
-      logger: this.logger,
-    });
-    this.retriever = new ReasoningRetriever(this.repository, skills, extractor, {
-      getSettings: () => this.indexer.getSettings(),
-      isBackgroundBusy: () => this.indexingInProgress,
-    });
+    this.indexer = new HeartbeatIndexer(
+      this.repository,
+      extractor,
+      {
+        batchSize: this.config.heartbeatBatchSize,
+        source: "openclaw",
+        settings: migratedSettings,
+        logger: this.logger,
+      },
+    );
+    this.retriever = new ReasoningRetriever(
+      this.repository,
+      extractor,
+      {
+        getSettings: () => this.indexer.getSettings(),
+        isBackgroundBusy: () => this.indexingInProgress,
+      },
+    );
     this.dreamRewriter = new DreamRewriteRunner(this.repository, extractor, {
       logger: this.logger,
-      getDreamProjectRebuildTimeoutMs: () =>
-        this.indexer.getSettings().dreamProjectRebuildTimeoutMs,
     });
 
     if (this.config.uiEnabled) {
@@ -647,12 +749,18 @@ export class MemoryPluginRuntime {
           saveSettings: (partial) => this.applyIndexingSettings(partial),
           runIndexNow: () => this.flushAllNow("manual"),
           runDreamNow: () => this.runDreamNow("manual"),
+          runMemoryAction: (input) => this.runMemoryAction(input),
+          clearMemoryNow: () => this.clearMemoryNow(),
           exportMemoryBundle: () => this.repository.exportMemoryBundle(),
           importMemoryBundle: (bundle) => this.replaceMemoryBundle(bundle),
           getRuntimeOverview: () => this.getRuntimeOverview(),
           getStartupRepairSnapshot: (limit) => this.getStartupRepairSnapshot(limit),
           listCaseTraces: (limit) => this.listRecentCaseTraces(limit),
           getCaseTrace: (caseId) => this.getCaseTrace(caseId),
+          listIndexTraces: (limit) => this.listRecentIndexTraces(limit),
+          getIndexTrace: (indexTraceId) => this.getIndexTrace(indexTraceId),
+          listDreamTraces: (limit) => this.listRecentDreamTraces(limit),
+          getDreamTrace: (dreamTraceId) => this.getDreamTrace(dreamTraceId),
         },
         this.logger,
       );
@@ -662,14 +770,8 @@ export class MemoryPluginRuntime {
   private maybeUpgradeIndexingSettings(settings: IndexingSettings): IndexingSettings {
     const migrationState = this.repository.getPipelineState("indexingSettingsMigration");
     if (migrationState === INDEXING_SETTINGS_MIGRATION_VERSION) return settings;
-    const normalized = this.repository.saveIndexingSettings(
-      settings,
-      this.config.defaultIndexingSettings,
-    );
-    this.repository.setPipelineState(
-      "indexingSettingsMigration",
-      INDEXING_SETTINGS_MIGRATION_VERSION,
-    );
+    const normalized = this.repository.saveIndexingSettings(settings, this.config.defaultIndexingSettings);
+    this.repository.setPipelineState("indexingSettingsMigration", INDEXING_SETTINGS_MIGRATION_VERSION);
     return normalized;
   }
 
@@ -693,11 +795,134 @@ export class MemoryPluginRuntime {
   }
 
   private listRecentCaseTraces(limit: number): CaseTraceRecord[] {
-    return this.repository.listRecentCaseTraces(limit);
+    return this.repository.listRecentCaseTraces(Math.max(limit * 4, limit))
+      .filter((record) => !shouldHideCaseTrace(record))
+      .slice(0, limit);
   }
 
   private getCaseTrace(caseId: string): CaseTraceRecord | undefined {
-    return this.repository.getCaseTrace(caseId);
+    const record = this.repository.getCaseTrace(caseId);
+    return shouldHideCaseTrace(record) ? undefined : record;
+  }
+
+  private listRecentIndexTraces(limit: number): IndexTraceRecord[] {
+    return this.repository.listRecentIndexTraces(limit);
+  }
+
+  private getIndexTrace(indexTraceId: string): IndexTraceRecord | undefined {
+    return this.repository.getIndexTrace(indexTraceId);
+  }
+
+  private listRecentDreamTraces(limit: number): DreamTraceRecord[] {
+    return this.repository.listRecentDreamTraces(limit);
+  }
+
+  private getDreamTrace(dreamTraceId: string): DreamTraceRecord | undefined {
+    return this.repository.getDreamTrace(dreamTraceId);
+  }
+
+  private buildDreamSnapshotSummary(): DreamTraceRecord["snapshotSummary"] {
+    const store = this.repository.getFileMemoryStore();
+    const formalEntries = store.listMemoryEntries({
+      scope: "project",
+      kinds: ["project", "feedback"],
+      limit: 2000,
+    });
+    const tmpEntries = store.listTmpEntries(2000);
+    const userSummary = store.getUserSummary();
+    return {
+      formalProjectCount: store.listProjectMetas().length,
+      tmpProjectCount: tmpEntries.filter((entry) => entry.type === "project").length,
+      tmpFeedbackCount: tmpEntries.filter((entry) => entry.type === "feedback").length,
+      formalProjectFileCount: formalEntries.filter((entry) => entry.type === "project").length,
+      formalFeedbackFileCount: formalEntries.filter((entry) => entry.type === "feedback").length,
+      hasUserProfile: Boolean(
+        userSummary.profile
+          || userSummary.preferences.length
+          || userSummary.constraints.length
+          || userSummary.relationships.length,
+      ),
+    };
+  }
+
+  private saveSkippedDreamTrace(trigger: DreamTraceRecord["trigger"], summary: string, skipReason: string): void {
+    const startedAt = nowIso();
+    const skippedSummaryI18n = skipReason === "already_running"
+      ? traceI18n(
+          trigger === "scheduled"
+            ? "trace.text.dream_finished.output.scheduled_already_running"
+            : "trace.text.dream_finished.output.manual_already_running",
+          summary,
+        )
+      : skipReason === "no_memory_updates_since_last_dream"
+        ? traceI18n(
+            "trace.text.dream_finished.output.no_memory_updates_since_last_dream",
+            summary,
+          )
+        : null;
+    const trace: DreamTraceRecord = {
+      dreamTraceId: `dream_trace_${hashText(`${trigger}:${startedAt}:${skipReason}`)}`,
+      trigger,
+      startedAt,
+      finishedAt: startedAt,
+      status: "skipped",
+      skipReason,
+      snapshotSummary: this.buildDreamSnapshotSummary(),
+      steps: [
+        {
+          stepId: `dream_trace_step_${hashText(`${startedAt}:start`)}`,
+          kind: "dream_start",
+          title: "Dream Start",
+          titleI18n: traceI18n("trace.step.dream_start", "Dream Start"),
+          status: "info",
+          inputSummary: `${trigger} Dream run started.`,
+          inputSummaryI18n: traceI18n("trace.text.dream_start.input", "{0} Dream run started.", trigger),
+          outputSummary: "Dream evaluated whether it should run.",
+          outputSummaryI18n: traceI18n("trace.text.dream_start.output.evaluated", "Dream evaluated whether it should run."),
+        },
+        {
+          stepId: `dream_trace_step_${hashText(`${startedAt}:finish`)}`,
+          kind: "dream_finished",
+          title: "Dream Finished",
+          titleI18n: traceI18n("trace.step.dream_finished", "Dream Finished"),
+          status: "skipped",
+          inputSummary: "Dream was skipped before any rewrite work started.",
+          inputSummaryI18n: traceI18n(
+            "trace.text.dream_finished.input.skipped_before_work",
+            "Dream was skipped before any rewrite work started.",
+          ),
+          outputSummary: summary,
+          ...(skippedSummaryI18n ? { outputSummaryI18n: skippedSummaryI18n } : {}),
+        },
+      ],
+      mutations: [],
+      outcome: {
+        rewrittenProjects: 0,
+        deletedProjects: 0,
+        deletedFiles: 0,
+        profileUpdated: false,
+        summary,
+        ...(skipReason === "already_running"
+          ? {
+              summaryI18n: traceI18n(
+                trigger === "scheduled"
+                  ? "trace.text.dream_finished.output.scheduled_already_running"
+                  : "trace.text.dream_finished.output.manual_already_running",
+                summary,
+              ),
+            }
+          : {}),
+        ...(skipReason === "no_memory_updates_since_last_dream"
+          ? {
+              summaryI18n: traceI18n(
+                "trace.text.dream_finished.output.no_memory_updates_since_last_dream",
+                summary,
+              ),
+            }
+          : {}),
+      },
+    };
+    this.repository.saveDreamTrace(trace, RECENT_DREAM_TRACE_LIMIT);
   }
 
   private trimCaseBuffer(): void {
@@ -766,17 +991,19 @@ export class MemoryPluginRuntime {
     }
     record.status = "interrupted";
     record.finishedAt = nowIso();
-    if (
-      record.retrieval?.trace &&
-      !record.retrieval.trace.steps.some((step) => step.kind === "recall_skipped")
-    ) {
+    if (record.retrieval?.trace && !record.retrieval.trace.steps.some((step) => step.kind === "recall_skipped")) {
       record.retrieval.trace.steps.push({
         stepId: `${record.retrieval.trace.traceId}:step:${record.retrieval.trace.steps.length + 1}`,
         kind: "recall_skipped",
         title: "Recall Interrupted",
+        titleI18n: traceI18n("trace.text.recall_skipped.title.interrupted", "Recall Interrupted"),
         status: "warning",
         inputSummary: `reason=${reason}`,
         outputSummary: "A newer user turn interrupted this case before completion.",
+        outputSummaryI18n: traceI18n(
+          "trace.text.recall_skipped.output.interrupted_by_new_turn",
+          "A newer user turn interrupted this case before completion.",
+        ),
       });
       record.retrieval.trace.finishedAt = nowIso();
     }
@@ -787,17 +1014,14 @@ export class MemoryPluginRuntime {
   private updateCaseRetrieval(
     rawSessionKey: string,
     query: string,
-    result: Pick<RetrievalResult, "intent" | "enoughAt" | "context" | "trace" | "evidenceNote">,
+    result: Pick<RetrievalResult, "intent" | "context" | "trace">,
   ): void {
     const record = this.ensureCase(rawSessionKey, query);
     const trace = result.trace ? cloneJson(result.trace) : null;
     record.retrieval = {
       intent: result.intent,
-      enoughAt: result.enoughAt,
       injected: Boolean(result.context.trim()),
       contextPreview: previewText(result.context, 1200),
-      evidenceNotePreview: previewText(result.evidenceNote, 1200),
-      pathSummary: deriveCasePathSummary(trace, result.enoughAt),
       trace,
     };
     this.upsertCase(record);
@@ -806,37 +1030,25 @@ export class MemoryPluginRuntime {
   private updateCaseRecallSkipped(rawSessionKey: string, query: string, reason: string): void {
     const record = this.ensureCase(rawSessionKey, query);
     record.retrieval = {
-      intent: "general",
-      enoughAt: "none",
+      intent: "none",
       injected: false,
       contextPreview: "",
-      evidenceNotePreview: "",
-      pathSummary: "none",
       trace: buildRecallSkippedTrace(query, reason),
     };
     this.upsertCase(record);
   }
 
   private appendCaseToolEvent(rawSessionKey: string, query: string, event: CaseToolEvent): void {
-    const record =
-      this.getActiveCase(rawSessionKey) ??
-      (query.trim() ? this.ensureCase(rawSessionKey, query) : undefined);
+    const record = this.getActiveCase(rawSessionKey) ?? (query.trim() ? this.ensureCase(rawSessionKey, query) : undefined);
     if (!record) return;
     record.toolEvents.push(event);
     this.upsertCase(record);
   }
 
-  private finalizeCase(
-    rawSessionKey: string,
-    query: string,
-    status: CaseTraceRecord["status"],
-    assistantReply = "",
-  ): void {
+  private finalizeCase(rawSessionKey: string, query: string, status: CaseTraceRecord["status"], assistantReply = ""): void {
     const trimmedSession = rawSessionKey.trim();
     if (!trimmedSession) return;
-    const record =
-      this.getActiveCase(trimmedSession) ??
-      (query.trim() ? this.ensureCase(trimmedSession, query) : undefined);
+    const record = this.getActiveCase(trimmedSession) ?? (query.trim() ? this.ensureCase(trimmedSession, query) : undefined);
     if (!record) return;
     if (assistantReply.trim()) {
       record.assistantReply = previewText(assistantReply, 4000);
@@ -872,20 +1084,132 @@ export class MemoryPluginRuntime {
     this.retriever.resetTransientState();
   }
 
-  async replaceMemoryBundle(bundle: MemoryExportBundle): Promise<MemoryImportResult> {
+  async replaceMemoryBundle(bundle: MemoryImportableBundle): Promise<MemoryImportResult> {
     this.setStartupRepairState("idle");
     this.clearEphemeralMemoryState();
     if (this.queuePromise) {
       try {
         await this.queuePromise;
       } catch (error) {
-        this.logger.warn?.(
-          `[clawxmemory] pending index queue failed before import: ${String(error)}`,
-        );
+        this.logger.warn?.(`[clawxmemory] pending index queue failed before import: ${String(error)}`);
+      }
+    }
+    if (this.dreamRunPromise) {
+      try {
+        await this.dreamRunPromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] dream run failed before import: ${String(error)}`);
       }
     }
     this.clearEphemeralMemoryState();
     return this.repository.importMemoryBundle(bundle);
+  }
+
+  private async clearMemoryNow(): Promise<ClearMemoryResult> {
+    this.setStartupRepairState("idle");
+    this.clearEphemeralMemoryState();
+    if (this.queuePromise) {
+      try {
+        await this.queuePromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] pending index queue failed before clear: ${String(error)}`);
+      }
+    }
+    if (this.dreamRunPromise) {
+      try {
+        await this.dreamRunPromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] dream run failed before clear: ${String(error)}`);
+      }
+    }
+    this.clearEphemeralMemoryState();
+    return this.repository.clearAllMemoryData();
+  }
+
+  private async runMemoryAction(input: MemoryActionRequest): Promise<MemoryActionResult> {
+    if (this.queuePromise) {
+      try {
+        await this.queuePromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] pending index queue failed before memory action: ${String(error)}`);
+      }
+    }
+    if (this.dreamRunPromise) {
+      try {
+        await this.dreamRunPromise;
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] dream run failed before memory action: ${String(error)}`);
+      }
+    }
+
+    const messages: string[] = [];
+    let mutatedIds: string[] = [];
+    let deletedProjectIds: string[] = [];
+
+    if (input.action === "edit_project_meta") {
+      const project = this.repository.editProjectMeta({
+        projectId: input.projectId,
+        projectName: input.projectName,
+        description: input.description,
+        aliases: input.aliases,
+        status: input.status,
+      });
+      messages.push(`Updated project meta for ${project.projectName}.`);
+      mutatedIds = [project.relativePath];
+    } else if (input.action === "edit_entry") {
+      const record = this.repository.editMemoryEntry({
+        id: input.id,
+        name: input.name,
+        description: input.description,
+        ...(input.fields ? { fields: input.fields } : {}),
+      });
+      mutatedIds = [record.relativePath];
+      messages.push(`Updated memory entry ${record.name}.`);
+    } else if (input.action === "delete_entries") {
+      const result = this.repository.deleteMemoryEntries(input.ids);
+      mutatedIds = result.mutatedIds;
+      deletedProjectIds = result.deletedProjectIds;
+      messages.push(`Deleted ${result.mutatedIds.length} memory file${result.mutatedIds.length === 1 ? "" : "s"}.`);
+      if (deletedProjectIds.length) {
+        messages.push(`Removed ${deletedProjectIds.length} empty project${deletedProjectIds.length === 1 ? "" : "s"}.`);
+      }
+    } else if (input.action === "deprecate_entries") {
+      const result = this.repository.deprecateMemoryEntries(input.ids);
+      mutatedIds = result.mutatedIds;
+      deletedProjectIds = result.deletedProjectIds;
+      messages.push(`Deprecated ${result.mutatedIds.length} memory file${result.mutatedIds.length === 1 ? "" : "s"}.`);
+    } else if (input.action === "restore_entries") {
+      const result = this.repository.restoreMemoryEntries(input.ids);
+      mutatedIds = result.mutatedIds;
+      deletedProjectIds = result.deletedProjectIds;
+      messages.push(`Restored ${result.mutatedIds.length} memory file${result.mutatedIds.length === 1 ? "" : "s"}.`);
+    } else {
+      const result = this.repository.archiveTmpEntries({
+        ids: input.ids,
+        ...(input.targetProjectId ? { targetProjectId: input.targetProjectId } : {}),
+        ...(input.newProjectName ? { newProjectName: input.newProjectName } : {}),
+      });
+      mutatedIds = result.mutatedIds;
+      messages.push(
+        result.createdProjectId
+          ? `Archived ${result.mutatedIds.length} tmp file${result.mutatedIds.length === 1 ? "" : "s"} into new project ${result.targetProjectId}.`
+          : `Archived ${result.mutatedIds.length} tmp file${result.mutatedIds.length === 1 ? "" : "s"} into ${result.targetProjectId}.`,
+      );
+    }
+
+    this.retriever.resetTransientState();
+    const updatedOverview = {
+      ...this.repository.getOverview(),
+      ...this.getRuntimeOverview(),
+    };
+    return {
+      ok: true,
+      action: input.action,
+      updatedOverview,
+      mutatedIds,
+      deletedProjectIds,
+      messages,
+    };
   }
 
   getTools() {
@@ -895,6 +1219,7 @@ export class MemoryPluginRuntime {
         ...this.getRuntimeOverview(),
       }),
       flushAll: () => this.flushAllNow("manual"),
+      runDream: () => this.runDreamNow("manual"),
     });
   }
 
@@ -907,8 +1232,7 @@ export class MemoryPluginRuntime {
         this.ensureStarted();
         return {
           manager: null,
-          error:
-            "ClawXMemory manages dynamic session memory and does not expose OpenClaw file-memory search managers.",
+          error: "ClawXMemory manages dynamic session memory and does not expose OpenClaw file-memory search managers.",
         };
       },
       resolveMemoryBackendConfig: (): { backend: "builtin" } => {
@@ -934,6 +1258,14 @@ export class MemoryPluginRuntime {
     if (this.stopped) return;
     this.stopped = true;
     this.started = false;
+    try {
+      const boundaryAction = this.restoreManagedWorkspaceBoundaryIfInactive();
+      if (boundaryAction !== "none") {
+        this.logger.info?.(`[clawxmemory] managed workspace boundary ${boundaryAction} during plugin stop.`);
+      }
+    } catch (error) {
+      this.logger.warn?.(`[clawxmemory] managed workspace boundary restore failed during stop: ${String(error)}`);
+    }
     this.clearBackgroundTimers();
     for (const sessionKey of Array.from(this.idleIndexTimers.keys())) {
       this.clearIdleTimer(sessionKey);
@@ -1065,9 +1397,7 @@ export class MemoryPluginRuntime {
         messages: pendingMessages,
       });
       if (captured) {
-        this.logger.info?.(
-          `[clawxmemory] captured pending l0 before ${reason} session=${previousSessionKey}`,
-        );
+        this.logger.info?.(`[clawxmemory] captured pending l0 before ${reason} session=${previousSessionKey}`);
       }
     }
     const nextGeneration = (this.conversationGenerationByRawSession.get(trimmed) ?? 0) + 1;
@@ -1080,14 +1410,8 @@ export class MemoryPluginRuntime {
     if (this.activeSessionKey === previousSessionKey) {
       this.activeSessionKey = undefined;
     }
-
-    void this.flushSessionNow(previousSessionKey, reason).catch((error) => {
-      this.logger.warn?.(
-        `[clawxmemory] ${reason} failed session=${previousSessionKey}: ${String(error)}`,
-      );
-    });
     this.logger.info?.(
-      `[clawxmemory] opened new conversation window raw_session=${trimmed} previous=${previousSessionKey} next=${nextSessionKey} reason=${reason}`,
+      `[clawxmemory] opened new conversation window raw_session=${trimmed} previous=${previousSessionKey} next=${nextSessionKey} reason=${reason} pending_index=deferred`,
     );
   }
 
@@ -1097,13 +1421,11 @@ export class MemoryPluginRuntime {
     const rawSessionKey = typeof event.sessionKey === "string" ? event.sessionKey.trim() : "";
     if (!rawSessionKey || rawSessionKey.startsWith("temp:")) return;
 
-    const context =
-      event.context && typeof event.context === "object"
-        ? (event.context as Record<string, unknown>)
-        : undefined;
+    const context = event.context && typeof event.context === "object"
+      ? event.context as Record<string, unknown>
+      : undefined;
     const rawContent = typeof context?.content === "string" ? context.content.trim() : "";
-    if (!rawContent || isControlCommandText(rawContent) || isSessionStartupMarkerText(rawContent))
-      return;
+    if (!rawContent || isControlCommandText(rawContent) || isSessionStartupMarkerText(rawContent)) return;
 
     const sessionKey = this.getEffectiveSessionKey(rawSessionKey);
     const rawMessageId = typeof context?.messageId === "string" ? context.messageId.trim() : "";
@@ -1150,31 +1472,28 @@ export class MemoryPluginRuntime {
     this.ensureStarted();
     const prompt = typeof event.prompt === "string" ? event.prompt : "";
     const normalizedPrompt = canonicalizeUserQuery(prompt);
-    const rawSessionKey =
-      typeof ctx.sessionKey === "string" && ctx.sessionKey.trim()
-        ? ctx.sessionKey.trim()
-        : resolveSessionKey(ctx as Record<string, unknown>);
-    if (
-      !normalizedPrompt ||
-      isSessionStartupMarkerText(normalizedPrompt) ||
-      isControlCommandText(normalizedPrompt)
-    ) {
+    const rawSessionKey = typeof ctx.sessionKey === "string" && ctx.sessionKey.trim()
+      ? ctx.sessionKey.trim()
+      : resolveSessionKey(ctx as Record<string, unknown>);
+    if (!normalizedPrompt || isSessionStartupMarkerText(normalizedPrompt) || isControlCommandText(normalizedPrompt)) {
+      return;
+    }
+    if (hasExplicitRememberIntent([{ role: "user", content: normalizedPrompt }])) {
+      this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "memory_write_turn");
       return;
     }
     if (!this.config.recallEnabled) {
-      if (normalizedPrompt)
-        this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "recall_disabled");
+      if (normalizedPrompt) this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "recall_disabled");
       return;
     }
     if (normalizedPrompt.length < 2) {
-      if (normalizedPrompt)
-        this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "prompt_too_short");
+      if (normalizedPrompt) this.updateCaseRecallSkipped(rawSessionKey, normalizedPrompt, "prompt_too_short");
       return;
     }
     try {
       const startedAt = Date.now();
       const settings = this.indexer.getSettings();
-      const recallTopK = Math.max(1, Math.min(50, settings.recallTopK || 10));
+      const recallTopK = 5;
       const recentMessages = Array.isArray(event.messages)
         ? buildRecentMessagesForRecall(event.messages, normalizedPrompt, {
             includeAssistant: this.config.includeAssistant,
@@ -1183,17 +1502,14 @@ export class MemoryPluginRuntime {
         : [];
       const retrieved = await this.retriever.retrieve(normalizedPrompt, {
         retrievalMode: "auto",
-        l2Limit: recallTopK,
-        l1Limit: recallTopK,
-        l0Limit: recallTopK,
-        includeFacts: true,
         recentMessages,
+        workspaceHint: this.resolveWorkspaceDir(),
       });
       const elapsedMs = Date.now() - startedAt;
       const injected = Boolean(retrieved.context?.trim());
       this.updateCaseRetrieval(rawSessionKey, normalizedPrompt, retrieved);
       this.logger.info?.(
-        `[clawxmemory] recall mode=${retrieved.debug?.mode ?? "none"} reasoning_mode=${settings.reasoningMode} recall_top_k=${recallTopK} enough_at=${retrieved.enoughAt} injected=${injected} elapsed_ms=${retrieved.debug?.elapsedMs ?? elapsedMs} cache_hit=${retrieved.debug?.cacheHit ? "1" : "0"}`,
+        `[clawxmemory] recall mode=${retrieved.debug?.mode ?? "none"} reasoning_mode=${settings.reasoningMode} recall_top_k=${recallTopK} injected=${injected} elapsed_ms=${retrieved.debug?.elapsedMs ?? elapsedMs} cache_hit=${retrieved.debug?.cacheHit ? "1" : "0"}`,
       );
       if (!retrieved.context.trim()) return;
       // Dynamic recall must stay in system prompt space; prependContext leaks into user-visible prompt displays.
@@ -1242,9 +1558,7 @@ export class MemoryPluginRuntime {
     if (messageInfo.role === "assistant" && !messageInfo.content && !messageInfo.hasToolCalls) {
       if (this.hasStartupGrace(rawSessionKey)) {
         this.clearStartupGrace(rawSessionKey);
-        this.logger.warn?.(
-          `[clawxmemory] replaced empty startup assistant session=${rawSessionKey}`,
-        );
+        this.logger.warn?.(`[clawxmemory] replaced empty startup assistant session=${rawSessionKey}`);
         return {
           message: replaceAssistantMessageText(
             event.message,
@@ -1258,24 +1572,18 @@ export class MemoryPluginRuntime {
 
     if (messageInfo.role === "assistant" && this.hasPendingCommandReply(rawSessionKey)) {
       this.clearPendingCommandReply(rawSessionKey);
-      this.logger.info?.(
-        `[clawxmemory] skipped command reply from memory session=${rawSessionKey}`,
-      );
+      this.logger.info?.(`[clawxmemory] skipped command reply from memory session=${rawSessionKey}`);
       return;
     }
 
-    if (
-      messageInfo.role === "assistant" &&
-      messageInfo.content &&
-      this.hasStartupGrace(rawSessionKey)
-    ) {
+    if (messageInfo.role === "assistant" && messageInfo.content && this.hasStartupGrace(rawSessionKey)) {
       this.clearStartupGrace(rawSessionKey);
     }
 
     if (
-      messageInfo.role === "user" &&
-      !this.hasStartupGrace(rawSessionKey) &&
-      !this.hasPendingCommandReply(rawSessionKey)
+      messageInfo.role === "user"
+      && !this.hasStartupGrace(rawSessionKey)
+      && !this.hasPendingCommandReply(rawSessionKey)
     ) {
       this.clearNonMemoryTurn(rawSessionKey);
     }
@@ -1298,11 +1606,47 @@ export class MemoryPluginRuntime {
   handleBeforeToolCall = (
     event: PluginHookBeforeToolCallEvent,
     ctx: PluginHookToolContext,
-  ): void => {
+  ): PluginHookBeforeToolCallResult | void => {
     this.ensureStarted();
     const rawSessionKey = typeof ctx.sessionKey === "string" ? ctx.sessionKey.trim() : "";
     if (!rawSessionKey || rawSessionKey.startsWith("temp:")) return;
     const query = this.getActiveCase(rawSessionKey)?.query ?? "";
+    const blockedPath = this.resolveBlockedManagedMemoryPath(event.toolName, event.params);
+    if (blockedPath) {
+      const occurredAt = nowIso();
+      if (query) {
+        this.appendCaseToolEvent(rawSessionKey, query, {
+          eventId: buildToolEventId(rawSessionKey, event.toolName, occurredAt),
+          phase: "start",
+          toolName: event.toolName,
+          ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+          occurredAt,
+          status: "running",
+          summary: `${event.toolName} started.`,
+          summaryI18n: traceI18n("trace.tool.summary.started", "{0} started.", event.toolName),
+          paramsPreview: previewJson(event.params, 360),
+        });
+        this.appendCaseToolEvent(rawSessionKey, query, {
+          eventId: buildToolEventId(rawSessionKey, event.toolName, occurredAt),
+          phase: "result",
+          toolName: event.toolName,
+          ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+          occurredAt,
+          status: "error",
+          summary: `${event.toolName} blocked by ClawXMemory boundary.`,
+          summaryI18n: traceI18n("trace.tool.summary.blocked", "{0} blocked by ClawXMemory boundary.", event.toolName),
+          paramsPreview: previewJson(event.params, 240),
+          resultPreview: `Blocked path: ${blockedPath.displayPath}`,
+        });
+      }
+      this.logger.warn?.(
+        `[clawxmemory] blocked ${event.toolName} targeting managed memory path ${blockedPath.displayPath}`,
+      );
+      return {
+        block: true,
+        blockReason: `ClawXMemory blocks writes to managed memory files (${blockedPath.displayPath}). Use managed ClawXMemory memory instead.`,
+      };
+    }
     if (!query) return;
     const occurredAt = nowIso();
     this.appendCaseToolEvent(rawSessionKey, query, {
@@ -1313,11 +1657,15 @@ export class MemoryPluginRuntime {
       occurredAt,
       status: "running",
       summary: `${event.toolName} started.`,
+      summaryI18n: traceI18n("trace.tool.summary.started", "{0} started.", event.toolName),
       paramsPreview: previewJson(event.params, 360),
     });
   };
 
-  handleAfterToolCall = (event: PluginHookAfterToolCallEvent, ctx: PluginHookToolContext): void => {
+  handleAfterToolCall = (
+    event: PluginHookAfterToolCallEvent,
+    ctx: PluginHookToolContext,
+  ): void => {
     this.ensureStarted();
     const rawSessionKey = typeof ctx.sessionKey === "string" ? ctx.sessionKey.trim() : "";
     if (!rawSessionKey || rawSessionKey.startsWith("temp:")) return;
@@ -1335,28 +1683,65 @@ export class MemoryPluginRuntime {
       ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
       occurredAt,
       status: failed ? "error" : "success",
-      summary: failed ? `${event.toolName} failed.` : `${event.toolName} completed.`,
+      summary: failed
+        ? `${event.toolName} failed.`
+        : `${event.toolName} completed.`,
+      summaryI18n: failed
+        ? traceI18n("trace.tool.summary.failed", "{0} failed.", event.toolName)
+        : traceI18n("trace.tool.summary.completed", "{0} completed.", event.toolName),
       paramsPreview: previewJson(event.params, 240),
       resultPreview,
       ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
     });
   };
 
-  handleAgentEnd = async (
-    event: PluginHookAgentEndEvent,
-    ctx: PluginHookAgentContext,
-  ): Promise<void> => {
+  private resolveBlockedManagedMemoryPath(
+    toolName: string,
+    params: Record<string, unknown>,
+  ): { absolutePath: string; displayPath: string } | undefined {
+    if (!BLOCKED_WORKSPACE_MEMORY_TOOL_NAMES.has(toolName)) return undefined;
+    const workspaceDir = this.resolveWorkspaceDir();
+    const workspaceUserPath = join(workspaceDir, "USER.md");
+    const workspaceMemoryManifestPath = join(workspaceDir, "MEMORY.md");
+    const workspaceMemoryDir = join(workspaceDir, "memory");
+    const managedMemoryRoot = resolve(this.config.memoryDir);
+    const rawPaths = collectToolPathParams(params);
+    for (const rawPath of rawPaths) {
+      const resolvedPath = resolveToolPath(rawPath, workspaceDir);
+      if (isPathWithinRoot(resolvedPath, workspaceDir)) {
+        if (normalizeFsComparePath(resolvedPath) === normalizeFsComparePath(workspaceUserPath)) {
+          return { absolutePath: resolvedPath, displayPath: "USER.md" };
+        }
+        if (normalizeFsComparePath(resolvedPath) === normalizeFsComparePath(workspaceMemoryManifestPath)) {
+          return { absolutePath: resolvedPath, displayPath: "MEMORY.md" };
+        }
+        if (
+          isPathWithinRoot(resolvedPath, workspaceMemoryDir)
+          && normalizeFsComparePath(resolvedPath).endsWith(".md")
+        ) {
+          const displayPath = resolvedPath
+            .slice(workspaceDir.length)
+            .replace(/^[/\\]+/, "")
+            .replace(/\\/g, "/");
+          return { absolutePath: resolvedPath, displayPath };
+        }
+      }
+      if (isPathWithinRoot(resolvedPath, managedMemoryRoot)) {
+        const displayPath = `managed-memory/${relative(managedMemoryRoot, resolvedPath).replace(/\\/g, "/") || "."}`;
+        return { absolutePath: resolvedPath, displayPath };
+      }
+    }
+    return undefined;
+  }
+
+  handleAgentEnd = async (event: PluginHookAgentEndEvent, ctx: PluginHookAgentContext): Promise<void> => {
     this.ensureStarted();
     if (!this.config.addEnabled) return;
-    if (
-      shouldSkipCapture(event as unknown as Record<string, unknown>, ctx as Record<string, unknown>)
-    )
-      return;
+    if (shouldSkipCapture(event as unknown as Record<string, unknown>, ctx as Record<string, unknown>)) return;
 
-    const rawSessionKey =
-      typeof ctx.sessionKey === "string" && ctx.sessionKey.trim()
-        ? ctx.sessionKey.trim()
-        : resolveSessionKey(ctx as Record<string, unknown>);
+    const rawSessionKey = typeof ctx.sessionKey === "string" && ctx.sessionKey.trim()
+      ? ctx.sessionKey.trim()
+      : resolveSessionKey(ctx as Record<string, unknown>);
     const sessionKey = this.getEffectiveSessionKey(rawSessionKey);
     try {
       if (this.hasNonMemoryTurn(rawSessionKey)) {
@@ -1365,11 +1750,6 @@ export class MemoryPluginRuntime {
         return;
       }
 
-      if (this.activeSessionKey && this.activeSessionKey !== sessionKey) {
-        void this.flushSessionNow(this.activeSessionKey, "session_boundary").catch((error) => {
-          this.logger.warn?.(`[clawxmemory] session_boundary failed: ${String(error)}`);
-        });
-      }
       this.activeSessionKey = sessionKey;
 
       const pending = this.pendingBySession.get(sessionKey) ?? [];
@@ -1413,9 +1793,13 @@ export class MemoryPluginRuntime {
       });
       if (captured) {
         this.logger.info?.(
-          `[clawxmemory] captured l0 session=${sessionKey} indexed=pending trigger=idle|timer|session_boundary|manual`,
+          `[clawxmemory] captured l0 session=${sessionKey} indexed=pending trigger=explicit_remember|scheduled|manual`,
         );
-        this.scheduleIdleIndex(sessionKey);
+        if (hasExplicitRememberIntent(messages)) {
+          void this.flushSessionNow(sessionKey, "explicit_remember").catch((error) => {
+            this.logger.warn?.(`[clawxmemory] explicit_remember flush failed session=${sessionKey}: ${String(error)}`);
+          });
+        }
       }
     } finally {
       this.clearNonMemoryTurn(rawSessionKey);
@@ -1423,16 +1807,12 @@ export class MemoryPluginRuntime {
     }
   };
 
-  handleBeforeReset = async (
-    event: PluginHookBeforeResetEvent,
-    ctx: PluginHookAgentContext,
-  ): Promise<void> => {
+  handleBeforeReset = async (event: PluginHookBeforeResetEvent, ctx: PluginHookAgentContext): Promise<void> => {
     this.ensureStarted();
     if (!this.config.addEnabled) return;
-    const fallbackRawSession =
-      typeof ctx.sessionKey === "string" && ctx.sessionKey.trim()
-        ? this.getEffectiveSessionKey(ctx.sessionKey)
-        : this.activeSessionKey;
+    const fallbackRawSession = typeof ctx.sessionKey === "string" && ctx.sessionKey.trim()
+      ? this.getEffectiveSessionKey(ctx.sessionKey)
+      : this.activeSessionKey;
     const sessionKey = fallbackRawSession?.trim() ?? "";
     if (!sessionKey || sessionKey.startsWith("temp:")) return;
 
@@ -1452,66 +1832,22 @@ export class MemoryPluginRuntime {
           messages,
         });
         if (captured) {
-          this.logger.info?.(
-            `[clawxmemory] captured pending l0 before reset session=${sessionKey}`,
-          );
+          this.logger.info?.(`[clawxmemory] captured pending l0 before reset session=${sessionKey}`);
         }
       }
-      await this.flushSessionNow(sessionKey, "before_reset");
       if (this.activeSessionKey === sessionKey) {
         this.activeSessionKey = undefined;
       }
     } catch (error) {
-      this.logger.warn?.(
-        `[clawxmemory] before_reset flush failed session=${sessionKey}: ${String(error)}`,
-      );
+      this.logger.warn?.(`[clawxmemory] before_reset flush failed session=${sessionKey}: ${String(error)}`);
     }
   };
 
-  private getRuntimeOverview(): Pick<
-    DashboardOverview,
-    | "queuedSessions"
-    | "lastRecallMs"
-    | "recallTimeouts"
-    | "lastRecallMode"
-    | "currentReasoningMode"
-    | "lastRecallPath"
-    | "lastRecallBudgetLimited"
-    | "lastShadowDeepQueued"
-    | "lastRecallInjected"
-    | "lastRecallEnoughAt"
-    | "lastRecallCacheHit"
-    | "slotOwner"
-    | "dynamicMemoryRuntime"
-    | "workspaceBootstrapPresent"
-    | "memoryRuntimeHealthy"
-    | "runtimeIssues"
-    | "startupRepairStatus"
-    | "startupRepairMessage"
-  > {
-    const queuedSessions = this.queuedFullRun
-      ? Math.max(1, this.debouncedSessions.size + this.queuedSessionKeys.size)
-      : new Set([...this.debouncedSessions, ...this.queuedSessionKeys]).size;
-    const stats = this.retriever.getRuntimeStats();
+  private getRuntimeOverview(): RuntimeOverviewDiagnostics {
     const diagnostics = this.collectMemoryBoundaryDiagnostics();
     return {
-      queuedSessions,
-      lastRecallMs: stats.lastRecallMs,
-      recallTimeouts: stats.recallTimeouts,
-      lastRecallMode: stats.lastRecallMode,
-      currentReasoningMode: this.indexer.getSettings().reasoningMode,
-      lastRecallPath: stats.lastRecallPath,
-      lastRecallBudgetLimited: stats.lastRecallBudgetLimited,
-      lastShadowDeepQueued: stats.lastShadowDeepQueued,
-      lastRecallInjected: stats.lastRecallInjected,
-      lastRecallEnoughAt: stats.lastRecallEnoughAt,
-      lastRecallCacheHit: stats.lastRecallCacheHit,
-      slotOwner: diagnostics.slotOwner,
-      dynamicMemoryRuntime: diagnostics.dynamicMemoryRuntime,
-      workspaceBootstrapPresent: diagnostics.workspaceBootstrapPresent,
-      memoryRuntimeHealthy: diagnostics.memoryRuntimeHealthy,
       runtimeIssues: diagnostics.runtimeIssues,
-      startupRepairStatus: this.startupRepairStatus,
+      managedWorkspaceFiles: diagnostics.managedWorkspaceFiles,
       ...(this.startupRepairMessage ? { startupRepairMessage: this.startupRepairMessage } : {}),
     };
   }
@@ -1592,9 +1928,6 @@ export class MemoryPluginRuntime {
     const settings = this.indexer.getSettings();
     if (settings.autoIndexIntervalMinutes > 0) {
       this.autoIndexTimer = setInterval(() => {
-        for (const sessionKey of Array.from(this.debouncedSessions)) {
-          this.clearIdleTimer(sessionKey);
-        }
         void this.requestIndexRun("scheduled").catch((error) => {
           this.logger.warn?.(`[clawxmemory] scheduled index failed: ${String(error)}`);
         });
@@ -1622,43 +1955,27 @@ export class MemoryPluginRuntime {
     return merged;
   }
 
-  private getLatestL1EndedAt(): string | undefined {
-    const windows = this.repository.listAllL1();
-    if (windows.length === 0) return undefined;
-    return windows[windows.length - 1]?.endedAt || undefined;
+  private getLatestMemoryFileUpdate(): string | undefined {
+    return this.repository.getFileMemoryStore().listMemoryEntries({ limit: 1, includeTmp: true })[0]?.updatedAt;
   }
 
-  private getNewL1CountSinceLastSuccessfulDream(): { count: number; latestEndedAt?: string } {
-    const cutoff = this.repository.getPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY)?.trim() || "";
-    const windows = this.repository.listAllL1();
-    let latestEndedAt: string | undefined;
-    let count = 0;
-    for (const window of windows) {
-      if (!latestEndedAt || window.endedAt > latestEndedAt) {
-        latestEndedAt = window.endedAt;
-      }
-      if (!cutoff || window.endedAt > cutoff) {
-        count += 1;
-      }
-    }
-    return {
-      count,
-      ...(latestEndedAt ? { latestEndedAt } : {}),
-    };
+  private hasMemoryUpdatesSinceLastDream(): boolean {
+    const latestMemoryFileUpdate = this.getLatestMemoryFileUpdate();
+    if (!latestMemoryFileUpdate) return false;
+    const lastDreamAt = this.repository.getPipelineState<string>(LAST_DREAM_AT_STATE_KEY);
+    if (!lastDreamAt) return true;
+    return Date.parse(latestMemoryFileUpdate) > Date.parse(lastDreamAt);
   }
 
   private recordDreamLifecycle(
     status: "running" | "success" | "skipped" | "failed",
     summary: string,
-    options?: { completedAt?: string; latestL1EndedAt?: string },
+    options?: { completedAt?: string; latestMemoryFileUpdate?: string },
   ): void {
     this.repository.setPipelineState(LAST_DREAM_STATUS_STATE_KEY, status);
     this.repository.setPipelineState(LAST_DREAM_SUMMARY_STATE_KEY, summary.trim());
     if (options?.completedAt) {
       this.repository.setPipelineState(LAST_DREAM_AT_STATE_KEY, options.completedAt);
-    }
-    if (options?.latestL1EndedAt) {
-      this.repository.setPipelineState(LAST_DREAM_L1_ENDED_AT_STATE_KEY, options.latestL1EndedAt);
     }
   }
 
@@ -1670,14 +1987,13 @@ export class MemoryPluginRuntime {
   ): DreamRunResult {
     return {
       prepFlush,
-      reviewedL1: 0,
+      reviewedFiles: 0,
       rewrittenProjects: 0,
       deletedProjects: 0,
+      deletedFiles: 0,
       profileUpdated: false,
       duplicateTopicCount: 0,
       conflictTopicCount: 0,
-      prunedProjectL1Refs: 0,
-      prunedProfileL1Refs: 0,
       summary,
       trigger,
       status: "skipped",
@@ -1704,10 +2020,7 @@ export class MemoryPluginRuntime {
     return this.requestIndexRun(reason, [sessionKey]);
   }
 
-  private flushAllNow(
-    reason: string,
-    options?: { allowWhileDream?: boolean },
-  ): Promise<HeartbeatStats> {
+  private flushAllNow(reason: string, options?: { allowWhileDream?: boolean }): Promise<HeartbeatStats> {
     for (const sessionKey of Array.from(this.debouncedSessions)) {
       this.clearIdleTimer(sessionKey);
     }
@@ -1716,15 +2029,11 @@ export class MemoryPluginRuntime {
 
   private async runDreamNow(trigger: "manual" | "scheduled"): Promise<DreamRunResult> {
     if (this.dreamRunLocked || this.dreamRunPromise) {
-      if (trigger === "scheduled") {
-        return this.buildSkippedDreamResult(
-          trigger,
-          emptyStats(),
-          "Skipped automatic Dream because another Dream reconstruction is already running.",
-          "already_running",
-        );
-      }
-      throw new Error("Dream reconstruction is already running");
+      const summary = trigger === "scheduled"
+        ? "Skipped automatic Dream because another Dream reconstruction is already running."
+        : "Skipped manual Dream because another Dream reconstruction is already running.";
+      this.saveSkippedDreamTrace(trigger, summary, "already_running");
+      return this.buildSkippedDreamResult(trigger, emptyStats(), summary, "already_running");
     }
 
     this.dreamRunLocked = true;
@@ -1736,29 +2045,22 @@ export class MemoryPluginRuntime {
       if (this.queuePromise) {
         await this.queuePromise;
       }
-      const prepFlush = await this.flushAllNow("dream_prep", { allowWhileDream: true });
+      const prepFlush = emptyStats();
       if (trigger === "scheduled") {
-        const settings = this.indexer.getSettings();
-        const { count: newL1Count } = this.getNewL1CountSinceLastSuccessfulDream();
-        if (newL1Count < settings.autoDreamMinNewL1) {
-          const summary = `Skipped automatic Dream: ${newL1Count} new L1 windows since the last successful Dream, below threshold ${settings.autoDreamMinNewL1}.`;
+        if (!this.hasMemoryUpdatesSinceLastDream()) {
+          const summary = "Skipped automatic Dream: no memory file updates since the last Dream run.";
           this.recordDreamLifecycle("skipped", summary, { completedAt: nowIso() });
-          return this.buildSkippedDreamResult(
-            trigger,
-            prepFlush,
-            summary,
-            "new_l1_below_threshold",
-          );
+          this.saveSkippedDreamTrace(trigger, summary, "no_memory_updates_since_last_dream");
+          return this.buildSkippedDreamResult(trigger, prepFlush, summary, "no_memory_updates_since_last_dream");
         }
       }
-      const outcome = await this.dreamRewriter.run();
-      const latestL1EndedAt = this.getLatestL1EndedAt();
+      const outcome = await this.dreamRewriter.run(trigger);
+      this.repository.getFileMemoryStore().repairManifests();
       this.recordDreamLifecycle("success", outcome.summary, {
         completedAt: nowIso(),
-        ...(latestL1EndedAt ? { latestL1EndedAt } : {}),
       });
       this.logger.info?.(
-        `[clawxmemory] dream run(${trigger}) reviewed_l1=${outcome.reviewedL1} rewritten_projects=${outcome.rewrittenProjects} deleted_projects=${outcome.deletedProjects} profile_updated=${outcome.profileUpdated}`,
+        `[clawxmemory] dream run(${trigger}) reviewed_files=${outcome.reviewedFiles} rewritten_projects=${outcome.rewrittenProjects} deleted_projects=${outcome.deletedProjects} deleted_files=${outcome.deletedFiles} profile_updated=${outcome.profileUpdated}`,
       );
       const result: DreamRunResult = {
         prepFlush,
@@ -1767,20 +2069,18 @@ export class MemoryPluginRuntime {
         status: "success" as const,
       };
       return result;
-    })()
-      .catch((error) => {
-        this.recordDreamLifecycle("failed", `Dream ${trigger} failed: ${String(error)}`, {
-          completedAt: nowIso(),
-        });
-        throw error;
-      })
-      .finally(() => {
-        this.dreamRunPromise = undefined;
-        this.dreamRunLocked = false;
-        if ((this.queuedFullRun || this.queuedSessionKeys.size > 0) && !this.queuePromise) {
-          this.queuePromise = this.drainIndexQueue();
-        }
+    })().catch((error) => {
+      this.recordDreamLifecycle("failed", `Dream ${trigger} failed: ${String(error)}`, {
+        completedAt: nowIso(),
       });
+      throw error;
+    }).finally(() => {
+      this.dreamRunPromise = undefined;
+      this.dreamRunLocked = false;
+      if ((this.queuedFullRun || this.queuedSessionKeys.size > 0) && !this.queuePromise) {
+        this.queuePromise = this.drainIndexQueue();
+      }
+    });
 
     this.dreamRunPromise = promise;
     return promise;
@@ -1803,9 +2103,7 @@ export class MemoryPluginRuntime {
     void (async () => {
       try {
         if (this.stopped) return;
-        const repair = this.repository.repairL0Sessions((record) =>
-          sanitizeL0Record(record, this.config),
-        );
+        const repair = this.repository.repairL0Sessions((record) => sanitizeL0Record(record, this.config));
         if (repair.updated === 0 && repair.removed === 0) {
           this.repository.setPipelineState("repairVersion", MEMORY_REPAIR_VERSION);
           this.logger.info?.("[clawxmemory] startup repair skipped: no l0 changes needed");
@@ -1817,7 +2115,7 @@ export class MemoryPluginRuntime {
         });
         const stats = await this.flushAllNow("repair");
         this.logger.info?.(
-          `[clawxmemory] repaired l0 updated=${repair.updated} removed=${repair.removed}; rebuilt l1=${stats.l1Created}, l2_time=${stats.l2TimeUpdated}, l2_project=${stats.l2ProjectUpdated}, profile=${stats.profileUpdated}, failed=${stats.failed}`,
+          `[clawxmemory] repaired l0 updated=${repair.updated} removed=${repair.removed}; captured=${stats.capturedSessions}, written=${stats.writtenFiles}, project=${stats.writtenProjectFiles}, feedback=${stats.writtenFeedbackFiles}, user=${stats.userProfilesUpdated}, failed=${stats.failedSessions}`,
         );
         this.repository.setPipelineState("repairVersion", MEMORY_REPAIR_VERSION);
         this.setStartupRepairState("idle");
@@ -1833,12 +2131,220 @@ export class MemoryPluginRuntime {
 
   private resolveWorkspaceDir(): string {
     const configured = getConfigString(this.currentApiConfig, ["agents", "defaults", "workspace"]);
-    return resolve(configured || join(resolveStateDir(process.env), "workspace-main"));
+    return resolve(configured || resolveDefaultWorkspaceDir());
+  }
+
+  private resolveManagedBoundaryDir(workspaceDir = this.resolveWorkspaceDir()): string {
+    return join(this.config.dataDir, MANAGED_BOUNDARY_DIRNAME, hashText(workspaceDir).slice(0, 12));
+  }
+
+  private resolveManagedBoundaryStatePath(workspaceDir = this.resolveWorkspaceDir()): string {
+    return join(this.resolveManagedBoundaryDir(workspaceDir), MANAGED_BOUNDARY_STATE_FILENAME);
+  }
+
+  private readManagedBoundaryState(workspaceDir = this.resolveWorkspaceDir()): ManagedWorkspaceBoundaryState | undefined {
+    const statePath = this.resolveManagedBoundaryStatePath(workspaceDir);
+    if (!existsSync(statePath)) return undefined;
+    try {
+      const parsed = JSON.parse(readFileSync(statePath, "utf-8"));
+      const root = asObject(parsed);
+      if (!root) return undefined;
+      const files = Array.isArray(root.files)
+        ? root.files
+            .map((item): ManagedWorkspaceFileState | null => {
+              const value = asObject(item);
+              if (!value) return null;
+              const name = value.name === "USER.md" || value.name === "MEMORY.md" ? value.name : null;
+              const status = value.status === "isolated" || value.status === "restored" || value.status === "conflict"
+                ? value.status
+                : null;
+              const originalPath = typeof value.originalPath === "string" ? value.originalPath : "";
+              const managedPath = typeof value.managedPath === "string" ? value.managedPath : "";
+              const hash = typeof value.hash === "string" ? value.hash : "";
+              const isolatedAt = typeof value.isolatedAt === "string" ? value.isolatedAt : "";
+              if (!name || !status || !originalPath || !managedPath || !hash || !isolatedAt) return null;
+              return {
+                name,
+                originalPath,
+                managedPath,
+                hash,
+                isolatedAt,
+                status,
+                ...(typeof value.restoredAt === "string" && value.restoredAt ? { restoredAt: value.restoredAt } : {}),
+                ...(typeof value.conflictPath === "string" && value.conflictPath ? { conflictPath: value.conflictPath } : {}),
+              };
+            })
+            .filter((item): item is ManagedWorkspaceFileState => Boolean(item))
+        : [];
+      const state: ManagedWorkspaceBoundaryState = {
+        version: MANAGED_BOUNDARY_STATE_VERSION,
+        workspaceDir,
+        updatedAt: typeof root.updatedAt === "string" && root.updatedAt ? root.updatedAt : nowIso(),
+        lastAction: typeof root.lastAction === "string" && root.lastAction ? root.lastAction : "none",
+        files,
+      };
+      return state;
+    } catch (error) {
+      this.logger.warn?.(`[clawxmemory] failed to read managed workspace boundary state: ${String(error)}`);
+      return undefined;
+    }
+  }
+
+  private writeManagedBoundaryState(
+    state: ManagedWorkspaceBoundaryState | undefined,
+    workspaceDir = this.resolveWorkspaceDir(),
+  ): void {
+    const statePath = this.resolveManagedBoundaryStatePath(workspaceDir);
+    const stateDir = this.resolveManagedBoundaryDir(workspaceDir);
+    if (!state || state.files.length === 0) {
+      rmSync(statePath, { force: true });
+      try {
+        rmSync(stateDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup.
+      }
+      return;
+    }
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(`${statePath}.tmp`, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
+    renameSync(`${statePath}.tmp`, statePath);
+  }
+
+  private reconcileManagedWorkspaceBoundary(): ManagedBoundaryAction {
+    const workspaceDir = this.resolveWorkspaceDir();
+    const state = this.readManagedBoundaryState(workspaceDir) ?? {
+      version: MANAGED_BOUNDARY_STATE_VERSION,
+      workspaceDir,
+      updatedAt: nowIso(),
+      lastAction: "none",
+      files: [],
+    } satisfies ManagedWorkspaceBoundaryState;
+    const nextFiles = state.files.filter((file) => file.status === "conflict" || existsSync(file.managedPath));
+    let action: ManagedBoundaryAction = "none";
+
+    for (const name of MANAGED_WORKSPACE_FILES) {
+      const originalPath = join(workspaceDir, name);
+      if (!existsSync(originalPath)) continue;
+      const managedDir = this.resolveManagedBoundaryDir(workspaceDir);
+      mkdirSync(managedDir, { recursive: true });
+      const existingIndex = nextFiles.findIndex((file) => file.name === name);
+      const existingFile = existingIndex >= 0 ? nextFiles[existingIndex] : undefined;
+      if (existingFile?.managedPath && existsSync(existingFile.managedPath)) {
+        const currentHash = hashText(readFileSync(originalPath, "utf-8"));
+        if (currentHash === existingFile.hash) {
+          rmSync(originalPath, { force: true });
+          if (existingFile.status !== "isolated") {
+            nextFiles[existingIndex] = {
+              ...existingFile,
+              status: "isolated",
+            };
+          }
+          action = action === "conflict" ? action : "isolated";
+          continue;
+        }
+        const conflictPath = join(workspaceDir, `${name.replace(/\.md$/i, "")}.clawxmemory-conflict-active-${Date.now().toString(36)}.md`);
+        renameSync(originalPath, conflictPath);
+        nextFiles[existingIndex] = {
+          ...existingFile,
+          status: "conflict",
+          conflictPath,
+        };
+        action = "conflict";
+        this.logger.warn?.(`[clawxmemory] re-isolated regenerated workspace ${name}; preserved original managed copy and stored the new file as conflict.`);
+        continue;
+      }
+      const managedPath = join(managedDir, `${name}.${Date.now().toString(36)}.managed.md`);
+      renameSync(originalPath, managedPath);
+      const hash = hashText(readFileSync(managedPath, "utf-8"));
+      const nextFile: ManagedWorkspaceFileState = {
+        name,
+        originalPath,
+        managedPath,
+        hash,
+        isolatedAt: nowIso(),
+        status: "isolated",
+      };
+      if (existingIndex >= 0) nextFiles.splice(existingIndex, 1, nextFile);
+      else nextFiles.push(nextFile);
+      action = "isolated";
+      this.logger.info?.(`[clawxmemory] isolated workspace ${name} from OpenClaw bootstrap memory.`);
+    }
+
+    const nextState: ManagedWorkspaceBoundaryState = {
+      version: MANAGED_BOUNDARY_STATE_VERSION,
+      workspaceDir,
+      updatedAt: nowIso(),
+      lastAction: action === "none" ? state.lastAction : safeManagedActionLabel(action, nextFiles),
+      files: nextFiles,
+    };
+    this.writeManagedBoundaryState(nextState, workspaceDir);
+    return action;
+  }
+
+  private restoreManagedWorkspaceBoundaryIfInactive(): ManagedBoundaryAction {
+    const config = readOpenClawConfigFromDisk();
+    const slotOwner = getConfigString(config, ["plugins", "slots", "memory"]);
+    const pluginEnabled = getConfigBoolean(config, ["plugins", "entries", PLUGIN_ID, "enabled"]) !== false;
+    if (slotOwner === PLUGIN_ID && pluginEnabled) return "none";
+
+    const workspaceDir = resolve(
+      getConfigString(config, ["agents", "defaults", "workspace"])
+        || resolveDefaultWorkspaceDir(),
+    );
+    const state = this.readManagedBoundaryState(workspaceDir);
+    if (!state || state.files.length === 0) return "none";
+
+    let action: ManagedBoundaryAction = "none";
+    const nextFiles: ManagedWorkspaceFileState[] = [];
+    for (const file of state.files) {
+      if (!existsSync(file.managedPath)) continue;
+      const originalExists = existsSync(file.originalPath);
+      if (!originalExists) {
+        mkdirSync(dirname(file.originalPath), { recursive: true });
+        renameSync(file.managedPath, file.originalPath);
+        action = "restored";
+        continue;
+      }
+      const originalHash = hashText(readFileSync(file.originalPath, "utf-8"));
+      if (originalHash === file.hash) {
+        rmSync(file.managedPath, { force: true });
+        action = action === "conflict" ? action : "restored";
+        continue;
+      }
+      const conflictPath = join(workspaceDir, `${file.name.replace(/\.md$/i, "")}.clawxmemory-conflict-${Date.now().toString(36)}.md`);
+      renameSync(file.managedPath, conflictPath);
+      nextFiles.push({
+        ...file,
+        status: "conflict",
+        restoredAt: nowIso(),
+        conflictPath,
+      });
+      action = "conflict";
+    }
+
+    if (nextFiles.length === 0) {
+      this.writeManagedBoundaryState(undefined, workspaceDir);
+    } else {
+      this.writeManagedBoundaryState({
+        ...state,
+        updatedAt: nowIso(),
+        lastAction: safeManagedActionLabel(action, nextFiles),
+        files: nextFiles,
+      }, workspaceDir);
+    }
+    return action;
   }
 
   private async runStartupInitialization(): Promise<void> {
     const boundaryState = await this.reconcileManagedMemoryBoundary();
     if (this.stopped) return;
+    if (boundaryState === "ready") {
+      try {
+        this.reconcileManagedWorkspaceBoundary();
+      } catch (error) {
+        this.logger.warn?.(`[clawxmemory] managed workspace boundary reconcile failed: ${String(error)}`);
+      }
+    }
     this.logMemoryBoundaryDiagnostics();
     if (boundaryState !== "ready" || this.stopped) return;
     this.startBackgroundRepair();
@@ -1851,9 +2357,7 @@ export class MemoryPluginRuntime {
       const loaded = await Promise.resolve(this.pluginRuntime.config.loadConfig());
       this.currentApiConfig = asObject(loaded) ?? {};
     } catch (error) {
-      this.logger.warn?.(
-        `[clawxmemory] failed to load OpenClaw config for managed memory boundary: ${String(error)}`,
-      );
+      this.logger.warn?.(`[clawxmemory] failed to load OpenClaw config for managed memory boundary: ${String(error)}`);
     }
 
     const diagnostics = this.collectMemoryBoundaryDiagnostics();
@@ -1868,9 +2372,7 @@ export class MemoryPluginRuntime {
           `[clawxmemory] managed memory config updated: ${repair.changedPaths.join(", ")}`,
         );
       } else {
-        this.logger.info?.(
-          "[clawxmemory] managed memory config already matches desired state; restarting gateway.",
-        );
+        this.logger.info?.("[clawxmemory] managed memory config already matches desired state; restarting gateway.");
       }
       this.currentApiConfig = repair.config;
       this.setStartupRepairState("running", { message: STARTUP_BOUNDARY_RUNNING_MESSAGE });
@@ -1881,9 +2383,7 @@ export class MemoryPluginRuntime {
       );
 
       if (restart.termination === "timeout" || restart.termination === "no-output-timeout") {
-        this.logger.warn?.(
-          "[clawxmemory] `openclaw gateway restart` timed out after managed memory config update; waiting for restart.",
-        );
+        this.logger.warn?.("[clawxmemory] `openclaw gateway restart` timed out after managed memory config update; waiting for restart.");
         return "restarting";
       }
       if (restart.code !== 0) {
@@ -1914,62 +2414,31 @@ export class MemoryPluginRuntime {
     if (slotOwner !== PLUGIN_ID) {
       pushManagedIssue(`plugins.slots.memory=${slotOwner || "(empty)"}`);
     }
-    if (
-      getConfigBoolean(this.currentApiConfig, [
-        "plugins",
-        "entries",
-        NATIVE_MEMORY_PLUGIN_ID,
-        "enabled",
-      ]) !== false
-    ) {
+    if (getConfigBoolean(this.currentApiConfig, ["plugins", "entries", NATIVE_MEMORY_PLUGIN_ID, "enabled"]) !== false) {
       pushManagedIssue(`plugins.entries.${NATIVE_MEMORY_PLUGIN_ID}.enabled should be false`);
     }
-    if (
-      getConfigBoolean(this.currentApiConfig, [
-        "hooks",
-        "internal",
-        "entries",
-        "session-memory",
-        "enabled",
-      ]) !== false
-    ) {
+    if (getConfigBoolean(this.currentApiConfig, ["hooks", "internal", "entries", "session-memory", "enabled"]) !== false) {
       pushManagedIssue("hooks.internal.entries.session-memory.enabled should be false");
     }
-    if (
-      getConfigBoolean(this.currentApiConfig, ["agents", "defaults", "memorySearch", "enabled"]) !==
-      false
-    ) {
+    if (getConfigBoolean(this.currentApiConfig, ["agents", "defaults", "memorySearch", "enabled"]) !== false) {
       pushManagedIssue("agents.defaults.memorySearch.enabled should be false");
     }
-    if (
-      getConfigBoolean(this.currentApiConfig, [
-        "agents",
-        "defaults",
-        "compaction",
-        "memoryFlush",
-        "enabled",
-      ]) !== false
-    ) {
+    if (getConfigBoolean(this.currentApiConfig, ["agents", "defaults", "compaction", "memoryFlush", "enabled"]) !== false) {
       pushManagedIssue("agents.defaults.compaction.memoryFlush.enabled should be false");
     }
-    if (
-      getConfigBoolean(this.currentApiConfig, [
-        "plugins",
-        "entries",
-        PLUGIN_ID,
-        "hooks",
-        "allowPromptInjection",
-      ]) === false
-    ) {
-      pushManagedIssue(
-        `plugins.entries.${PLUGIN_ID}.hooks.allowPromptInjection should not be false`,
-      );
+    if (getConfigBoolean(this.currentApiConfig, ["plugins", "entries", PLUGIN_ID, "hooks", "allowPromptInjection"]) === false) {
+      pushManagedIssue(`plugins.entries.${PLUGIN_ID}.hooks.allowPromptInjection should not be false`);
     }
     if (!this.config.recallEnabled) {
       runtimeIssues.push("plugin config recallEnabled=false");
     }
 
     const workspaceDir = this.resolveWorkspaceDir();
+    const managedBoundaryState = this.readManagedBoundaryState(workspaceDir);
+    const managedWorkspaceFiles = managedBoundaryState?.files
+      .filter((file) => file.status === "conflict" || existsSync(file.managedPath))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      ?? [];
     const workspaceBootstrapPresent = [
       "AGENTS.md",
       "SOUL.md",
@@ -1981,6 +2450,23 @@ export class MemoryPluginRuntime {
       "MEMORY.md",
     ].some((name) => existsSync(join(workspaceDir, name)));
 
+    if (slotOwner === PLUGIN_ID) {
+      for (const name of MANAGED_WORKSPACE_FILES) {
+        const originalPath = join(workspaceDir, name);
+        if (existsSync(originalPath)) {
+          runtimeIssues.push(`workspace ${name} should be isolated from OpenClaw bootstrap memory`);
+        }
+      }
+    }
+
+    const boundaryStatus: ManagedBoundaryStatus = managedWorkspaceFiles.some((file) => file.status === "conflict")
+      ? "conflict"
+      : managedWorkspaceFiles.length > 0
+        ? "isolated"
+        : runtimeIssues.some((issue) => issue.includes("workspace USER.md") || issue.includes("workspace MEMORY.md"))
+          ? "warning"
+          : "ready";
+
     return {
       slotOwner,
       dynamicMemoryRuntime: slotOwner === PLUGIN_ID ? "ClawXMemory" : slotOwner || "unbound",
@@ -1988,6 +2474,9 @@ export class MemoryPluginRuntime {
       memoryRuntimeHealthy: runtimeIssues.length === 0,
       runtimeIssues,
       managedConfigIssues,
+      managedWorkspaceFiles,
+      boundaryStatus,
+      lastBoundaryAction: managedBoundaryState?.lastAction || "none",
     };
   }
 
@@ -2004,9 +2493,7 @@ export class MemoryPluginRuntime {
       return;
     }
     if (diagnostics.memoryRuntimeHealthy) {
-      this.logger.info?.(
-        "[clawxmemory] dynamic memory runtime ready: active memory slot is ClawXMemory.",
-      );
+      this.logger.info?.("[clawxmemory] dynamic memory runtime ready: active memory slot is ClawXMemory.");
       return;
     }
     this.logger.warn?.(

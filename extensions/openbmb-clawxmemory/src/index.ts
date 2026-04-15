@@ -1,13 +1,13 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { pluginConfigJsonSchema, pluginConfigUiHints } from "./config.js";
 import { registerMemoryHooks } from "./hooks.js";
 import { buildMemoryPromptSection } from "./prompt-section.js";
 import { MemoryPluginRuntime } from "./runtime.js";
+import { pluginConfigJsonSchema, pluginConfigUiHints } from "./config.js";
 
 const plugin = definePluginEntry({
   id: "openbmb-clawxmemory",
   name: "ClawXMemory",
-  description: "L0/L1/L2 local-first memory plugin for OpenClaw.",
+  description: "File-based long-term memory plugin for OpenClaw.",
   kind: "memory",
   configSchema: {
     jsonSchema: pluginConfigJsonSchema,

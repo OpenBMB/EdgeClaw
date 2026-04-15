@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveClawxmemoryDbPath } from "../../../scripts/state-paths.mjs";
 
 function parseArg(name, fallback = "") {
   const idx = process.argv.indexOf(name);
@@ -24,7 +24,7 @@ function safeJsonParse(raw, fallback) {
   }
 }
 
-const dbPath = resolve(parseArg("--db", join(homedir(), ".openclaw", "clawxmemory", "memory.sqlite")));
+const dbPath = resolve(parseArg("--db", resolveClawxmemoryDbPath()));
 const limit = parsePositiveInt(parseArg("--limit", "5"), 5);
 
 if (!existsSync(dbPath)) {
@@ -38,21 +38,37 @@ if (!existsSync(dbPath)) {
 
 const db = new DatabaseSync(dbPath);
 
-const l0Rows = db
-  .prepare("SELECT l0_index_id, session_key, timestamp, messages_json FROM l0_sessions ORDER BY timestamp DESC LIMIT ?")
-  .all(limit);
+const tableExists = (tableName) => {
+  const row = db
+    .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName);
+  return row?.present === 1;
+};
 
-const l1Rows = db
-  .prepare("SELECT l1_index_id, time_period, summary, project_tags_json FROM l1_windows ORDER BY created_at DESC LIMIT ?")
-  .all(limit);
+const queryRows = (tableName, sql) => {
+  if (!tableExists(tableName)) return [];
+  return db.prepare(sql).all(limit);
+};
 
-const l2ProjectRows = db
-  .prepare("SELECT l2_index_id, project_name, current_status, latest_progress FROM l2_project_indexes ORDER BY updated_at DESC LIMIT ?")
-  .all(limit);
+const l0Rows = queryRows(
+  "l0_sessions",
+  "SELECT l0_index_id, session_key, timestamp, messages_json FROM l0_sessions ORDER BY timestamp DESC LIMIT ?",
+);
 
-const l2TimeRows = db
-  .prepare("SELECT l2_index_id, date_key, summary FROM l2_time_indexes ORDER BY updated_at DESC LIMIT ?")
-  .all(limit);
+const l1Rows = queryRows(
+  "l1_windows",
+  "SELECT l1_index_id, time_period, summary, project_tags_json FROM l1_windows ORDER BY created_at DESC LIMIT ?",
+);
+
+const l2ProjectRows = queryRows(
+  "l2_project_indexes",
+  "SELECT l2_index_id, project_name, current_status, latest_progress FROM l2_project_indexes ORDER BY updated_at DESC LIMIT ?",
+);
+
+const l2TimeRows = queryRows(
+  "l2_time_indexes",
+  "SELECT l2_index_id, date_key, summary FROM l2_time_indexes ORDER BY updated_at DESC LIMIT ?",
+);
 
 const output = {
   ok: true,

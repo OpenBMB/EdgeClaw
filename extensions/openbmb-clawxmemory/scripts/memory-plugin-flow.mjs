@@ -1,17 +1,27 @@
 import { spawn } from "node:child_process";
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import {
+  DEFAULT_OPENCLAW_CONFIG_PATH_HINT,
+  resolveClawxmemoryDataDir,
+  resolveConfigPath,
+  resolveStateDir,
+  resolveWorkspaceDir,
+} from "./state-paths.mjs";
 
 const PLUGIN_ID = "openbmb-clawxmemory";
 const NATIVE_MEMORY_PLUGIN_ID = "memory-core";
-const DEFAULT_DATA_DIR = path.join(os.homedir(), ".openclaw", "clawxmemory");
+const DEFAULT_DATA_DIR = resolveClawxmemoryDataDir();
 const DEFAULT_UI_HOST = "127.0.0.1";
 const DEFAULT_UI_PORT = 39393;
 const DEFAULT_UI_PATH_PREFIX = "/clawxmemory";
 const MANAGED_CONFIG_BACKUP_FILE = `${PLUGIN_ID}.memory-config.backup.json`;
+const MANAGED_BOUNDARY_DIRNAME = "managed-boundary";
+const MANAGED_BOUNDARY_STATE_FILENAME = "workspace-memory-boundary.json";
+const MANAGED_WORKSPACE_FILES = ["USER.md", "MEMORY.md"];
 const CHAT_FACING_MEMORY_TOOLS = ["memory_overview", "memory_list", "memory_flush"];
 const RESTART_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 8_000;
 const RESTART_KILL_GRACE_MS = 1_000;
@@ -128,7 +138,7 @@ function buildUiPortConfigHint() {
   if (process.env.OPENCLAW_CONFIG_PATH?.trim()) {
     return `Update plugins.entries.${PLUGIN_ID}.config.uiPort in ${resolveConfigPath()}.`;
   }
-  return `Update plugins.entries.${PLUGIN_ID}.config.uiPort in ~/.openclaw/openclaw.json. If you use OPENCLAW_CONFIG_PATH, update that file instead.`;
+  return `Update plugins.entries.${PLUGIN_ID}.config.uiPort in ${DEFAULT_OPENCLAW_CONFIG_PATH_HINT}. If you use OPENCLAW_CONFIG_PATH, update that file instead.`;
 }
 
 async function resolveUiTarget() {
@@ -140,22 +150,43 @@ async function resolveUiUrl(options = {}) {
   return buildUiUrl(target, options);
 }
 
-function resolveStateDir() {
-  if (process.env.OPENCLAW_STATE_DIR?.trim()) {
-    return path.resolve(process.env.OPENCLAW_STATE_DIR.trim());
-  }
-  return path.join(os.homedir(), ".openclaw");
-}
-
-function resolveConfigPath() {
-  if (process.env.OPENCLAW_CONFIG_PATH?.trim()) {
-    return path.resolve(process.env.OPENCLAW_CONFIG_PATH.trim());
-  }
-  return path.join(resolveStateDir(), "openclaw.json");
-}
-
 function resolveManagedConfigBackupPath() {
   return path.join(path.dirname(resolveConfigPath()), MANAGED_CONFIG_BACKUP_FILE);
+}
+
+function hashText(input) {
+  return createHash("sha1").update(String(input)).digest("hex").slice(0, 10);
+}
+
+function resolveWorkspaceDirFromConfig(config) {
+  const configured = typeof config?.agents?.defaults?.workspace === "string"
+    ? config.agents.defaults.workspace.trim()
+    : "";
+  return path.resolve(configured || resolveWorkspaceDir());
+}
+
+function resolveManagedDataDirFromConfig(config) {
+  const configured = typeof config?.plugins?.entries?.[PLUGIN_ID]?.config?.dataDir === "string"
+    ? config.plugins.entries[PLUGIN_ID].config.dataDir.trim()
+    : "";
+  return path.resolve(configured || DEFAULT_DATA_DIR);
+}
+
+function resolveManagedBoundaryDir(dataDir, workspaceDir) {
+  return path.join(dataDir, MANAGED_BOUNDARY_DIRNAME, hashText(workspaceDir).slice(0, 12));
+}
+
+function resolveManagedBoundaryStatePath(dataDir, workspaceDir) {
+  return path.join(resolveManagedBoundaryDir(dataDir, workspaceDir), MANAGED_BOUNDARY_STATE_FILENAME);
+}
+
+async function pathExists(targetPath) {
+  try {
+    await stat(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sleep(ms) {
@@ -575,6 +606,117 @@ async function writeManagedConfigBackup(backup) {
 
 async function removeManagedConfigBackup() {
   await rm(resolveManagedConfigBackupPath(), { force: true });
+}
+
+async function readManagedWorkspaceBoundaryState({ dataDir, workspaceDir }) {
+  const statePath = resolveManagedBoundaryStatePath(dataDir, workspaceDir);
+  try {
+    const raw = await readFile(statePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const files = Array.isArray(parsed?.files)
+      ? parsed.files.filter((file) => {
+          if (!file || typeof file !== "object") return false;
+          return MANAGED_WORKSPACE_FILES.includes(file.name)
+            && typeof file.originalPath === "string"
+            && typeof file.managedPath === "string"
+            && typeof file.hash === "string"
+            && typeof file.isolatedAt === "string"
+            && typeof file.status === "string";
+        })
+      : [];
+    if (files.length === 0) return null;
+    return {
+      version: 1,
+      workspaceDir,
+      updatedAt: typeof parsed?.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
+      lastAction: typeof parsed?.lastAction === "string" ? parsed.lastAction : "none",
+      files,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeManagedWorkspaceBoundaryState({ dataDir, workspaceDir, state }) {
+  const statePath = resolveManagedBoundaryStatePath(dataDir, workspaceDir);
+  const boundaryDir = resolveManagedBoundaryDir(dataDir, workspaceDir);
+  if (!state || !Array.isArray(state.files) || state.files.length === 0) {
+    await rm(statePath, { force: true });
+    await rm(boundaryDir, { recursive: true, force: true });
+    return;
+  }
+  await mkdir(boundaryDir, { recursive: true });
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
+}
+
+export async function restoreManagedWorkspaceBoundaryArtifacts({
+  dataDir = DEFAULT_DATA_DIR,
+  workspaceDir = resolveWorkspaceDir(),
+} = {}) {
+  const resolvedDataDir = path.resolve(dataDir);
+  const resolvedWorkspaceDir = path.resolve(workspaceDir);
+  const state = await readManagedWorkspaceBoundaryState({
+    dataDir: resolvedDataDir,
+    workspaceDir: resolvedWorkspaceDir,
+  });
+  if (!state || state.files.length === 0) {
+    return { action: "none", restored: [], conflicts: [] };
+  }
+
+  let action = "none";
+  const nextFiles = [];
+  const restored = [];
+  const conflicts = [];
+
+  for (const file of state.files) {
+    if (!(await pathExists(file.managedPath))) continue;
+    if (!(await pathExists(file.originalPath))) {
+      await mkdir(path.dirname(file.originalPath), { recursive: true });
+      await rename(file.managedPath, file.originalPath);
+      restored.push(file.originalPath);
+      action = action === "conflict" ? action : "restored";
+      continue;
+    }
+
+    const originalHash = hashText(await readFile(file.originalPath, "utf-8"));
+    if (originalHash === file.hash) {
+      await rm(file.managedPath, { force: true });
+      restored.push(file.originalPath);
+      action = action === "conflict" ? action : "restored";
+      continue;
+    }
+
+    const conflictPath = path.join(
+      resolvedWorkspaceDir,
+      `${file.name.replace(/\.md$/i, "")}.clawxmemory-conflict-${Date.now().toString(36)}.md`,
+    );
+    await rename(file.managedPath, conflictPath);
+    conflicts.push(conflictPath);
+    nextFiles.push({
+      ...file,
+      status: "conflict",
+      restoredAt: new Date().toISOString(),
+      conflictPath,
+    });
+    action = "conflict";
+  }
+
+  await writeManagedWorkspaceBoundaryState({
+    dataDir: resolvedDataDir,
+    workspaceDir: resolvedWorkspaceDir,
+    state: nextFiles.length
+      ? {
+          ...state,
+          updatedAt: new Date().toISOString(),
+          lastAction: action === "conflict"
+            ? `conflict ${nextFiles.map((file) => file.name).join(", ")}`
+            : `restored ${restored.map((target) => path.basename(target)).join(", ")}`,
+          files: nextFiles,
+        }
+      : undefined,
+  });
+
+  return { action, restored, conflicts };
 }
 
 async function verifyMemorySlotBound() {
@@ -1025,6 +1167,8 @@ async function uninstallManagedPlugin(repoRoot, pluginPath) {
 
   printStep("Restore OpenClaw memory config");
   const config = (await readOpenClawConfig()) ?? {};
+  const managedDataDir = resolveManagedDataDirFromConfig(config);
+  const workspaceDir = resolveWorkspaceDirFromConfig(config);
   const backup = await readManagedConfigBackup();
 
   removeManagedPluginArtifacts(config, pluginPath);
@@ -1038,6 +1182,16 @@ async function uninstallManagedPlugin(repoRoot, pluginPath) {
 
   await writeOpenClawConfig(config);
   await removeManagedConfigBackup();
+
+  const boundaryRestore = await restoreManagedWorkspaceBoundaryArtifacts({
+    dataDir: managedDataDir,
+    workspaceDir,
+  });
+  if (boundaryRestore.action === "restored") {
+    printSuccess("Workspace memory restored", boundaryRestore.restored.join(", "));
+  } else if (boundaryRestore.action === "conflict") {
+    printWarn("Workspace memory restore hit conflicts", boundaryRestore.conflicts.join(", "));
+  }
 }
 
 function maybeOpenBrowser(url) {

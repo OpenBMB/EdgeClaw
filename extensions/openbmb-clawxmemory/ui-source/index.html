@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./app.css" />
   </head>
   <body>
-    <div class="app-shell" data-view="command_center">
+    <div class="app-shell">
       <div id="appScrim" class="app-scrim"></div>
 
       <aside class="nav-rail" id="navRail">
@@ -26,51 +26,16 @@
           <button id="navCloseBtn" class="drawer-close nav-close" type="button" aria-label="Close">&#x2715;</button>
         </div>
 
-        <div id="viewToggleWrap" class="view-toggle-wrap">
-          <span class="view-toggle-label" data-i18n="topbar.commandCenter">画布视图</span>
-          <button id="viewToggleBtn" class="view-toggle-switch" type="button" role="switch" aria-checked="true">
-            <span class="view-toggle-thumb"></span>
-          </button>
-          <span class="view-toggle-label view-toggle-label--sub" data-i18n="topbar.listView">列表视图</span>
-        </div>
-
         <nav id="boardNavTabs" class="nav-list">
-          <button class="nav-item active" data-board="project" type="button">
-            <span class="nav-label" data-i18n="board.project">项目记忆</span>
+          <button class="nav-item active" data-page="project" type="button">
+            <span class="nav-label" data-i18n="nav.project">项目记忆</span>
+            <span class="nav-count" data-count-for="project">0</span>
           </button>
-          <button class="nav-item" data-board="timeline" type="button">
-            <span class="nav-label" data-i18n="board.timeline">记忆时间线</span>
+          <button class="nav-item" data-page="user" type="button">
+            <span class="nav-label" data-i18n="nav.user">用户画像</span>
+            <span class="nav-count" data-count-for="user">0</span>
           </button>
-          <button class="nav-item" data-board="profile" type="button">
-            <span class="nav-label" data-i18n="board.profile">个人画像</span>
-          </button>
-          <button class="nav-item" data-board="memory_trace" type="button">
-            <span class="nav-label" data-i18n="board.memoryTrace">记忆追踪</span>
-          </button>
-        </nav>
-
-        <nav id="levelTabs" class="nav-list" style="display:none">
-          <button class="nav-item" data-level="profile" type="button">
-            <span class="nav-label" data-i18n="nav.profile">个人画像</span>
-            <span class="nav-count" data-count-for="profile">0</span>
-          </button>
-          <button class="nav-item" data-level="l2_project" type="button">
-            <span class="nav-label" data-i18n="nav.l2_project">项目记忆（L2）</span>
-            <span class="nav-count" data-count-for="l2_project">0</span>
-          </button>
-          <button class="nav-item" data-level="l2_time" type="button">
-            <span class="nav-label" data-i18n="nav.l2_time">时间记忆（L2）</span>
-            <span class="nav-count" data-count-for="l2_time">0</span>
-          </button>
-          <button class="nav-item active" data-level="l1" type="button">
-            <span class="nav-label" data-i18n="nav.l1">记忆片段（L1）</span>
-            <span class="nav-count" data-count-for="l1">0</span>
-          </button>
-          <button class="nav-item" data-level="l0" type="button">
-            <span class="nav-label" data-i18n="nav.l0">原始对话（L0）</span>
-            <span class="nav-count" data-count-for="l0">0</span>
-          </button>
-          <button class="nav-item" data-level="memory_trace" type="button">
+          <button class="nav-item" data-page="memory_trace" type="button">
             <span class="nav-label" data-i18n="nav.memory_trace">记忆追踪</span>
             <span class="nav-count" data-count-for="memory_trace">0</span>
           </button>
@@ -87,30 +52,12 @@
 
             <div class="popover-divider"></div>
 
-            <div class="popover-group">
-              <span class="popover-label" data-i18n="settings.mode">推理模式</span>
-              <div class="popover-seg popover-seg-wide" id="reasoningModeToggle">
-                <button data-mode="answer_first" type="button" class="popover-seg-btn active">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                  <span data-i18n="settings.mode.answer_first">效率优先</span>
-                </button>
-                <button data-mode="accuracy_first" type="button" class="popover-seg-btn">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-                  <span data-i18n="settings.mode.accuracy_first">准确优先</span>
-                </button>
-              </div>
-            </div>
-
             <button class="popover-section-toggle" id="advancedSettingsToggle" type="button">
               <svg class="popover-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              <span data-i18n="settings.advanced">高级参数</span>
+              <span data-i18n="settings.advanced">参数设置</span>
             </button>
             <div class="popover-section-body" id="advancedSettingsBody">
               <div class="popover-section-inner">
-                <div class="popover-group popover-group-stack" id="latencyFieldWrap">
-                  <span class="popover-label" data-i18n="settings.maxLatency">召回数量</span>
-                  <input id="maxAutoReplyLatencyInput" class="popover-input" type="number" min="1" max="50" step="1" placeholder="10" />
-                </div>
                 <div class="popover-group popover-group-stack" id="autoIndexIntervalWrap">
                   <span class="popover-label" data-i18n="settings.autoIndexInterval">自动索引间隔（小时）</span>
                   <input id="autoIndexIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="1" />
@@ -119,16 +66,7 @@
                 <div class="popover-group popover-group-stack" id="autoDreamIntervalWrap">
                   <span class="popover-label" data-i18n="settings.autoDreamInterval">自动 Dream 间隔（小时）</span>
                   <input id="autoDreamIntervalHoursInput" class="popover-input" type="number" min="0" step="1" placeholder="6" />
-                  <span class="popover-note" data-i18n="settings.autoDreamHint">只有新增 L1 达到门槛时，自动 Dream 才会真正执行。</span>
-                </div>
-                <div class="popover-group popover-group-stack" id="autoDreamThresholdWrap">
-                  <span class="popover-label" data-i18n="settings.autoDreamMinL1">自动 Dream 最小新增 L1</span>
-                  <input id="autoDreamMinL1Input" class="popover-input" type="number" min="0" step="1" placeholder="10" />
-                </div>
-                <div class="popover-group popover-group-stack" id="dreamRebuildTimeoutWrap">
-                  <span class="popover-label" data-i18n="settings.dreamRebuildTimeout">Dream 重构超时（秒）</span>
-                  <input id="dreamRebuildTimeoutSecondsInput" class="popover-input" type="number" min="0" step="1" placeholder="180" />
-                  <span class="popover-note" data-i18n="settings.dreamRebuildTimeoutHint">默认 180 秒；0 表示不设超时，同时作用于手动和自动 Dream。</span>
+                  <span class="popover-note" data-i18n="settings.autoDreamHint">只有自上次 Dream 以来有记忆文件更新时，自动 Dream 才会真正执行。</span>
                 </div>
                 <button class="popover-item popover-save" id="saveSettingsBtn" type="button">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
@@ -201,7 +139,7 @@
         </div>
       </aside>
 
-      <main class="workspace" data-view="command_center">
+      <main class="workspace">
         <header class="topbar">
           <div class="topbar-leading">
             <button id="navToggleBtn" class="icon-btn nav-toggle" type="button" aria-label="Menu">☰</button>
@@ -232,29 +170,10 @@
           </div>
         </header>
 
-        <section class="command-center" id="commandCenter">
-          <div class="board-scroll" id="boardScroll">
-            <div class="board-content board-active" id="projectBoard"></div>
-            <div class="board-content" id="timelineBoard"></div>
-            <div class="board-content" id="profileBoard"></div>
-            <div class="board-content" id="memoryTraceBoard"></div>
-          </div>
-          <div class="connection-panel" id="connectionPanel">
-            <div class="connection-header">
-              <button id="connectionBackBtn" class="conn-back-btn" type="button">&#8592; 返回</button>
-              <h3 data-i18n="connection.title">记忆连线</h3>
-            </div>
-            <div class="connection-graph" id="connectionGraph">
-              <svg class="connection-svg" id="connectionSvg" xmlns="http://www.w3.org/2000/svg"></svg>
-              <div class="connection-columns" id="connectionColumns"></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="stream-panel">
+        <section class="stream-panel command-center" id="commandCenter">
           <div class="panel-head">
             <div class="panel-title-row">
-              <h3 id="browserTitle">记忆片段（L1）</h3>
+              <h3 id="browserTitle">项目记忆</h3>
               <span id="browserMeta" class="panel-meta">0</span>
             </div>
 
@@ -271,8 +190,41 @@
               <button id="listClearBtn" class="tool-btn search-clear-btn" type="button" style="display:none" data-i18n="stream.clear">清空</button>
             </div>
           </div>
-
-          <ul id="entryList" class="entry-stream"></ul>
+          <div class="board-scroll" id="boardScroll">
+            <div class="board-content board-active" id="projectListBoard"></div>
+            <div class="board-content" id="projectDetailBoard">
+              <section class="page-shell">
+                <div class="page-head page-head--project">
+                  <div class="page-head-main">
+                    <button id="projectDetailBackBtn" class="tool-btn page-back-btn" type="button" data-i18n="detail.backToList">返回项目列表</button>
+                    <div class="page-head-copy">
+                      <h3 id="projectDetailTitle">项目详情</h3>
+                      <p id="projectDetailSubtitle" class="page-subtitle"></p>
+                    </div>
+                  </div>
+                  <div id="projectDetailHeadActions" class="page-head-actions"></div>
+                </div>
+                <div id="projectDetailMeta" class="detail-meta"></div>
+                <div id="projectDetailBody" class="page-detail-body"></div>
+              </section>
+            </div>
+            <div class="board-content" id="fileDetailBoard">
+              <section class="page-shell">
+                <div class="page-head">
+                  <button id="fileDetailBackBtn" class="tool-btn page-back-btn" type="button" data-i18n="detail.backToProject">返回项目</button>
+                  <div class="page-head-copy">
+                    <h3 id="fileDetailTitle" data-i18n="detail.title">记录详情</h3>
+                    <p id="fileDetailSubtitle" class="page-subtitle"></p>
+                  </div>
+                </div>
+                <div id="fileDetailMeta" class="detail-meta"></div>
+                <div id="fileDetailBody" class="page-detail-body"></div>
+              </section>
+            </div>
+            <div class="board-content" id="tmpBoard"></div>
+            <div class="board-content" id="userBoard"></div>
+            <div class="board-content" id="memoryTraceBoard"></div>
+          </div>
         </section>
       </main>
     </div>
@@ -289,15 +241,6 @@
       </div>
     </aside>
 
-    <aside class="side-drawer detail-drawer" id="detailPanel">
-      <div class="drawer-header">
-        <h3 id="detailTitle" data-i18n="detail.title">记录详情</h3>
-        <button id="detailCloseBtn" class="drawer-close" type="button" aria-label="Close">&#x2715;</button>
-      </div>
-      <div id="detailMeta" class="detail-meta"></div>
-      <div id="detailBody" class="detail-body"></div>
-    </aside>
-
     <!-- settings drawer removed — all settings now in popover menu -->
 
     <!-- Modal dialog -->
@@ -305,13 +248,14 @@
       <div class="modal-card" id="modalCard">
         <div class="modal-icon" id="modalIcon"></div>
         <h3 class="modal-title" id="modalTitle"></h3>
-        <p class="modal-body" id="modalBody"></p>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-fields" id="modalFields"></div>
         <div class="modal-actions">
           <button class="modal-btn modal-cancel" id="modalCancel" type="button"></button>
           <button class="modal-btn modal-confirm" id="modalConfirm" type="button"></button>
         </div>
+      </div>
     </div>
-  </div>
 
   <input id="importMemoryInput" type="file" accept="application/json,.json" hidden />
 

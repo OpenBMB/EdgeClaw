@@ -1,6 +1,8 @@
 import type { MemoryMessage } from "./core/types.js";
+import { decodeEscapedUnicodeText } from "./core/utils/text.js";
 
-const MEMORY_CONTEXT_HEADER = "You are using multi-level memory indexes for this turn.";
+const MEMORY_CONTEXT_HEADER = "You are using retrieved ClawXMemory file memories for this turn.";
+const LEGACY_MEMORY_CONTEXT_HEADER = "You are using multi-level memory indexes for this turn.";
 const MEMORY_CONTEXT_FOOTER = "Treat the above as authoritative prior memory when it is relevant. Prioritize the user's latest request, and do not claim memory is missing or that this is a fresh conversation if the answer is already shown above.";
 const RECALL_CONTEXT_HEADER = "## ClawXMemory Recall";
 const RECALL_CONTEXT_INSTRUCTION = "Use the following retrieved ClawXMemory evidence for this turn.";
@@ -10,6 +12,7 @@ export const SESSION_START_PREFIX = "A new session was started via /new or /rese
 const SLUG_PROMPT_PREFIX = "Based on this conversation, generate a short 1-2 word filename slug";
 const MAX_CONTENT_EXTRACTION_DEPTH = 5;
 const SESSION_START_SEQUENCE_PATTERN = /\b(?:Run|Execute) your Session Startup sequence\b/i;
+const EXPLICIT_REMEMBER_PATTERN = /(请记住|帮我记住|另外记住|再记一个长期信息|再记一条长期信息|补充一个长期信息|补充一条长期信息|记住(?!了没|了吗)|记一下|记下来|remember\s+(?:this|that|these|it)|keep in mind)/i;
 const KNOWN_SLASH_COMMANDS = new Set([
   "help",
   "commands",
@@ -103,15 +106,15 @@ function extractTextFromObject(content: Record<string, unknown>, depth: number):
     return "";
   }
   if (["text", "input_text", "output_text", "paragraph"].includes(type) && typeof content.text === "string") {
-    return content.text;
+    return decodeEscapedUnicodeText(content.text);
   }
   if (typeof content.text === "string" && type === "message_text") {
-    return content.text;
+    return decodeEscapedUnicodeText(content.text);
   }
 
   const parts: string[] = [];
   if (typeof content.text === "string") {
-    pushUniqueText(parts, content.text);
+    pushUniqueText(parts, decodeEscapedUnicodeText(content.text));
   }
   const prioritizedKeys = ["content", "body", "message", "caption"];
   const listKeys = ["parts", "items", "blocks", "segments", "chunks"];
@@ -130,7 +133,7 @@ function extractTextFromObject(content: Record<string, unknown>, depth: number):
 
 function extractTextFromContent(content: unknown, depth = 0): string {
   if (depth > MAX_CONTENT_EXTRACTION_DEPTH) return "";
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return decodeEscapedUnicodeText(content);
   if (Array.isArray(content)) {
     const blocks: string[] = [];
     for (const block of content) {
@@ -149,8 +152,9 @@ function extractTextFromContent(content: unknown, depth = 0): string {
 function stripInjectedMemoryContext(text: string): string {
   let cleaned = text.trim();
 
-  if (cleaned.includes(MEMORY_CONTEXT_HEADER)) {
-    const escapedHeader = MEMORY_CONTEXT_HEADER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const header of [MEMORY_CONTEXT_HEADER, LEGACY_MEMORY_CONTEXT_HEADER]) {
+    if (!cleaned.includes(header)) continue;
+    const escapedHeader = header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const escapedFooter = MEMORY_CONTEXT_FOOTER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern = new RegExp(`${escapedHeader}[\\s\\S]*?${escapedFooter}\\s*`, "g");
     cleaned = cleaned.replace(pattern, "").trim();
@@ -196,6 +200,22 @@ function compactWhitespace(text: string): string {
     previousEmpty = empty;
   }
   return compact.join("\n").trim();
+}
+
+export function hasExplicitRememberIntentText(text: string): boolean {
+  const normalized = text.trim();
+  if (/^(?:你|你还|还)\s*(?:记住|记得).*[吗？?]\s*$/i.test(normalized)) {
+    return false;
+  }
+  return EXPLICIT_REMEMBER_PATTERN.test(normalized);
+}
+
+export function hasExplicitRememberIntent(messages: readonly MemoryMessage[]): boolean {
+  const text = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ");
+  return hasExplicitRememberIntentText(text);
 }
 
 function normalizePluginNoiseProbe(text: string): string {

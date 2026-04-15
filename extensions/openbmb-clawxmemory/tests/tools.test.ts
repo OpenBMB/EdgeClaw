@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   DashboardOverview,
+  DreamRunResult,
   HeartbeatStats,
   MemoryRepository,
   ReasoningRetriever,
@@ -10,171 +11,87 @@ import { buildPluginTools } from "../src/tools.js";
 
 const retrievalResult: RetrievalResult = {
   query: "project status",
-  intent: "project",
-  enoughAt: "l2",
-  profile: null,
-  evidenceNote: "ClawXMemory is in SDK migration and the latest progress is plugin-sdk migration.",
-  l2Results: [
-    {
-      level: "l2_project",
-      score: 0.88,
-      item: {
-        l2IndexId: "l2-project-1",
-        projectKey: "clawxmemory",
-        projectName: "ClawXMemory",
-        summary: "SDK migration in progress",
-        currentStatus: "in_progress",
-        latestProgress: "plugin-sdk migration",
-        l1Source: ["l1-1"],
-        createdAt: "2026-03-24T00:00:00.000Z",
-        updatedAt: "2026-03-24T01:00:00.000Z",
-      },
-    },
-  ],
-  l1Results: [
-    {
-      score: 0.73,
-      item: {
-        l1IndexId: "l1-1",
-        sessionKey: "agent:main",
-        timePeriod: "2026-03-24 morning",
-        startedAt: "2026-03-24T00:10:00.000Z",
-        endedAt: "2026-03-24T00:20:00.000Z",
-        summary: "Discussed plugin migration",
-        facts: [],
-        situationTimeInfo: "2026-03-24",
-        projectTags: ["clawxmemory"],
-        projectDetails: [],
-        l0Source: ["l0-1"],
-        createdAt: "2026-03-24T00:20:00.000Z",
-      },
-    },
-  ],
-  l0Results: [
-    {
-      score: 0.61,
-      item: {
-        l0IndexId: "l0-1",
-        sessionKey: "agent:main",
-        timestamp: "2026-03-24T00:15:00.000Z",
-        messages: [{ role: "user", content: "How is the migration going?" }],
-        source: "openclaw",
-        indexed: true,
-        createdAt: "2026-03-24T00:15:00.000Z",
-      },
-    },
-  ],
-  context: "SDK migration is underway.",
+  intent: "project_memory",
+  context: "## ClawXMemory Recall\nroute=project_memory",
   debug: {
-    mode: "local_fallback",
+    mode: "llm",
     elapsedMs: 42,
     cacheHit: false,
+    route: "project_memory",
+    manifestCount: 2,
+    resolvedProjectId: "project_clawxmemory",
+    selectedFileIds: ["projects/clawxmemory/Project/current-stage.md"],
   },
 };
 
 const baseOverview: DashboardOverview = {
-  totalL0: 3,
-  pendingL0: 1,
-  openTopics: 1,
-  totalL1: 2,
-  totalL2Time: 1,
-  totalL2Project: 1,
-  totalProfiles: 1,
+  pendingSessions: 1,
+  totalMemoryFiles: 3,
+  totalUserMemories: 1,
+  totalFeedbackMemories: 1,
+  totalProjectMemories: 1,
+  changedFilesSinceLastDream: 2,
   queuedSessions: 0,
   lastRecallMs: 20,
   recallTimeouts: 0,
-  lastRecallMode: "local_fallback",
+  lastRecallMode: "llm",
   currentReasoningMode: "answer_first",
   lastRecallPath: "explicit",
-  lastRecallBudgetLimited: false,
-  lastShadowDeepQueued: false,
   lastRecallInjected: true,
-  lastRecallEnoughAt: "l2",
   lastRecallCacheHit: false,
   slotOwner: "openbmb-clawxmemory",
   dynamicMemoryRuntime: "healthy",
   workspaceBootstrapPresent: true,
   memoryRuntimeHealthy: true,
   runtimeIssues: [],
-  lastIndexedAt: "2026-03-24T01:00:00.000Z",
+  lastIndexedAt: "2026-04-09T01:00:00.000Z",
+  lastDreamAt: "2026-04-09T00:30:00.000Z",
+  lastDreamStatus: "success",
+  lastDreamSummary: "Dream reviewed 3 memory files.",
   startupRepairStatus: "idle",
 };
 
 function createRepository() {
-  const l2Project = {
-    l2IndexId: "l2-project-1",
-    projectKey: "clawxmemory",
-    projectName: "ClawXMemory",
-    summary: "SDK migration in progress",
-    currentStatus: "in_progress" as const,
-    latestProgress: "plugin-sdk migration",
-    l1Source: ["l1-1"],
-    createdAt: "2026-03-24T00:00:00.000Z",
-    updatedAt: "2026-03-24T01:00:00.000Z",
-  };
-  const l2Time = {
-    l2IndexId: "l2-time-1",
-    dateKey: "2026-03-24",
-    summary: "Worked on SDK migration",
-    l1Source: ["l1-1"],
-    createdAt: "2026-03-24T00:00:00.000Z",
-    updatedAt: "2026-03-24T02:00:00.000Z",
-  };
-  const l1 = {
-    l1IndexId: "l1-1",
-    sessionKey: "agent:main",
-    timePeriod: "2026-03-24 morning",
-    startedAt: "2026-03-24T00:10:00.000Z",
-    endedAt: "2026-03-24T00:20:00.000Z",
-    summary: "Discussed plugin migration",
-    facts: [],
-    situationTimeInfo: "2026-03-24",
-    projectTags: ["clawxmemory"],
-    projectDetails: [],
-    l0Source: ["l0-1"],
-    createdAt: "2026-03-24T00:20:00.000Z",
-  };
-  const l0First = {
-    l0IndexId: "l0-1",
-    sessionKey: "agent:main",
-    timestamp: "2026-03-24T00:15:00.000Z",
-    messages: [{ role: "user", content: "First memory preview" }],
-    source: "openclaw",
-    indexed: false,
-    createdAt: "2026-03-24T00:15:00.000Z",
-  };
-  const l0Second = {
-    l0IndexId: "l0-2",
-    sessionKey: "agent:main",
-    timestamp: "2026-03-24T00:25:00.000Z",
-    messages: [{ role: "assistant", content: "Second memory preview" }],
-    source: "openclaw",
-    indexed: true,
-    createdAt: "2026-03-24T00:25:00.000Z",
-  };
-
   return {
     getOverview: vi.fn().mockReturnValue(baseOverview),
-    getL2ProjectByIds: vi.fn().mockReturnValue([l2Project]),
-    getL2TimeByIds: vi.fn().mockReturnValue([l2Time]),
-    getL1ByIds: vi.fn().mockReturnValue([l1]),
-    getL0ByIds: vi.fn().mockReturnValue([l0First]),
-    listRecentL2Projects: vi.fn().mockReturnValue([l2Project]),
-    listRecentL2Time: vi.fn().mockReturnValue([l2Time]),
-    searchL2Hits: vi.fn().mockReturnValue([
-      { level: "l2_time" as const, score: 0.9, item: l2Time },
-      { level: "l2_project" as const, score: 0.8, item: l2Project },
+    listMemoryEntries: vi.fn().mockReturnValue([
+      {
+        type: "user" as const,
+        scope: "global" as const,
+        name: "profile",
+        description: "Stable user profile.",
+        updatedAt: "2026-04-09T00:10:00.000Z",
+        file: "profile.md",
+        relativePath: "global/User/profile.md",
+        absolutePath: "/tmp/global/User/profile.md",
+      },
+      {
+        type: "project" as const,
+        scope: "project" as const,
+        projectId: "clawxmemory",
+        name: "current-stage",
+        description: "Project progress.",
+        updatedAt: "2026-04-09T00:20:00.000Z",
+        file: "current-stage.md",
+        relativePath: "projects/clawxmemory/Project/current-stage.md",
+        absolutePath: "/tmp/projects/clawxmemory/Project/current-stage.md",
+      },
     ]),
-    searchL2ProjectIndexes: vi.fn().mockReturnValue([
-      { level: "l2_project" as const, score: 0.8, item: l2Project },
+    getMemoryRecordsByIds: vi.fn().mockReturnValue([
+      {
+        type: "project" as const,
+        scope: "project" as const,
+        projectId: "clawxmemory",
+        name: "current-stage",
+        description: "Project progress.",
+        updatedAt: "2026-04-09T00:20:00.000Z",
+        file: "current-stage.md",
+        relativePath: "projects/clawxmemory/Project/current-stage.md",
+        absolutePath: "/tmp/projects/clawxmemory/Project/current-stage.md",
+        content: "## Current Stage\nMemory refactor is in progress.",
+        preview: "Memory refactor is in progress.",
+      },
     ]),
-    searchL2TimeIndexes: vi.fn().mockReturnValue([
-      { level: "l2_time" as const, score: 0.9, item: l2Time },
-    ]),
-    listRecentL1: vi.fn().mockReturnValue([l1]),
-    searchL1: vi.fn().mockReturnValue([l1]),
-    listRecentL0: vi.fn().mockReturnValue([l0Second, l0First]),
-    searchL0: vi.fn().mockReturnValue([l0First, l0Second]),
   } as unknown as MemoryRepository;
 }
 
@@ -185,36 +102,56 @@ function createRetriever() {
 }
 
 describe("buildPluginTools", () => {
-  it("exposes search, overview, list, get, and flush tools", async () => {
+  it("exposes search, overview, list, get, flush, and dream tools", async () => {
     const repository = createRepository();
     const retriever = createRetriever();
     const getOverview = vi.fn().mockReturnValue(baseOverview);
     const flushAll = vi.fn().mockResolvedValue({
-      l0Captured: 1,
-      l1Created: 1,
-      l2TimeUpdated: 1,
-      l2ProjectUpdated: 1,
-      profileUpdated: 0,
-      failed: 0,
+      capturedSessions: 1,
+      writtenFiles: 1,
+      writtenProjectFiles: 1,
+      writtenFeedbackFiles: 0,
+      userProfilesUpdated: 0,
+      failedSessions: 0,
     } satisfies HeartbeatStats);
-    const tools = buildPluginTools(repository, retriever, { getOverview, flushAll });
+    const runDream = vi.fn().mockResolvedValue({
+      prepFlush: {
+        capturedSessions: 0,
+        writtenFiles: 0,
+        writtenProjectFiles: 0,
+        writtenFeedbackFiles: 0,
+        userProfilesUpdated: 0,
+        failedSessions: 0,
+      },
+      reviewedFiles: 3,
+      rewrittenProjects: 1,
+      deletedProjects: 0,
+      deletedFiles: 0,
+      profileUpdated: true,
+      duplicateTopicCount: 0,
+      conflictTopicCount: 0,
+      summary: "Dream reviewed 3 memory files.",
+      trigger: "manual",
+      status: "success",
+    } satisfies DreamRunResult);
+    const tools = buildPluginTools(repository, retriever, { getOverview, flushAll, runDream });
     expect(tools.map((tool) => tool.name)).toEqual([
       "memory_search",
       "memory_overview",
       "memory_list",
       "memory_get",
       "memory_flush",
+      "memory_dream",
     ]);
-    expect(tools.map((tool) => tool.name)).not.toContain("memory_recall");
 
     const searchResult = await tools[0]!.execute("call-1", { query: "project status", limit: 5 });
     expect(searchResult.details).toMatchObject({
       ok: true,
-      intent: "project",
-      enoughAt: "l2",
-      evidenceNote: retrievalResult.evidenceNote,
+      route: "project_memory",
+      selectedProjectId: "project_clawxmemory",
+      disambiguationRequired: false,
       refs: {
-        l2: [{ id: "l2-project-1", level: "l2_project" }],
+        files: ["projects/clawxmemory/Project/current-stage.md"],
       },
     });
 
@@ -225,29 +162,46 @@ describe("buildPluginTools", () => {
       overview: baseOverview,
     });
 
-    const getTool = tools.find((tool) => tool.name === "memory_get");
-    const getResult = await getTool!.execute("call-3", { level: "l2_project", ids: ["l2-project-1"] });
-    expect(getResult.details).toMatchObject({
+    const dreamTool = tools.find((tool) => tool.name === "memory_dream");
+    const dreamResult = await dreamTool!.execute("call-3", {});
+    expect(dreamResult.details).toMatchObject({
       ok: true,
-      level: "l2_project",
-      foundIds: ["l2-project-1"],
-      missingIds: [],
-      count: 1,
+      result: {
+        status: "success",
+        reviewedFiles: 3,
+      },
     });
-
   });
 
-  it("lists compact browse items and validates inputs", async () => {
+  it("lists file-based memories and validates inputs", async () => {
     const repository = createRepository();
     const tools = buildPluginTools(repository, createRetriever(), {
       getOverview: () => baseOverview,
       flushAll: async () => ({
-        l0Captured: 0,
-        l1Created: 0,
-        l2TimeUpdated: 0,
-        l2ProjectUpdated: 0,
-        profileUpdated: 0,
-        failed: 0,
+        capturedSessions: 0,
+        writtenFiles: 0,
+        writtenProjectFiles: 0,
+        writtenFeedbackFiles: 0,
+        userProfilesUpdated: 0,
+        failedSessions: 0,
+      }),
+      runDream: async () => ({
+        prepFlush: {
+          capturedSessions: 0,
+          writtenFiles: 0,
+          writtenProjectFiles: 0,
+          writtenFeedbackFiles: 0,
+          userProfilesUpdated: 0,
+          failedSessions: 0,
+        },
+        reviewedFiles: 2,
+        rewrittenProjects: 1,
+        deletedProjects: 0,
+        deletedFiles: 0,
+        profileUpdated: false,
+        duplicateTopicCount: 0,
+        conflictTopicCount: 0,
+        summary: "ok",
       }),
     });
     const memoryList = tools.find((tool) => tool.name === "memory_list");
@@ -256,148 +210,104 @@ describe("buildPluginTools", () => {
     const defaultList = await memoryList!.execute("call-4", {});
     expect(defaultList.details).toMatchObject({
       ok: true,
-      level: "l2",
+      kind: "all",
       query: "",
-      limit: 10,
-      offset: 0,
       count: 2,
     });
-    expect(defaultList.details.items).toEqual([
-      {
-        level: "l2_time",
-        id: "l2-time-1",
-        dateKey: "2026-03-24",
-        summary: "Worked on SDK migration",
-        updatedAt: "2026-03-24T02:00:00.000Z",
-      },
-      {
-        level: "l2_project",
-        id: "l2-project-1",
-        projectKey: "clawxmemory",
-        projectName: "ClawXMemory",
-        summary: "SDK migration in progress",
-        currentStatus: "in_progress",
-        updatedAt: "2026-03-24T01:00:00.000Z",
-      },
-    ]);
 
-    const searchedL0 = await memoryList!.execute("call-5", {
-      level: "l0",
-      query: "migration",
+    const filtered = await memoryList!.execute("call-5", {
+      kind: "project",
+      query: "progress",
+      projectId: "clawxmemory",
       limit: 1,
-      offset: 1,
+      offset: 0,
     });
-    expect(repository.searchL0).toHaveBeenCalledWith("migration", 2);
-    expect(searchedL0.details).toMatchObject({
+    expect((repository as unknown as { listMemoryEntries: ReturnType<typeof vi.fn> }).listMemoryEntries).toHaveBeenCalledWith({
+      kinds: ["project"],
+      query: "progress",
+      projectId: "clawxmemory",
+      limit: 1,
+      offset: 0,
+    });
+    expect(filtered.details).toMatchObject({
       ok: true,
-      level: "l0",
-      query: "migration",
-      limit: 1,
-      offset: 1,
-      count: 1,
-      items: [
-        {
-          level: "l0",
-          id: "l0-2",
-          sessionKey: "agent:main",
-          indexed: true,
-          messageCount: 1,
-          preview: "Second memory preview",
-        },
-      ],
+      kind: "project",
+      projectId: "clawxmemory",
     });
 
-    const invalidLevel = await memoryList!.execute("call-6", { level: "profile" });
-    expect(invalidLevel.details).toMatchObject({ ok: false });
+    const invalidKind = await memoryList!.execute("call-6", { kind: "l2" });
+    expect(invalidKind.details).toMatchObject({ ok: false });
   });
 
-  it("flushes memory and returns before and after overview snapshots", async () => {
+  it("signals clarification when memory_search did not select a formal project", async () => {
     const repository = createRepository();
-    const beforeOverview = {
-      ...baseOverview,
-      pendingL0: 2,
-      queuedSessions: 1,
-      lastIndexedAt: "2026-03-24T00:59:00.000Z",
-    } satisfies DashboardOverview;
-    const afterOverview = {
-      ...baseOverview,
-      pendingL0: 0,
-      queuedSessions: 0,
-      lastIndexedAt: "2026-03-24T01:05:00.000Z",
-    } satisfies DashboardOverview;
-    const getOverview = vi
-      .fn<() => DashboardOverview>()
-      .mockReturnValueOnce(beforeOverview)
-      .mockReturnValueOnce(afterOverview);
-    const flushAll = vi.fn().mockResolvedValue({
-      l0Captured: 2,
-      l1Created: 1,
-      l2TimeUpdated: 1,
-      l2ProjectUpdated: 1,
-      profileUpdated: 1,
-      failed: 0,
-    } satisfies HeartbeatStats);
+    const retriever = {
+      retrieve: vi.fn().mockResolvedValue({
+        ...retrievalResult,
+        debug: {
+          ...retrievalResult.debug,
+          resolvedProjectId: undefined,
+          selectedFileIds: [],
+        },
+        context: "## ClawXMemory Recall\nroute=project_memory\n\n## Project Clarification Required",
+      }),
+    } as unknown as ReasoningRetriever;
+    const tools = buildPluginTools(repository, retriever, { getOverview: () => baseOverview });
+    const result = await tools[0]!.execute("call-disambiguate", { query: "这个项目现在怎么样了？", limit: 5 });
 
-    const tools = buildPluginTools(repository, createRetriever(), { getOverview, flushAll });
-    const memoryFlush = tools.find((tool) => tool.name === "memory_flush");
-    expect(memoryFlush).toBeDefined();
-
-    const flushResult = await memoryFlush!.execute("call-7", {});
-    expect(flushAll).toHaveBeenCalledTimes(1);
-    expect(flushResult.details).toMatchObject({
+    expect(result.details).toMatchObject({
       ok: true,
-      scope: "all",
-      reason: "manual",
-      beforeOverview,
-      afterOverview,
-      stats: {
-        l0Captured: 2,
-        l1Created: 1,
-        l2TimeUpdated: 1,
-        l2ProjectUpdated: 1,
-        profileUpdated: 1,
-        failed: 0,
-      },
+      route: "project_memory",
+      selectedProjectId: null,
+      disambiguationRequired: true,
+      warning: expect.stringContaining("No formal project was selected"),
+      refs: { files: [] },
     });
   });
 
-  it("returns structured errors for invalid memory_get input", async () => {
+  it("gets file memories and validates missing ids", async () => {
     const repository = createRepository();
     const tools = buildPluginTools(repository, createRetriever(), {
       getOverview: () => baseOverview,
       flushAll: async () => ({
-        l0Captured: 0,
-        l1Created: 0,
-        l2TimeUpdated: 0,
-        l2ProjectUpdated: 0,
-        profileUpdated: 0,
-        failed: 0,
+        capturedSessions: 0,
+        writtenFiles: 0,
+        writtenProjectFiles: 0,
+        writtenFeedbackFiles: 0,
+        userProfilesUpdated: 0,
+        failedSessions: 0,
+      }),
+      runDream: async () => ({
+        prepFlush: {
+          capturedSessions: 0,
+          writtenFiles: 0,
+          writtenProjectFiles: 0,
+          writtenFeedbackFiles: 0,
+          userProfilesUpdated: 0,
+          failedSessions: 0,
+        },
+        reviewedFiles: 1,
+        rewrittenProjects: 1,
+        deletedProjects: 0,
+        deletedFiles: 0,
+        profileUpdated: false,
+        duplicateTopicCount: 0,
+        conflictTopicCount: 0,
+        summary: "ok",
       }),
     });
     const memoryGet = tools.find((tool) => tool.name === "memory_get");
     expect(memoryGet).toBeDefined();
 
-    const invalidLevel = await memoryGet!.execute("call-8", { level: "profile", ids: ["x"] });
-    expect(invalidLevel.details).toMatchObject({ ok: false });
-
-    const missingIds = await memoryGet!.execute("call-9", { level: "l1", ids: [] });
-    expect(missingIds.details).toMatchObject({ ok: false });
-  });
-
-  it("does not expose the legacy memory_dream_review tool", async () => {
-    const repository = createRepository();
-    const tools = buildPluginTools(repository, createRetriever(), {
-      getOverview: () => baseOverview,
-      flushAll: async () => ({
-        l0Captured: 0,
-        l1Created: 0,
-        l2TimeUpdated: 0,
-        l2ProjectUpdated: 0,
-        profileUpdated: 0,
-        failed: 0,
-      }),
+    const ok = await memoryGet!.execute("call-7", { ids: ["projects/clawxmemory/Project/current-stage.md"] });
+    expect(ok.details).toMatchObject({
+      ok: true,
+      foundIds: ["projects/clawxmemory/Project/current-stage.md"],
+      missingIds: [],
+      count: 1,
     });
 
-    expect(tools.find((tool) => tool.name === "memory_dream_review")).toBeUndefined();
+    const missingIds = await memoryGet!.execute("call-8", { ids: [] });
+    expect(missingIds.details).toMatchObject({ ok: false });
   });
 });

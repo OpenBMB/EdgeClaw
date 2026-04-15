@@ -4,6 +4,42 @@ export function truncate(text: string, maxLength: number): string {
   return `${text.slice(0, maxLength)}...`;
 }
 
+export function decodeEscapedUnicodeText(text: string, decodeCommonEscapes = false): string {
+  if (!text || !text.includes("\\")) return text;
+  const hasUnicodeEscapes = /\\u[0-9a-fA-F]{4}/.test(text);
+  const hasCommonEscapes = decodeCommonEscapes && /\\[nrt"\\]/.test(text);
+  if (!hasUnicodeEscapes && !hasCommonEscapes) return text;
+
+  let next = text;
+  if (hasUnicodeEscapes) {
+    next = next.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
+  }
+  if (hasCommonEscapes) {
+    next = next
+      .replace(/\\r/g, "\r")
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, "\"")
+      .replace(/\\\\/g, "\\");
+  }
+  return next;
+}
+
+export function decodeEscapedUnicodeValue<T>(value: T, decodeCommonEscapes = false): T {
+  if (typeof value === "string") {
+    return decodeEscapedUnicodeText(value, decodeCommonEscapes) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => decodeEscapedUnicodeValue(item, decodeCommonEscapes)) as T;
+  }
+  if (!value || typeof value !== "object") return value;
+  const entries = Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+    key,
+    decodeEscapedUnicodeValue(item, decodeCommonEscapes),
+  ]);
+  return Object.fromEntries(entries) as T;
+}
+
 export function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }

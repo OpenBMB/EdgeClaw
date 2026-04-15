@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { join, resolve } from "node:path";
 import { buildPluginConfig } from "../src/config.js";
 
 describe("buildPluginConfig", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("defaults uiPort to 39393", () => {
     const config = buildPluginConfig({});
     expect(config.uiHost).toBe("127.0.0.1");
@@ -9,12 +14,19 @@ describe("buildPluginConfig", () => {
     expect(config.uiPathPrefix).toBe("/clawxmemory");
     expect(config.defaultIndexingSettings).toEqual({
       reasoningMode: "answer_first",
-      recallTopK: 10,
       autoIndexIntervalMinutes: 60,
       autoDreamIntervalMinutes: 360,
-      autoDreamMinNewL1: 10,
-      dreamProjectRebuildTimeoutMs: 180_000,
     });
+  });
+
+  it("defaults storage under the EdgeClaw state dir", () => {
+    vi.stubEnv("OPENCLAW_STATE_DIR", "/tmp/edgeclaw-state");
+
+    const config = buildPluginConfig({});
+
+    expect(config.dataDir).toBe(resolve("/tmp/edgeclaw-state", "clawxmemory"));
+    expect(config.dbPath).toBe(resolve("/tmp/edgeclaw-state", "clawxmemory", "memory.sqlite"));
+    expect(config.memoryDir).toBe(resolve("/tmp/edgeclaw-state", "clawxmemory", "memory"));
   });
 
   it("parses uiPort from string input", () => {
@@ -27,9 +39,18 @@ describe("buildPluginConfig", () => {
     expect(config.uiPort).toBe(1024);
   });
 
-  it("preserves a zero dream rebuild timeout override", () => {
+  it("ignores legacy dream rebuild timeout overrides", () => {
     const config = buildPluginConfig({ dreamProjectRebuildTimeoutMs: 0 });
-    expect(config.dreamProjectRebuildTimeoutMs).toBe(0);
-    expect(config.defaultIndexingSettings.dreamProjectRebuildTimeoutMs).toBe(0);
+    expect(config.defaultIndexingSettings).toEqual({
+      reasoningMode: "answer_first",
+      autoIndexIntervalMinutes: 60,
+      autoDreamIntervalMinutes: 360,
+    });
+  });
+
+  it("derives memoryDir from dbPath when only dbPath is overridden", () => {
+    const config = buildPluginConfig({ dbPath: "/tmp/clawxmemory-tests/memory.sqlite" });
+    expect(config.dbPath).toBe("/tmp/clawxmemory-tests/memory.sqlite");
+    expect(config.memoryDir).toBe(join("/tmp/clawxmemory-tests", "memory"));
   });
 });
