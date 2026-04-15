@@ -34,7 +34,7 @@ Use this skill for diagnosis and maintenance of ClawXMemory storage/indexes.
 
 ## Script Defaults
 
-- Default DB path: `~/.openclaw/clawxmemory/memory.sqlite`
+- Default DB path: `~/.edgeclaw/clawxmemory/memory.sqlite`
 - You can override with `--db /absolute/path/to/memory.sqlite`
 
 ## Common Debug Cases

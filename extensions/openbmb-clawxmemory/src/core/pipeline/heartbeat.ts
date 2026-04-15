@@ -1,17 +1,25 @@
 import type {
-  ActiveTopicBufferRecord,
+  IndexTraceRecord,
+  IndexTraceStep,
+  IndexTraceStoredResult,
   IndexingSettings,
   L0SessionRecord,
-  L1WindowRecord,
-  L2ProjectIndexRecord,
+  MemoryCandidate,
+  MemoryFileRecord,
   MemoryMessage,
-  ProjectDetail,
+  MemoryRecordType,
+  RetrievalPromptDebug,
+  TraceI18nText,
 } from "../types.js";
-import { buildL0IndexId, nowIso } from "../utils/id.js";
-import { extractL1FromWindow } from "../indexers/l1-extractor.js";
-import { buildL2ProjectFromDetail, buildL2TimeFromL1 } from "../indexers/l2-builder.js";
-import { LlmMemoryExtractor } from "../skills/llm-extraction.js";
+import { LlmMemoryExtractor, type FileMemoryExtractionDebug } from "../skills/llm-extraction.js";
 import { MemoryRepository } from "../storage/sqlite.js";
+import { TMP_PROJECT_ID } from "../file-memory.js";
+import { traceI18n } from "../trace-i18n.js";
+import { buildL0IndexId, hashText, nowIso } from "../utils/id.js";
+import { decodeEscapedUnicodeText, decodeEscapedUnicodeValue } from "../utils/text.js";
+import { hasExplicitRememberIntent } from "../../message-utils.js";
+
+const LAST_INDEXED_AT_STATE_KEY = "lastIndexedAt" as const;
 
 export interface HeartbeatOptions {
   batchSize?: number;
@@ -30,12 +38,12 @@ export interface HeartbeatRunOptions {
 }
 
 export interface HeartbeatStats {
-  l0Captured: number;
-  l1Created: number;
-  l2TimeUpdated: number;
-  l2ProjectUpdated: number;
-  profileUpdated: number;
-  failed: number;
+  capturedSessions: number;
+  writtenFiles: number;
+  writtenProjectFiles: number;
+  writtenFeedbackFiles: number;
+  userProfilesUpdated: number;
+  failedSessions: number;
 }
 
 function sameMessage(left: MemoryMessage | undefined, right: MemoryMessage | undefined): boolean {
@@ -53,280 +61,267 @@ function hasNewContent(previous: MemoryMessage[], incoming: MemoryMessage[]): bo
   return false;
 }
 
-function normalizeTurn(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function userTurnsFromRecord(record: L0SessionRecord): string[] {
-  return record.messages
-    .filter((message) => message.role === "user")
-    .map((message) => normalizeTurn(message.content))
-    .filter(Boolean);
-}
-
-function findTurnOverlap(existing: string[], incoming: string[]): number {
-  const max = Math.min(existing.length, incoming.length);
-  for (let size = max; size > 0; size -= 1) {
-    let matched = true;
-    for (let index = 0; index < size; index += 1) {
-      if (existing[existing.length - size + index] !== incoming[index]) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) return size;
-  }
-  return 0;
-}
-
-function extractIncomingUserTurns(record: L0SessionRecord, buffer?: ActiveTopicBufferRecord): string[] {
-  const turns = userTurnsFromRecord(record);
-  if (!buffer || buffer.userTurns.length === 0) return turns;
-  const overlap = findTurnOverlap(buffer.userTurns, turns);
-  return turns.slice(overlap);
-}
-
-function summarizeTopicSeed(turns: string[]): string {
-  const raw = normalizeTurn(turns[turns.length - 1] ?? turns[0] ?? "当前话题");
-  return raw.length <= 120 ? raw : raw.slice(0, 120).trim();
-}
-
-function mergeUniqueStrings(existing: string[], incoming: string[]): string[] {
-  const next = [...existing];
-  for (const item of incoming) {
-    if (!next.includes(item)) next.push(item);
-  }
-  return next;
-}
-
-function buildLocalDateKey(timestamp: string): string {
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return timestamp.slice(0, 10) || "unknown";
-  const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-const PROJECT_STATUS_RANK: Record<ProjectDetail["status"], number> = {
-  done: 3,
-  in_progress: 2,
-  planned: 1,
-};
-
-const GENERIC_PROJECT_SUMMARY_PATTERNS = [
-  /^(用户|我).{0,12}(正在|目前|继续|开始|还在)/,
-  /^(正在|目前).{0,16}(推进|处理|做|写|准备)/,
-  /(进展顺利|进展还可以|还可以|持续推进|正在推进|正在处理|目前顺利|目前正常)/,
-];
-
-type ProjectRewriteContext = {
-  incomingProject: ProjectDetail;
-  existingProject: L2ProjectIndexRecord | null;
-  recentWindows: L1WindowRecord[];
-};
-
-function truncateProjectText(value: string, maxLength: number): string {
-  const normalized = value.trim();
-  if (normalized.length <= maxLength) return normalized;
-  return normalized.slice(0, maxLength).trim();
-}
-
-function normalizeComparableProjectText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[，。；;、,:：!?！？"'`~\-_/\\()[\]{}]/g, "");
-}
-
-function preferProjectStatus(existing: ProjectDetail["status"], incoming: ProjectDetail["status"]): ProjectDetail["status"] {
-  return PROJECT_STATUS_RANK[incoming] >= PROJECT_STATUS_RANK[existing] ? incoming : existing;
-}
-
-function chooseProjectName(existingName: string, incomingName: string): string {
-  return incomingName.length >= existingName.length ? incomingName : existingName;
-}
-
-function isWeakProjectSummary(summary: string, projectName: string, latestProgress: string): boolean {
-  const normalized = normalizeComparableProjectText(summary);
-  if (!normalized) return true;
-
-  const normalizedName = normalizeComparableProjectText(projectName);
-  const normalizedLatest = normalizeComparableProjectText(latestProgress);
-  if (normalized.length <= Math.max(10, normalizedName.length + 4)) return true;
-  if (normalizedLatest && (normalized === normalizedLatest || normalized.endsWith(normalizedLatest))) return true;
-  if (GENERIC_PROJECT_SUMMARY_PATTERNS.some((pattern) => pattern.test(summary)) && !summary.includes(projectName)) return true;
-  return false;
-}
-
-function chooseRicherProjectSummary(existingSummary: string, incomingSummary: string, projectName: string, latestProgress: string): string {
-  const normalizedExisting = truncateProjectText(existingSummary, 360);
-  const normalizedIncoming = truncateProjectText(incomingSummary, 360);
-  const existingWeak = isWeakProjectSummary(normalizedExisting, projectName, latestProgress);
-  const incomingWeak = isWeakProjectSummary(normalizedIncoming, projectName, latestProgress);
-
-  if (normalizedExisting && !existingWeak && (incomingWeak || normalizedExisting.length >= normalizedIncoming.length)) {
-    return normalizedExisting;
-  }
-  if (normalizedIncoming && !incomingWeak) return normalizedIncoming;
-  return normalizedIncoming || normalizedExisting;
-}
-
-function mergeDistinctProjectText(base: string, addition: string, maxLength = 360): string {
-  const normalizedBase = truncateProjectText(base, maxLength);
-  const normalizedAddition = truncateProjectText(addition, maxLength);
-  if (!normalizedAddition) return normalizedBase;
-  if (!normalizedBase) return normalizedAddition;
-
-  const comparableBase = normalizeComparableProjectText(normalizedBase);
-  const comparableAddition = normalizeComparableProjectText(normalizedAddition);
-  if (!comparableAddition || comparableBase.includes(comparableAddition) || comparableAddition.includes(comparableBase)) {
-    return normalizedBase;
-  }
-
-  const separator = /[。！？.!?]$/.test(normalizedBase) ? " " : "；";
-  return truncateProjectText(`${normalizedBase}${separator}${normalizedAddition}`, maxLength);
-}
-
-function chooseLatestProgress(existingProgress: string, incomingProgress: string, l1: L1WindowRecord): string {
-  return truncateProjectText(incomingProgress || existingProgress || l1.situationTimeInfo || l1.summary, 220);
-}
-
-function fallbackRewriteProjectDetail(context: ProjectRewriteContext, l1: L1WindowRecord, rewritten?: ProjectDetail): ProjectDetail {
-  const { incomingProject, existingProject } = context;
-  const latestProgress = chooseLatestProgress(
-    existingProject?.latestProgress ?? "",
-    rewritten?.latestProgress || incomingProject.latestProgress,
-    l1,
-  );
-  let summary = chooseRicherProjectSummary(
-    existingProject?.summary ?? "",
-    rewritten?.summary || incomingProject.summary,
-    incomingProject.name,
-    latestProgress,
-  );
-  summary = mergeDistinctProjectText(summary, incomingProject.summary, 360);
-  summary = mergeDistinctProjectText(summary, latestProgress, 360);
-  if (isWeakProjectSummary(summary, incomingProject.name, latestProgress)) {
-    summary = mergeDistinctProjectText(summary, l1.summary, 360);
-  }
-  summary = truncateProjectText(summary || incomingProject.summary || existingProject?.summary || incomingProject.name, 360);
-
+function emptyStats(): HeartbeatStats {
   return {
-    ...incomingProject,
-    name: chooseProjectName(existingProject?.projectName ?? "", rewritten?.name || incomingProject.name),
-    status: rewritten?.status ?? incomingProject.status ?? existingProject?.currentStatus ?? "planned",
-    summary,
-    latestProgress,
-    confidence: Math.max(incomingProject.confidence, rewritten?.confidence ?? 0),
+    capturedSessions: 0,
+    writtenFiles: 0,
+    writtenProjectFiles: 0,
+    writtenFeedbackFiles: 0,
+    userProfilesUpdated: 0,
+    failedSessions: 0,
   };
 }
 
-function mergeProjectDetail(existing: ProjectDetail, incoming: ProjectDetail): ProjectDetail {
-  const preferredStatus = preferProjectStatus(existing.status, incoming.status);
-  return {
-    ...existing,
-    name: chooseProjectName(existing.name, incoming.name),
-    status: preferredStatus,
-    summary: chooseRicherProjectSummary(existing.summary, incoming.summary, incoming.name, incoming.latestProgress),
-    latestProgress: incoming.latestProgress || existing.latestProgress,
-    confidence: Math.max(existing.confidence, incoming.confidence),
-  };
+function flattenBatchMessages(sessions: L0SessionRecord[]): MemoryMessage[] {
+  let previousMessages: MemoryMessage[] = [];
+  for (const session of sessions) {
+    previousMessages = mergeSessionMessages(previousMessages, session.messages).mergedMessages;
+  }
+  return previousMessages;
 }
 
-async function canonicalizeL1Projects(
-  projects: Awaited<ReturnType<typeof extractL1FromWindow>>["projectDetails"],
-  repository: MemoryRepository,
-  extractor: LlmMemoryExtractor,
-): Promise<Awaited<ReturnType<typeof extractL1FromWindow>>["projectDetails"]> {
-  if (projects.length === 0) return projects;
-  const catalog = new Map<string, {
-    projectKey: string;
-    projectName: string;
-    summary: string;
-    currentStatus: ProjectDetail["status"];
-    latestProgress: string;
-  }>();
-  for (const item of repository.listRecentL2Projects(60)) {
-    catalog.set(item.projectKey, {
-      projectKey: item.projectKey,
-      projectName: item.projectName,
-      summary: item.summary,
-      currentStatus: item.currentStatus,
-      latestProgress: item.latestProgress,
-    });
+function commonPrefixLength(previous: MemoryMessage[], incoming: MemoryMessage[]): number {
+  const limit = Math.min(previous.length, incoming.length);
+  let index = 0;
+  while (index < limit && sameMessage(previous[index], incoming[index])) {
+    index += 1;
   }
-
-  const existingProjects = Array.from(catalog.values()).map((item) => ({
-    l2IndexId: `catalog:${item.projectKey}`,
-    projectKey: item.projectKey,
-    projectName: item.projectName,
-    summary: item.summary,
-    currentStatus: item.currentStatus,
-    latestProgress: item.latestProgress,
-    l1Source: [],
-    createdAt: "",
-    updatedAt: "",
-  }));
-  const normalizedProjects = await extractor.resolveProjectIdentities({
-    projects,
-    existingProjects,
-  });
-  const resolved = new Map<string, ProjectDetail>();
-  for (const normalized of normalizedProjects) {
-    const merged = resolved.has(normalized.key)
-      ? mergeProjectDetail(resolved.get(normalized.key)!, normalized)
-      : normalized;
-    resolved.set(merged.key, merged);
-    catalog.set(merged.key, {
-      projectKey: merged.key,
-      projectName: merged.name,
-      summary: merged.summary,
-      currentStatus: merged.status,
-      latestProgress: merged.latestProgress,
-    });
-  }
-
-  return Array.from(resolved.values());
+  return index;
 }
 
-async function rewriteRollingProjectMemories(
-  projects: ProjectDetail[],
-  l1: L1WindowRecord,
-  repository: MemoryRepository,
-  extractor: LlmMemoryExtractor,
-): Promise<ProjectDetail[]> {
-  if (projects.length === 0) return projects;
-
-  const contexts: ProjectRewriteContext[] = projects.map((incomingProject) => {
-    const existingProject = repository.getL2ProjectByKey(incomingProject.key) ?? null;
-    const recentWindowIds = existingProject?.l1Source.slice(-4) ?? [];
-    const recentWindows = recentWindowIds.length > 0 ? repository.getL1ByIds(recentWindowIds).slice(0, 4) : [];
+function mergeSessionMessages(
+  previousMessages: MemoryMessage[],
+  incomingMessages: MemoryMessage[],
+): {
+  mergedMessages: MemoryMessage[];
+  newMessages: MemoryMessage[];
+} {
+  if (previousMessages.length === 0) {
     return {
-      incomingProject,
-      existingProject,
-      recentWindows,
+      mergedMessages: incomingMessages,
+      newMessages: incomingMessages,
     };
-  });
-
-  try {
-    const rewrittenProjects = await extractor.rewriteProjectMemories({
-      l1,
-      projects: contexts,
-    });
-    const rewrittenByKey = new Map(rewrittenProjects.map((project) => [project.key, project]));
-    return contexts.map((context) => {
-      const rewritten = rewrittenByKey.get(context.incomingProject.key);
-      if (!rewritten) return fallbackRewriteProjectDetail(context, l1);
-      const merged = fallbackRewriteProjectDetail(context, l1, rewritten);
-      if (isWeakProjectSummary(merged.summary, merged.name, merged.latestProgress)) {
-        return fallbackRewriteProjectDetail(context, l1);
-      }
-      return merged;
-    });
-  } catch {
-    return contexts.map((context) => fallbackRewriteProjectDetail(context, l1));
   }
+  const prefixLength = commonPrefixLength(previousMessages, incomingMessages);
+  if (prefixLength > 0) {
+    return {
+      mergedMessages: incomingMessages,
+      newMessages: incomingMessages.slice(prefixLength),
+    };
+  }
+  return {
+    mergedMessages: [...previousMessages, ...incomingMessages],
+    newMessages: incomingMessages,
+  };
+}
+
+function deriveFocusTurns(
+  previousMessages: MemoryMessage[],
+  sessions: L0SessionRecord[],
+): Map<string, MemoryMessage[]> {
+  const focusTurns = new Map<string, MemoryMessage[]>();
+  let cursorMessages = previousMessages;
+  for (const session of sessions) {
+    const merged = mergeSessionMessages(cursorMessages, session.messages);
+    focusTurns.set(
+      session.l0IndexId,
+      merged.newMessages.filter((message) => message.role === "user"),
+    );
+    cursorMessages = merged.mergedMessages;
+  }
+  return focusTurns;
+}
+
+function buildIndexTraceId(sessionKey: string, startedAt: string, l0Ids: string[]): string {
+  return `index_trace_${hashText(`${sessionKey}:${startedAt}:${l0Ids.join(",")}`)}`;
+}
+
+function normalizeTrigger(reason: string | undefined): IndexTraceRecord["trigger"] {
+  const normalized = (reason ?? "").trim().toLowerCase();
+  if (normalized.includes("explicit_remember")) return "explicit_remember";
+  if (normalized.includes("scheduled")) return "scheduled";
+  return "manual_sync";
+}
+
+function previewText(text: string, maxChars = 220): string {
+  const normalized = decodeEscapedUnicodeText(text, true).replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars)}...`;
+}
+
+function describeCandidate(candidate: MemoryCandidate): string {
+  return `${candidate.type}:${candidate.name} — ${previewText(candidate.description, 120)}`;
+}
+
+function inferStorageKind(record: MemoryFileRecord): IndexTraceStoredResult["storageKind"] {
+  if (record.type === "user") return "global_user";
+  if (record.projectId === TMP_PROJECT_ID) {
+    return record.type === "feedback" ? "tmp_feedback" : "tmp_project";
+  }
+  return record.type === "feedback" ? "formal_feedback" : "formal_project";
+}
+
+function inferGroupingLabel(
+  repository: MemoryRepository,
+  candidate: MemoryCandidate,
+): { projectId?: string; storageKind: IndexTraceStoredResult["storageKind"]; label: string } {
+  if (candidate.type === "user") {
+    return { storageKind: "global_user", label: "global user profile" };
+  }
+  const store = repository.getFileMemoryStore();
+  const formalProjectId = candidate.projectId?.trim() && store.getProjectMeta(candidate.projectId)
+    ? candidate.projectId.trim()
+    : "";
+  if (formalProjectId) {
+    return {
+      projectId: formalProjectId,
+      storageKind: candidate.type === "feedback" ? "formal_feedback" : "formal_project",
+      label: `formal:${formalProjectId}`,
+    };
+  }
+  return {
+    projectId: TMP_PROJECT_ID,
+    storageKind: candidate.type === "feedback" ? "tmp_feedback" : "tmp_project",
+    label: candidate.type === "feedback" ? "tmp feedback (no unique project anchor)" : "tmp project",
+  };
+}
+
+function textDetail(
+  key: string,
+  label: string,
+  text: string,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "text",
+    text: decodeEscapedUnicodeText(text, true),
+  };
+}
+
+function noteDetail(
+  key: string,
+  label: string,
+  text: string,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "note",
+    text: decodeEscapedUnicodeText(text, true),
+  };
+}
+
+function listDetail(
+  key: string,
+  label: string,
+  items: string[],
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "list",
+    items: items.map((item) => decodeEscapedUnicodeText(item, true)),
+  };
+}
+
+function kvDetail(
+  key: string,
+  label: string,
+  entries: Array<{ label: string; value: unknown }>,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "kv",
+    entries: entries.map((entry) => ({
+      label: entry.label,
+      value: decodeEscapedUnicodeText(String(entry.value ?? ""), true),
+    })),
+  };
+}
+
+function jsonDetail(
+  key: string,
+  label: string,
+  json: unknown,
+  labelI18n?: TraceI18nText,
+): NonNullable<IndexTraceStep["details"]>[number] {
+  return {
+    key,
+    label,
+    ...(labelI18n ? { labelI18n } : {}),
+    kind: "json",
+    json: decodeEscapedUnicodeValue(json, true),
+  };
+}
+
+function createStep(
+  trace: IndexTraceRecord,
+  kind: IndexTraceStep["kind"],
+  title: string,
+  status: IndexTraceStep["status"],
+  inputSummary: string,
+  outputSummary: string,
+  options: {
+    refs?: Record<string, unknown>;
+    metrics?: Record<string, unknown>;
+    details?: IndexTraceStep["details"];
+    promptDebug?: RetrievalPromptDebug;
+    titleI18n?: TraceI18nText;
+    inputSummaryI18n?: TraceI18nText;
+    outputSummaryI18n?: TraceI18nText;
+  } = {},
+): void {
+  trace.steps.push({
+    stepId: `${trace.indexTraceId}:step:${trace.steps.length + 1}`,
+    kind,
+    title,
+    status,
+    inputSummary,
+    outputSummary,
+    ...(options.refs ? { refs: options.refs } : {}),
+    ...(options.metrics ? { metrics: options.metrics } : {}),
+    ...(options.details ? { details: options.details } : {}),
+    ...(options.promptDebug ? { promptDebug: options.promptDebug } : {}),
+    ...(options.titleI18n ? { titleI18n: options.titleI18n } : {}),
+    ...(options.inputSummaryI18n ? { inputSummaryI18n: options.inputSummaryI18n } : {}),
+    ...(options.outputSummaryI18n ? { outputSummaryI18n: options.outputSummaryI18n } : {}),
+  });
+}
+
+function createBatchTrace(
+  sessionKey: string,
+  sessions: L0SessionRecord[],
+  trigger: IndexTraceRecord["trigger"],
+  focusUserTurnCount: number,
+): IndexTraceRecord {
+  const startedAt = nowIso();
+  const timestamps = sessions.map((session) => session.timestamp).filter(Boolean).sort();
+  return {
+    indexTraceId: buildIndexTraceId(sessionKey, startedAt, sessions.map((session) => session.l0IndexId)),
+    sessionKey,
+    trigger,
+    startedAt,
+    status: "running",
+    batchSummary: {
+      l0Ids: sessions.map((session) => session.l0IndexId),
+      segmentCount: sessions.length,
+      focusUserTurnCount,
+      fromTimestamp: timestamps[0] ?? "",
+      toTimestamp: timestamps[timestamps.length - 1] ?? "",
+    },
+    steps: [],
+    storedResults: [],
+  };
 }
 
 export class HeartbeatIndexer {
@@ -381,279 +376,509 @@ export class HeartbeatIndexer {
     return record;
   }
 
-  private createTopicBuffer(record: L0SessionRecord, incomingUserTurns: string[], topicSummary?: string): ActiveTopicBufferRecord {
-    const seedTurns = incomingUserTurns.length > 0 ? incomingUserTurns : userTurnsFromRecord(record);
-    const now = nowIso();
-    return {
-      sessionKey: record.sessionKey,
-      startedAt: record.timestamp,
-      updatedAt: record.timestamp,
-      topicSummary: topicSummary?.trim() || summarizeTopicSeed(seedTurns),
-      userTurns: seedTurns,
-      l0Ids: [record.l0IndexId],
-      lastL0Id: record.l0IndexId,
-      createdAt: now,
-    };
-  }
-
-  private createTopicBufferFromBatch(
-    records: L0SessionRecord[],
-    incomingUserTurns: string[],
-    topicSummary?: string,
-  ): ActiveTopicBufferRecord {
-    const first = records[0]!;
-    const last = records[records.length - 1]!;
-    const seedTurns = incomingUserTurns.length > 0
-      ? incomingUserTurns
-      : records.flatMap((record) => userTurnsFromRecord(record));
-    return {
-      sessionKey: first.sessionKey,
-      startedAt: first.timestamp,
-      updatedAt: last.timestamp,
-      topicSummary: topicSummary?.trim() || summarizeTopicSeed(seedTurns),
-      userTurns: seedTurns,
-      l0Ids: records.map((record) => record.l0IndexId),
-      lastL0Id: last.l0IndexId,
-      createdAt: nowIso(),
-    };
-  }
-
-  private extendTopicBuffer(
-    buffer: ActiveTopicBufferRecord,
-    record: L0SessionRecord,
-    incomingUserTurns: string[],
-    topicSummary?: string,
-  ): ActiveTopicBufferRecord {
-    return {
-      ...buffer,
-      updatedAt: record.timestamp,
-      topicSummary: topicSummary?.trim() || buffer.topicSummary || summarizeTopicSeed(buffer.userTurns),
-      userTurns: mergeUniqueStrings(buffer.userTurns, incomingUserTurns),
-      l0Ids: mergeUniqueStrings(buffer.l0Ids, [record.l0IndexId]),
-      lastL0Id: record.l0IndexId,
-    };
-  }
-
-  private async closeTopicBuffer(sessionKey: string, stats: HeartbeatStats, reason: string): Promise<void> {
-    const buffer = this.repository.getActiveTopicBuffer(sessionKey);
-    if (!buffer || buffer.l0Ids.length === 0) {
-      if (buffer) this.repository.deleteActiveTopicBuffer(sessionKey);
-      return;
-    }
-
-    const records = this.repository.getL0ByIds(buffer.l0Ids);
-    if (records.length === 0) {
-      this.repository.deleteActiveTopicBuffer(sessionKey);
-      return;
-    }
-
-    const extracted = await extractL1FromWindow(records, this.extractor);
-    const canonicalProjects = await canonicalizeL1Projects(extracted.projectDetails, this.repository, this.extractor);
-    const l1 = {
-      ...extracted,
-      projectDetails: canonicalProjects,
-      projectTags: canonicalProjects.map((project) => project.name),
-    };
-    this.repository.insertL1Window(l1);
-    for (const l0 of records) {
-      this.repository.insertLink("l1", l1.l1IndexId, "l0", l0.l0IndexId);
-    }
-    stats.l1Created += 1;
-
-    const dateKey = buildLocalDateKey(l1.endedAt);
-    const existingDay = this.repository.getL2TimeByDate(dateKey);
-    const daySummary = await this.extractor.rewriteDailyTimeSummary({
-      dateKey,
-      existingSummary: existingDay?.summary ?? "",
-      l1,
-    });
-    const l2Time = buildL2TimeFromL1(l1, daySummary);
-    this.repository.upsertL2TimeIndex(l2Time);
-    this.repository.insertLink("l2", l2Time.l2IndexId, "l1", l1.l1IndexId);
-    stats.l2TimeUpdated += 1;
-
-    const rollingProjects = await rewriteRollingProjectMemories(l1.projectDetails, l1, this.repository, this.extractor);
-    const projectIndexes = rollingProjects.map((project) => buildL2ProjectFromDetail(project, l1.l1IndexId));
-    for (const l2Project of projectIndexes) {
-      this.repository.upsertL2ProjectIndex(l2Project);
-      this.repository.insertLink("l2", l2Project.l2IndexId, "l1", l1.l1IndexId);
-      stats.l2ProjectUpdated += 1;
-    }
-
-    const currentProfile = this.repository.getGlobalProfileRecord();
-    const nextProfileText = await this.extractor.rewriteGlobalProfile({
-      existingProfile: currentProfile.profileText,
-      l1,
-    });
-    this.repository.upsertGlobalProfile(nextProfileText, [l1.l1IndexId]);
-    stats.profileUpdated += 1;
-
-    this.repository.deleteActiveTopicBuffer(sessionKey);
-    this.logger?.info?.(
-      `[clawxmemory] closed topic session=${sessionKey} reason=${reason} l1=${l1.l1IndexId} l0=${records.length}`,
-    );
-  }
-
-  private async closeOtherSessionBuffers(currentSessionKey: string, stats: HeartbeatStats, reason: string): Promise<void> {
-    const openBuffers = this.repository.listActiveTopicBuffers();
-    for (const buffer of openBuffers) {
-      if (buffer.sessionKey === currentSessionKey) continue;
-      await this.closeTopicBuffer(buffer.sessionKey, stats, `${reason}:session_boundary`);
-    }
-  }
-
-  private async processPendingRecord(record: L0SessionRecord, stats: HeartbeatStats, reason: string): Promise<void> {
-    await this.closeOtherSessionBuffers(record.sessionKey, stats, reason);
-
-    const buffer = this.repository.getActiveTopicBuffer(record.sessionKey);
-    const incomingUserTurns = extractIncomingUserTurns(record, buffer);
-    if (!buffer) {
-      this.repository.upsertActiveTopicBuffer(this.createTopicBuffer(record, incomingUserTurns));
-      return;
-    }
-
-    if (incomingUserTurns.length === 0) {
-      this.repository.upsertActiveTopicBuffer(this.extendTopicBuffer(buffer, record, incomingUserTurns));
-      return;
-    }
-
-    const decision = await this.extractor.judgeTopicShift({
-      currentTopicSummary: buffer.topicSummary,
-      recentUserTurns: buffer.userTurns.slice(-8),
-      incomingUserTurns,
-    });
-
-    if (decision.topicChanged) {
-      await this.closeTopicBuffer(record.sessionKey, stats, `${reason}:topic_shift`);
-      this.repository.upsertActiveTopicBuffer(this.createTopicBuffer(record, incomingUserTurns, decision.topicSummary));
-      return;
-    }
-
-    this.repository.upsertActiveTopicBuffer(
-      this.extendTopicBuffer(buffer, record, incomingUserTurns, decision.topicSummary),
-    );
-  }
-
-  private async processPendingSession(records: L0SessionRecord[], stats: HeartbeatStats, reason: string): Promise<void> {
-    if (records.length === 0) return;
-    const sessionKey = records[0]!.sessionKey;
-    await this.closeOtherSessionBuffers(sessionKey, stats, reason);
-
-    const buffer = this.repository.getActiveTopicBuffer(sessionKey);
-    if (!buffer) {
-      const mergedTurns = records.flatMap((record) => userTurnsFromRecord(record));
-      this.repository.upsertActiveTopicBuffer(this.createTopicBufferFromBatch(records, mergedTurns));
-      return;
-    }
-
-    let scratch = buffer;
-    let mergedIncomingTurns: string[] = [];
-    for (const record of records) {
-      const incomingUserTurns = extractIncomingUserTurns(record, scratch);
-      if (incomingUserTurns.length > 0) {
-        mergedIncomingTurns = mergeUniqueStrings(mergedIncomingTurns, incomingUserTurns);
-      }
-      scratch = this.extendTopicBuffer(scratch, record, incomingUserTurns);
-    }
-
-    if (mergedIncomingTurns.length === 0) {
-      this.repository.upsertActiveTopicBuffer(scratch);
-      return;
-    }
-
-    const decision = await this.extractor.judgeTopicShift({
-      currentTopicSummary: buffer.topicSummary,
-      recentUserTurns: buffer.userTurns.slice(-8),
-      incomingUserTurns: mergedIncomingTurns,
-    });
-
-    if (decision.topicChanged) {
-      await this.closeTopicBuffer(sessionKey, stats, `${reason}:topic_shift`);
-      this.repository.upsertActiveTopicBuffer(
-        this.createTopicBufferFromBatch(records, mergedIncomingTurns, decision.topicSummary),
-      );
-      return;
-    }
-
-    this.repository.upsertActiveTopicBuffer({
-      ...scratch,
-      topicSummary: decision.topicSummary?.trim() || scratch.topicSummary,
-    });
-  }
-
   async runHeartbeat(options: HeartbeatRunOptions = {}): Promise<HeartbeatStats> {
-    const stats: HeartbeatStats = {
-      l0Captured: 0,
-      l1Created: 0,
-      l2TimeUpdated: 0,
-      l2ProjectUpdated: 0,
-      profileUpdated: 0,
-      failed: 0,
-    };
+    const stats = emptyStats();
+    const sessionKeys = this.repository.listPendingSessionKeys(
+      Math.max(1, options.batchSize ?? this.batchSize),
+      options.sessionKeys,
+    );
+    if (sessionKeys.length === 0) return stats;
 
-    const batchSize = options.batchSize ?? this.batchSize;
-    const sessionKeys = Array.isArray(options.sessionKeys) && options.sessionKeys.length > 0
-      ? Array.from(new Set(options.sessionKeys))
-      : undefined;
-    const reason = options.reason ?? "heartbeat";
+    const store = this.repository.getFileMemoryStore();
+    for (const sessionKey of sessionKeys) {
+      const sessions = this.repository.listUnindexedL0BySession(sessionKey);
+      if (sessions.length === 0) continue;
 
-    while (true) {
-      const pending = this.repository.listUnindexedL0Sessions(batchSize, sessionKeys);
-      if (pending.length === 0) break;
-      stats.l0Captured += pending.length;
+      const previousIndexedSession = this.repository.getLatestL0Before(
+        sessionKey,
+        sessions[0]?.timestamp ?? "",
+        sessions[0]?.createdAt ?? "",
+      );
+      const previousMessages = previousIndexedSession?.messages ?? [];
+      const focusTurnsBySession = deriveFocusTurns(previousMessages, sessions);
+      const batchContextMessages = flattenBatchMessages(sessions);
+      const focusUserTurnCount = Array.from(focusTurnsBySession.values()).reduce((count, turns) => count + turns.length, 0);
+      const trace = createBatchTrace(sessionKey, sessions, normalizeTrigger(options.reason), focusUserTurnCount);
+      createStep(
+        trace,
+        "index_start",
+        "Index Started",
+        "info",
+        `trigger=${trace.trigger}`,
+        `Preparing batch indexing for ${sessionKey}.`,
+        {
+          titleI18n: traceI18n("trace.step.index_start", "Index Started"),
+          outputSummaryI18n: traceI18n("trace.text.index_start.output.preparing_batch", "Preparing batch indexing for {0}.", sessionKey),
+        },
+      );
+      createStep(
+        trace,
+        "batch_loaded",
+        "Batch Loaded",
+        "info",
+        `${trace.batchSummary.segmentCount} segments from ${trace.batchSummary.fromTimestamp || "n/a"} to ${trace.batchSummary.toTimestamp || "n/a"}`,
+        `${batchContextMessages.length} messages loaded into batch context.`,
+        {
+          titleI18n: traceI18n("trace.step.batch_loaded", "Batch Loaded"),
+          inputSummaryI18n: traceI18n(
+            "trace.text.batch_loaded.input",
+            "{0} segments from {1} to {2}",
+            trace.batchSummary.segmentCount,
+            trace.batchSummary.fromTimestamp || "n/a",
+            trace.batchSummary.toTimestamp || "n/a",
+          ),
+          outputSummaryI18n: traceI18n(
+            "trace.text.batch_loaded.output",
+            "{0} messages loaded into batch context.",
+            batchContextMessages.length,
+          ),
+          metrics: {
+            segmentCount: trace.batchSummary.segmentCount,
+            focusUserTurnCount: trace.batchSummary.focusUserTurnCount,
+          },
+          details: [
+            kvDetail("batch-summary", "Batch Summary", [
+              { label: "sessionKey", value: sessionKey },
+              { label: "from", value: trace.batchSummary.fromTimestamp || "" },
+              { label: "to", value: trace.batchSummary.toTimestamp || "" },
+              { label: "l0Ids", value: trace.batchSummary.l0Ids.join(", ") || "none" },
+            ], traceI18n("trace.detail.batch_summary", "Batch Summary")),
+            jsonDetail(
+              "batch-context",
+              "Batch Context",
+              batchContextMessages.map((message, index) => ({
+                index,
+                role: message.role,
+                content: message.content,
+              })),
+              traceI18n("trace.detail.batch_context", "Batch Context"),
+            ),
+          ],
+        },
+      );
+      createStep(
+        trace,
+        "focus_turns_selected",
+        "Focus Turns Selected",
+        trace.batchSummary.focusUserTurnCount > 0 ? "success" : "warning",
+        `${trace.batchSummary.focusUserTurnCount} user turns in this batch.`,
+        trace.batchSummary.focusUserTurnCount > 0
+          ? "User turns will be classified one by one."
+          : "No user turns found; this batch will be marked indexed without storing memory.",
+        {
+          titleI18n: traceI18n("trace.step.focus_turns_selected", "Focus Turns Selected"),
+          inputSummaryI18n: traceI18n(
+            "trace.text.focus_turns_selected.input",
+            "{0} user turns in this batch.",
+            trace.batchSummary.focusUserTurnCount,
+          ),
+          outputSummaryI18n: trace.batchSummary.focusUserTurnCount > 0
+            ? traceI18n("trace.text.focus_turns_selected.output.classifying", "User turns will be classified one by one.")
+            : traceI18n(
+                "trace.text.focus_turns_selected.output.no_user_turns",
+                "No user turns found; this batch will be marked indexed without storing memory.",
+              ),
+          details: [
+            kvDetail("focus-turn-selection-summary", "Focus Selection Summary", [
+              { label: "userTurns", value: String(trace.batchSummary.focusUserTurnCount) },
+              { label: "assistantMessagesInContext", value: String(batchContextMessages.filter((message) => message.role === "assistant").length) },
+              { label: "assistantUsedAsContextOnly", value: "yes" },
+            ], traceI18n("trace.detail.focus_selection_summary", "Focus Selection Summary")),
+            ...sessions
+              .flatMap((session) => focusTurnsBySession.get(session.l0IndexId) ?? [])
+              .map((message, index) => textDetail(
+                `focus-turn-${index + 1}`,
+                `Focus Turn ${index + 1}`,
+                message.content,
+                traceI18n("trace.detail.focus_turn", "Focus Turn {0}", index + 1),
+              )),
+          ],
+        },
+      );
+      this.repository.saveIndexTrace(trace);
 
-      const indexedIds: string[] = [];
-      const grouped = new Map<string, L0SessionRecord[]>();
-      for (const record of pending) {
-        const list = grouped.get(record.sessionKey) ?? [];
-        list.push(record);
-        grouped.set(record.sessionKey, list);
-      }
-      for (const records of grouped.values()) {
+      const processedIds: string[] = [];
+      const userCandidates: MemoryCandidate[] = [];
+      let userRewriteDebug: RetrievalPromptDebug | undefined;
+      let sessionHadError = false;
+
+      for (const session of sessions) {
         try {
-          await this.processPendingSession(records, stats, reason);
-          indexedIds.push(...records.map((record) => record.l0IndexId));
+          const focusUserTurns = focusTurnsBySession.get(session.l0IndexId) ?? [];
+          if (focusUserTurns.length === 0) {
+            processedIds.push(session.l0IndexId);
+            stats.capturedSessions += 1;
+            continue;
+          }
+
+          for (const focusTurn of focusUserTurns) {
+            let extractionPromptDebug: RetrievalPromptDebug | undefined;
+            let extractionDebug: FileMemoryExtractionDebug | undefined;
+            const candidates = await this.extractor.extractFileMemoryCandidates({
+              timestamp: session.timestamp,
+              sessionKey: session.sessionKey,
+              messages: [focusTurn],
+              batchContextMessages,
+              explicitRemember: hasExplicitRememberIntent([focusTurn]),
+              debugTrace: (debug) => {
+                extractionPromptDebug = debug;
+              },
+              decisionTrace: (debug) => {
+                extractionDebug = debug;
+              },
+            });
+            const finalCandidates = extractionDebug?.finalCandidates ?? candidates;
+            const normalizedCandidates = extractionDebug?.normalizedCandidates ?? finalCandidates;
+            const discarded = extractionDebug?.discarded ?? [];
+            const candidateTypes = Array.from(new Set(finalCandidates.map((candidate) => candidate.type)));
+            createStep(
+              trace,
+              "turn_classified",
+              "Turn Classified",
+              finalCandidates.length > 0 ? "success" : "warning",
+              previewText(focusTurn.content, 220),
+              finalCandidates.length > 0
+                ? `classified=${candidateTypes.join(", ")}`
+                : "classified=discarded",
+              {
+                titleI18n: traceI18n("trace.step.turn_classified", "Turn Classified"),
+                refs: {
+                  classification: finalCandidates.length > 0 ? candidateTypes : ["discarded"],
+                },
+                details: [
+                  textDetail(
+                    `focus-turn-text-${session.l0IndexId}`,
+                    "Focus User Turn",
+                    focusTurn.content,
+                    traceI18n("trace.detail.focus_user_turn", "Focus User Turn"),
+                  ),
+                  kvDetail(`classification-result-${session.l0IndexId}`, "Classification Result", [
+                    { label: "sessionKey", value: session.sessionKey },
+                    { label: "timestamp", value: session.timestamp },
+                    { label: "result", value: finalCandidates.length > 0 ? candidateTypes.join(", ") : "discarded" },
+                  ], traceI18n("trace.detail.classification_result", "Classification Result")),
+                  jsonDetail(
+                    `classification-candidates-${session.l0IndexId}`,
+                    "Classifier Candidates",
+                    finalCandidates,
+                    traceI18n("trace.detail.classifier_candidates", "Classifier Candidates"),
+                  ),
+                  ...(discarded.length > 0
+                    ? [jsonDetail(
+                        `discarded-reasons-${session.l0IndexId}`,
+                        "Discarded Reasons",
+                        discarded,
+                        traceI18n("trace.detail.discarded_reasons", "Discarded Reasons"),
+                      )]
+                    : []),
+                ],
+                ...(extractionPromptDebug ? { promptDebug: extractionPromptDebug } : {}),
+              },
+            );
+
+            createStep(
+              trace,
+              "candidate_validated",
+              "Candidate Validated",
+              normalizedCandidates.length > 0 || discarded.length === 0 ? "success" : "warning",
+              `${normalizedCandidates.length} normalized candidates, ${discarded.length} discarded.`,
+              finalCandidates.length > 0
+                ? `${finalCandidates.length} candidates survived validation.`
+                : "No candidates survived validation.",
+              {
+                titleI18n: traceI18n("trace.step.candidate_validated", "Candidate Validated"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.candidate_validated.input",
+                  "{0} normalized candidates, {1} discarded.",
+                  normalizedCandidates.length,
+                  discarded.length,
+                ),
+                outputSummaryI18n: finalCandidates.length > 0
+                  ? traceI18n(
+                      "trace.text.candidate_validated.output.survived",
+                      "{0} candidates survived validation.",
+                      finalCandidates.length,
+                    )
+                  : traceI18n(
+                      "trace.text.candidate_validated.output.none_survived",
+                      "No candidates survived validation.",
+                    ),
+                details: [
+                  jsonDetail(
+                    `raw-candidates-${session.l0IndexId}`,
+                    "Raw Candidates",
+                    finalCandidates,
+                    traceI18n("trace.detail.raw_candidates", "Raw Candidates"),
+                  ),
+                  listDetail(
+                    `normalized-candidates-${session.l0IndexId}`,
+                    "Normalized Candidates",
+                    normalizedCandidates.map((candidate) => describeCandidate(candidate)),
+                    traceI18n("trace.detail.normalized_candidates", "Normalized Candidates"),
+                  ),
+                  jsonDetail(
+                    `discarded-candidates-${session.l0IndexId}`,
+                    "Discarded Candidates",
+                    discarded,
+                    traceI18n("trace.detail.discarded_candidates", "Discarded Candidates"),
+                  ),
+                ],
+              },
+            );
+
+            createStep(
+              trace,
+              "candidate_grouped",
+              "Candidate Grouped",
+              finalCandidates.length > 0 ? "success" : "skipped",
+              `${finalCandidates.length} validated candidates ready for grouping.`,
+              finalCandidates.length > 0
+                ? "Resolved storage groups for validated candidates."
+                : "No validated candidates to group.",
+              {
+                titleI18n: traceI18n("trace.step.candidate_grouped", "Candidate Grouped"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.candidate_grouped.input",
+                  "{0} validated candidates ready for grouping.",
+                  finalCandidates.length,
+                ),
+                outputSummaryI18n: finalCandidates.length > 0
+                  ? traceI18n(
+                      "trace.text.candidate_grouped.output.grouped",
+                      "Resolved storage groups for validated candidates.",
+                    )
+                  : traceI18n(
+                      "trace.text.candidate_grouped.output.none",
+                      "No validated candidates to group.",
+                    ),
+                details: [jsonDetail(
+                  `grouped-candidates-${session.l0IndexId}`,
+                  "Grouping Result",
+                  finalCandidates.map((candidate) => {
+                    const grouping = inferGroupingLabel(this.repository, candidate);
+                    return {
+                      candidateType: candidate.type,
+                      candidateName: candidate.name,
+                      candidateDescription: candidate.description,
+                      grouping: grouping.label,
+                      projectId: grouping.projectId ?? null,
+                      storageKind: grouping.storageKind,
+                    };
+                  }),
+                  traceI18n("trace.detail.grouping_result", "Grouping Result"),
+                )],
+              },
+            );
+
+            const batchUserCandidates = finalCandidates.filter((candidate) => candidate.type === "user");
+            const fileCandidates = finalCandidates.filter((candidate) => candidate.type !== "user");
+            const persistedRecords: MemoryFileRecord[] = [];
+
+            for (const candidate of fileCandidates) {
+              const record = store.upsertCandidate(candidate);
+              persistedRecords.push(record);
+              trace.storedResults.push({
+                candidateType: candidate.type,
+                candidateName: candidate.name,
+                scope: candidate.scope,
+                ...(record.projectId ? { projectId: record.projectId } : {}),
+                relativePath: record.relativePath,
+                storageKind: inferStorageKind(record),
+              });
+              stats.writtenFiles += 1;
+              if (candidate.type === "project") stats.writtenProjectFiles += 1;
+              if (candidate.type === "feedback") stats.writtenFeedbackFiles += 1;
+            }
+            createStep(
+              trace,
+              "candidate_persisted",
+              "Candidate Persisted",
+              persistedRecords.length > 0 ? "success" : "skipped",
+              `${fileCandidates.length} file candidates ready to persist.`,
+              persistedRecords.length > 0
+                ? `${persistedRecords.length} memory files written.`
+                : "No project or feedback files were written for this turn.",
+              {
+                titleI18n: traceI18n("trace.step.candidate_persisted", "Candidate Persisted"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.candidate_persisted.input",
+                  "{0} file candidates ready to persist.",
+                  fileCandidates.length,
+                ),
+                outputSummaryI18n: persistedRecords.length > 0
+                  ? traceI18n(
+                      "trace.text.candidate_persisted.output.written",
+                      "{0} memory files written.",
+                      persistedRecords.length,
+                    )
+                  : traceI18n(
+                      "trace.text.candidate_persisted.output.none_written",
+                      "No project or feedback files were written for this turn.",
+                    ),
+                details: [jsonDetail(
+                  `persisted-files-${session.l0IndexId}`,
+                  "Persisted Files",
+                  persistedRecords.map((record) => ({
+                    type: record.type,
+                    name: record.name,
+                    projectId: record.projectId ?? null,
+                    relativePath: record.relativePath,
+                    storageKind: inferStorageKind(record),
+                  })),
+                  traceI18n("trace.detail.persisted_files", "Persisted Files"),
+                )],
+              },
+            );
+            userCandidates.push(...batchUserCandidates);
+          }
+          processedIds.push(session.l0IndexId);
+          stats.capturedSessions += 1;
+          this.repository.setPipelineState(LAST_INDEXED_AT_STATE_KEY, session.timestamp);
+          this.repository.setPipelineState(`lastIndexedCursor:${session.sessionKey}`, session.timestamp);
         } catch (error) {
-          stats.failed += 1;
-          this.logger?.warn?.(
-            `[clawxmemory] heartbeat failed reason=${reason} session=${records[0]?.sessionKey ?? "unknown"} l0=${records[0]?.l0IndexId ?? "unknown"}: ${String(error)}`,
+          stats.failedSessions += 1;
+          sessionHadError = true;
+          createStep(
+            trace,
+            "index_finished",
+            "Index Error",
+            "error",
+            session.l0IndexId,
+            error instanceof Error ? error.message : String(error),
+            {
+              titleI18n: traceI18n("trace.text.index_error.title", "Index Error"),
+              details: [noteDetail(
+                `index-error-${session.l0IndexId}`,
+                "Index Error",
+                error instanceof Error ? error.message : String(error),
+                traceI18n("trace.detail.index_error", "Index Error"),
+              )],
+            },
           );
+          this.logger?.warn?.(`[clawxmemory] heartbeat file-memory extraction failed for ${session.l0IndexId}: ${String(error)}`);
         }
       }
 
-      this.repository.markL0Indexed(indexedIds);
-      if (indexedIds.length === 0) break;
-      if (pending.length < batchSize) break;
-    }
-
-    if (reason === "session_boundary" && sessionKeys && sessionKeys.length > 0) {
-      for (const sessionKey of sessionKeys) {
+      if (userCandidates.length > 0) {
         try {
-          await this.closeTopicBuffer(sessionKey, stats, reason);
+          const existingUserProfile = store.getUserSummary();
+          const rewrittenUser = await this.extractor.rewriteUserProfile({
+            existingProfile: existingUserProfile,
+            candidates: userCandidates,
+            debugTrace: (debug) => {
+              userRewriteDebug = debug;
+            },
+          });
+          if (rewrittenUser) {
+            const record = store.upsertCandidate(rewrittenUser);
+            trace.storedResults.push({
+              candidateType: "user",
+              candidateName: rewrittenUser.name,
+              scope: rewrittenUser.scope,
+              relativePath: record.relativePath,
+              storageKind: inferStorageKind(record),
+            });
+            stats.userProfilesUpdated += 1;
+            createStep(
+              trace,
+              "user_profile_rewritten",
+              "User Profile Rewritten",
+              "success",
+              `${userCandidates.length} user candidates merged.`,
+              `Stored user profile at ${record.relativePath}.`,
+              {
+                titleI18n: traceI18n("trace.step.user_profile_rewritten", "User Profile Rewritten"),
+                inputSummaryI18n: traceI18n(
+                  "trace.text.user_profile_rewritten.input",
+                  "{0} user candidates merged.",
+                  userCandidates.length,
+                ),
+                outputSummaryI18n: traceI18n(
+                  "trace.text.user_profile_rewritten.output.stored",
+                  "Stored user profile at {0}.",
+                  record.relativePath,
+                ),
+                details: [jsonDetail(
+                  "user-profile-result",
+                  "User Profile Result",
+                  {
+                    before: {
+                      profile: existingUserProfile.profile,
+                      preferences: existingUserProfile.preferences,
+                      constraints: existingUserProfile.constraints,
+                      relationships: existingUserProfile.relationships,
+                    },
+                    after: {
+                    profile: rewrittenUser.profile ?? "",
+                    preferences: rewrittenUser.preferences ?? [],
+                    constraints: rewrittenUser.constraints ?? [],
+                    relationships: rewrittenUser.relationships ?? [],
+                    },
+                    relativePath: record.relativePath,
+                  },
+                  traceI18n("trace.detail.user_profile_result", "User Profile Result"),
+                )],
+                ...(userRewriteDebug ? { promptDebug: userRewriteDebug } : {}),
+              },
+            );
+          }
         } catch (error) {
-          stats.failed += 1;
-          this.logger?.warn?.(
-            `[clawxmemory] close topic failed reason=${reason} session=${sessionKey}: ${String(error)}`,
+          stats.failedSessions += 1;
+          sessionHadError = true;
+          createStep(
+            trace,
+            "user_profile_rewritten",
+            "User Profile Rewritten",
+            "error",
+            `${userCandidates.length} user candidates merged.`,
+            error instanceof Error ? error.message : String(error),
+            {
+              titleI18n: traceI18n("trace.step.user_profile_rewritten", "User Profile Rewritten"),
+              inputSummaryI18n: traceI18n(
+                "trace.text.user_profile_rewritten.input",
+                "{0} user candidates merged.",
+                userCandidates.length,
+              ),
+              details: [noteDetail(
+                "user-profile-error",
+                "User Rewrite Error",
+                error instanceof Error ? error.message : String(error),
+                traceI18n("trace.detail.user_rewrite_error", "User Rewrite Error"),
+              )],
+              ...(userRewriteDebug ? { promptDebug: userRewriteDebug } : {}),
+            },
           );
+          this.logger?.warn?.(`[clawxmemory] heartbeat user-profile rewrite failed for ${sessionKey}: ${String(error)}`);
         }
       }
-    }
 
-    if (reason === "manual") {
-      for (const buffer of this.repository.listActiveTopicBuffers()) {
-        try {
-          await this.closeTopicBuffer(buffer.sessionKey, stats, reason);
-        } catch (error) {
-          stats.failed += 1;
-          this.logger?.warn?.(
-            `[clawxmemory] close topic failed reason=${reason} session=${buffer.sessionKey}: ${String(error)}`,
-          );
-        }
+      if (processedIds.length > 0) {
+        this.repository.markL0Indexed(processedIds);
       }
-    }
-
-    if (stats.l1Created > 0 || stats.l2TimeUpdated > 0 || stats.l2ProjectUpdated > 0 || stats.profileUpdated > 0) {
-      this.repository.setPipelineState("lastIndexedAt", nowIso());
+      trace.finishedAt = nowIso();
+      trace.status = sessionHadError ? "error" : "completed";
+      createStep(
+        trace,
+        "index_finished",
+        "Index Finished",
+        sessionHadError ? "warning" : "success",
+        `segments=${trace.batchSummary.segmentCount}`,
+        `stored=${trace.storedResults.length}, failed=${sessionHadError ? 1 : 0}`,
+        {
+          titleI18n: traceI18n("trace.step.index_finished", "Index Finished"),
+          metrics: {
+            storedResults: trace.storedResults.length,
+            failed: sessionHadError ? 1 : 0,
+          },
+          details: [jsonDetail(
+            "stored-results",
+            "Stored Results",
+            trace.storedResults,
+            traceI18n("trace.detail.stored_results", "Stored Results"),
+          )],
+        },
+      );
+      this.repository.saveIndexTrace(trace);
     }
     return stats;
   }

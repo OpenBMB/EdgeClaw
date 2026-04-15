@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeTranscriptMessage } from "../src/message-utils.js";
+import { hasExplicitRememberIntentText, normalizeTranscriptMessage } from "../src/message-utils.js";
 
 describe("normalizeTranscriptMessage", () => {
   it("removes recall scaffolding and keeps the actual user turn", () => {
@@ -80,6 +80,24 @@ describe("normalizeTranscriptMessage", () => {
     });
   });
 
+  it("decodes escaped unicode text in transcript content", () => {
+    const normalized = normalizeTranscriptMessage(
+      {
+        role: "user",
+        content: "\\u8fd9\\u4e2a\\u9879\\u76ee\\u5148\\u53eb \\u590f\\u65e5\\u996e\\u54c1\\u6d4b\\u8bc4\\u3002",
+      },
+      {
+        includeAssistant: true,
+        maxMessageChars: 1000,
+      },
+    );
+
+    expect(normalized).toMatchObject({
+      role: "user",
+      content: "这个项目先叫 夏日饮品测评。",
+    });
+  });
+
   it("strips leading ClawXContext state scaffolding from user turns", () => {
     const normalized = normalizeTranscriptMessage(
       {
@@ -89,7 +107,7 @@ describe("normalizeTranscriptMessage", () => {
           "Current git branch: main",
           "Git status summary: clean working tree",
           "",
-          "我昨晚上 lol 手游上宗师了",
+          "我昨晚把排位打上新段位了",
         ].join("\n"),
       },
       {
@@ -100,7 +118,7 @@ describe("normalizeTranscriptMessage", () => {
 
     expect(normalized).toMatchObject({
       role: "user",
-      content: "我昨晚上 lol 手游上宗师了",
+      content: "我昨晚把排位打上新段位了",
     });
   });
 
@@ -127,7 +145,7 @@ describe("normalizeTranscriptMessage", () => {
       {
         role: "assistant",
         content: [
-          "📊 **Session Status** - **Agent:** main - **Host:** Ms's MacBook Air - **Workspace:** /Users/meisen/openclaw/workspace - **OS:** Darwin 25.4.0 - **Node:** v22.18.0",
+          "📊 **Session Status** - **Agent:** main - **Host:** Example Laptop - **Workspace:** /Users/example/openclaw/workspace - **OS:** Darwin 25.4.0 - **Node:** v22.18.0",
         ].join("\n"),
       },
       {
@@ -151,5 +169,17 @@ describe("normalizeTranscriptMessage", () => {
       role: "assistant",
       content: "我看了 git status，当前工作区是干净的，所以可以继续提交。",
     });
+  });
+});
+
+describe("hasExplicitRememberIntentText", () => {
+  it("recognizes natural explicit remember phrasing used in chat", () => {
+    expect(hasExplicitRememberIntentText("记住两件事：以后回答我时先给结论再展开；代码示例优先 TypeScript。")).toBe(true);
+    expect(hasExplicitRememberIntentText("另外记住，在这个项目里同步进展时先说完成了什么，再说风险。")).toBe(true);
+    expect(hasExplicitRememberIntentText("再记一个长期信息：我现在常用 TypeScript 和 Node.js。")).toBe(true);
+  });
+
+  it("does not treat ordinary recall questions as explicit save requests", () => {
+    expect(hasExplicitRememberIntentText("你还记住我们上次聊了什么吗？")).toBe(false);
   });
 });

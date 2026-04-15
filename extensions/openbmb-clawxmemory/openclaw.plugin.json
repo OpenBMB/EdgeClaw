@@ -1,10 +1,12 @@
 {
   "id": "openbmb-clawxmemory",
   "name": "ClawXMemory",
-  "description": "Multi-level memory plugin (L0/L1/L2) with local-first SQLite and ChatGPT-style UI.",
-  "version": "0.1.5",
+  "description": "File-based long-term memory plugin for OpenClaw.",
+  "version": "0.1.6",
   "kind": "memory",
-  "skills": ["agent-skills"],
+  "skills": [
+    "agent-skills"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -17,13 +19,12 @@
         "type": "string",
         "description": "Absolute path to sqlite file. Overrides dataDir."
       },
-      "skillsDir": {
-        "type": "string",
-        "description": "Optional custom path for skills JSON/MD files."
-      },
       "captureStrategy": {
         "type": "string",
-        "enum": ["last_turn", "full_session"],
+        "enum": [
+          "last_turn",
+          "full_session"
+        ],
         "default": "full_session"
       },
       "includeAssistant": {
@@ -42,14 +43,17 @@
         "type": "integer",
         "default": 60
       },
+      "autoDreamIntervalMinutes": {
+        "type": "integer",
+        "default": 360
+      },
       "reasoningMode": {
         "type": "string",
-        "enum": ["answer_first", "accuracy_first"],
+        "enum": [
+          "answer_first",
+          "accuracy_first"
+        ],
         "default": "answer_first"
-      },
-      "maxAutoReplyLatencyMs": {
-        "type": "integer",
-        "default": 1800
       },
       "recallBudgetMs": {
         "type": "integer",
@@ -97,25 +101,23 @@
       "label": "SQLite Path",
       "placeholder": "~/.edgeclaw/clawxmemory/memory.sqlite"
     },
-    "skillsDir": {
-      "label": "Skills Directory",
-      "placeholder": "~/.edgeclaw/clawxmemory/skills"
-    },
     "captureStrategy": {
       "label": "Capture Strategy",
-      "help": "full_session is retained as a fallback source, but indexing now closes L1 on topic shift instead of time/count windows."
+      "help": "full_session remains available as a fallback source for background extraction."
     },
     "autoIndexIntervalMinutes": {
-      "label": "Auto Index Interval",
-      "placeholder": "60"
+      "label": "Auto Index Interval (hours)",
+      "placeholder": "60",
+      "help": "0 disables automatic indexing."
+    },
+    "autoDreamIntervalMinutes": {
+      "label": "Auto Dream Interval (hours)",
+      "placeholder": "360",
+      "help": "0 disables automatic Dream."
     },
     "reasoningMode": {
       "label": "Reasoning Mode",
-      "help": "answer_first stops when reply latency budget is about to run out; accuracy_first prefers full recursive memory retrieval."
-    },
-    "maxAutoReplyLatencyMs": {
-      "label": "Max Auto Reply Latency (ms)",
-      "placeholder": "1800"
+      "help": "Controls whether recall should favor faster answers or more conservative memory selection."
     },
     "uiEnabled": {
       "label": "Enable Local UI",

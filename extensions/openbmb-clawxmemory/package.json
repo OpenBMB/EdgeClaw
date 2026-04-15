@@ -1,7 +1,7 @@
 {
   "name": "openbmb-clawxmemory",
-  "version": "0.1.5",
-  "description": "OpenClaw memory-slot plugin with L0/L1/L2 local indexes and a minimal dashboard UI.",
+  "version": "0.1.6",
+  "description": "File-based long-term memory plugin for OpenClaw.",
   "keywords": [
     "openclaw",
     "plugin",
@@ -44,6 +44,8 @@
     "dev": "tsc -b --watch",
     "typecheck": "tsc -b --pretty false",
     "debug:retrieve": "node ./scripts/debug-retrieve.mjs",
+    "blackbox:memory-core": "node ./scripts/memory-core-blackbox.mjs",
+    "blackbox:maintenance": "node ./scripts/manual-memory-maintenance-blackbox.mjs",
     "relink": "node ./scripts/relink.mjs",
     "reload": "node ./scripts/reload.mjs",
     "uninstall": "node ./scripts/uninstall.mjs",
@@ -64,6 +66,7 @@
   },
   "devDependencies": {
     "openclaw": "^2026.4.2",
+    "typescript": "^6.0.2",
     "vitest": "^4.0.5"
   },
   "openclaw": {

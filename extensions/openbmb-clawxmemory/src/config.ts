@@ -1,19 +1,21 @@
-import { join } from "node:path";
-import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import type { IndexingSettings } from "./core/types.js";
+import { dirname, join } from "node:path";
+import {
+  resolveDefaultClawxmemoryDataDir,
+  resolveDefaultClawxmemoryDbPath,
+  resolveDefaultClawxmemoryMemoryDir,
+} from "./state-paths.js";
 
 export interface PluginRuntimeConfig {
   dataDir: string;
   dbPath: string;
-  skillsDir?: string;
+  memoryDir: string;
   captureStrategy: "last_turn" | "full_session";
   includeAssistant: boolean;
   maxMessageChars: number;
   heartbeatBatchSize: number;
   autoIndexIntervalMinutes: number;
   autoDreamIntervalMinutes: number;
-  autoDreamMinNewL1: number;
-  dreamProjectRebuildTimeoutMs: number;
   indexIdleDebounceMs: number;
   defaultIndexingSettings: IndexingSettings;
   recallEnabled: boolean;
@@ -36,9 +38,9 @@ export const pluginConfigJsonSchema = {
       type: "string",
       description: "Absolute path to sqlite file. Overrides dataDir.",
     },
-    skillsDir: {
+    memoryDir: {
       type: "string",
-      description: "Optional custom path for skills JSON/MD files.",
+      description: "Absolute path to the file-based memory directory. Defaults to <dataDir>/memory.",
     },
     captureStrategy: {
       type: "string",
@@ -65,28 +67,10 @@ export const pluginConfigJsonSchema = {
       type: "integer",
       default: 360,
     },
-    autoDreamMinNewL1: {
-      type: "integer",
-      default: 10,
-    },
-    dreamProjectRebuildTimeoutMs: {
-      type: "integer",
-      default: 180000,
-      description:
-        "Timeout in milliseconds for the Dream project rebuild LLM request. Set to 0 to disable the timeout.",
-    },
     reasoningMode: {
       type: "string",
       enum: ["answer_first", "accuracy_first"],
       default: "answer_first",
-    },
-    recallTopK: {
-      type: "integer",
-      default: 10,
-    },
-    maxAutoReplyLatencyMs: {
-      type: "integer",
-      default: 1800,
     },
     recallBudgetMs: {
       type: "integer",
@@ -120,8 +104,7 @@ export const pluginConfigJsonSchema = {
     uiPort: {
       type: "integer",
       default: 39393,
-      description:
-        "Port for the local dashboard HTTP server. Change this if 39393 is already in use.",
+      description: "Port for the local dashboard HTTP server. Change this if 39393 is already in use.",
     },
     uiPathPrefix: {
       type: "string",
@@ -136,42 +119,27 @@ export const pluginConfigUiHints = {
     label: "SQLite Path",
     placeholder: "~/.edgeclaw/clawxmemory/memory.sqlite",
   },
-  skillsDir: {
-    label: "Skills Directory",
-    placeholder: "~/.edgeclaw/clawxmemory/skills",
+  memoryDir: {
+    label: "Memory Directory",
+    placeholder: "~/.edgeclaw/clawxmemory/memory",
   },
   captureStrategy: {
     label: "Capture Strategy",
-    help: "full_session is retained as a fallback source, but indexing now closes L1 on topic shift instead of time/count windows.",
+    help: "full_session remains available as a fallback source for background extraction.",
   },
   autoIndexIntervalMinutes: {
-    label: "Auto Index Interval",
+    label: "Auto Index Interval (hours)",
     placeholder: "60",
+    help: "0 disables automatic indexing.",
   },
   autoDreamIntervalMinutes: {
-    label: "Auto Dream Interval",
+    label: "Auto Dream Interval (hours)",
     placeholder: "360",
-  },
-  autoDreamMinNewL1: {
-    label: "Auto Dream L1 Threshold",
-    placeholder: "10",
-  },
-  dreamProjectRebuildTimeoutMs: {
-    label: "Dream Rebuild Timeout (ms)",
-    placeholder: "180000",
-    help: "Default is 180000ms. Set to 0 to disable the timeout for Dream project rebuild requests.",
+    help: "0 disables automatic Dream.",
   },
   reasoningMode: {
     label: "Reasoning Mode",
-    help: "answer_first stops at L2 evidence notes; accuracy_first can continue down to L1 and L0.",
-  },
-  recallTopK: {
-    label: "Recall Top K",
-    placeholder: "10",
-  },
-  maxAutoReplyLatencyMs: {
-    label: "Legacy Max Auto Reply Latency (ms)",
-    placeholder: "1800",
+    help: "Controls whether recall should favor faster answers or more conservative memory selection.",
   },
   uiEnabled: {
     label: "Enable Local UI",
@@ -211,65 +179,42 @@ function toInteger(value: unknown, fallback: number): number {
   return fallback;
 }
 
-function toNonNegativeInteger(value: unknown, fallback: number): number {
-  const parsed = toInteger(value, fallback);
-  return parsed >= 0 ? parsed : fallback;
-}
-
 export function buildPluginConfig(raw: unknown): PluginRuntimeConfig {
   const cfg = (raw ?? {}) as Record<string, unknown>;
-  const defaultDataDir = join(resolveStateDir(process.env), "clawxmemory");
-  const dataDir =
-    typeof cfg.dataDir === "string" && cfg.dataDir.trim() ? cfg.dataDir : defaultDataDir;
-  const dbPath =
-    typeof cfg.dbPath === "string" && cfg.dbPath.trim()
-      ? cfg.dbPath
-      : join(dataDir, "memory.sqlite");
-  const skillsDir =
-    typeof cfg.skillsDir === "string" && cfg.skillsDir.trim() ? cfg.skillsDir : undefined;
-
-  const configuredRecallTopK =
-    typeof cfg.recallTopK === "number" && Number.isFinite(cfg.recallTopK)
-      ? Math.floor(cfg.recallTopK)
-      : typeof cfg.recallTopK === "string" && cfg.recallTopK.trim()
-        ? Number.parseInt(cfg.recallTopK, 10)
-        : 10;
+  const explicitDataDir = typeof cfg.dataDir === "string" && cfg.dataDir.trim() ? cfg.dataDir : "";
+  const explicitDbPath = typeof cfg.dbPath === "string" && cfg.dbPath.trim() ? cfg.dbPath : "";
+  const dataDir = explicitDataDir || resolveDefaultClawxmemoryDataDir();
+  const dbPath = explicitDbPath || resolveDefaultClawxmemoryDbPath();
+  const memoryDir = typeof cfg.memoryDir === "string" && cfg.memoryDir.trim()
+    ? cfg.memoryDir
+    : explicitDbPath && !explicitDataDir
+      ? join(dirname(explicitDbPath), "memory")
+      : explicitDataDir
+        ? join(dataDir, "memory")
+        : resolveDefaultClawxmemoryMemoryDir();
   const captureStrategy = cfg.captureStrategy === "last_turn" ? "last_turn" : "full_session";
   const runtime: PluginRuntimeConfig = {
     dataDir,
     dbPath,
+    memoryDir,
     captureStrategy,
     includeAssistant: toBoolean(cfg.includeAssistant, true),
     maxMessageChars: toInteger(cfg.maxMessageChars, 6000),
     heartbeatBatchSize: Math.max(1, toInteger(cfg.heartbeatBatchSize, 30)),
     autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
     autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
-    autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
-    dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     indexIdleDebounceMs: Math.max(200, toInteger(cfg.indexIdleDebounceMs, 2500)),
     defaultIndexingSettings: {
       reasoningMode: cfg.reasoningMode === "accuracy_first" ? "accuracy_first" : "answer_first",
-      recallTopK: Math.max(
-        1,
-        Math.min(50, Number.isFinite(configuredRecallTopK) ? configuredRecallTopK : 10),
-      ),
       autoIndexIntervalMinutes: Math.max(0, toInteger(cfg.autoIndexIntervalMinutes, 60)),
       autoDreamIntervalMinutes: Math.max(0, toInteger(cfg.autoDreamIntervalMinutes, 360)),
-      autoDreamMinNewL1: Math.max(0, toInteger(cfg.autoDreamMinNewL1, 10)),
-      dreamProjectRebuildTimeoutMs: toNonNegativeInteger(cfg.dreamProjectRebuildTimeoutMs, 180_000),
     },
     recallEnabled: toBoolean(cfg.recallEnabled, true),
     addEnabled: toBoolean(cfg.addEnabled, true),
     uiEnabled: toBoolean(cfg.uiEnabled, true),
     uiHost: typeof cfg.uiHost === "string" && cfg.uiHost.trim() ? cfg.uiHost : "127.0.0.1",
     uiPort: Math.max(1024, toInteger(cfg.uiPort, 39393)),
-    uiPathPrefix:
-      typeof cfg.uiPathPrefix === "string" && cfg.uiPathPrefix.trim()
-        ? cfg.uiPathPrefix
-        : "/clawxmemory",
+    uiPathPrefix: typeof cfg.uiPathPrefix === "string" && cfg.uiPathPrefix.trim() ? cfg.uiPathPrefix : "/clawxmemory",
   };
-  if (skillsDir) {
-    runtime.skillsDir = skillsDir;
-  }
   return runtime;
 }

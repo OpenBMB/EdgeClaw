@@ -1,13 +1,13 @@
 ---
 name: memory-dream-review
-description: Review ClawXMemory memory quality with a read-only Dream pass over recent L1, linked project memories, and the global profile.
+description: Audit ClawXMemory memory quality with a read-only Dream pass over current file memories and the global profile.
 homepage: https://github.com/OpenBMB/ClawXMemory/tree/main/clawxmemory
 metadata: {"openclaw":{"skillKey":"openbmb-clawxmemory","requires":{"config":["plugins.entries.openbmb-clawxmemory.enabled"]}}}
 ---
 
-# Memory Dream Review
+# Dream Audit
 
-Use this skill when the user asks to audit memory quality, clean up duplicate project memories, inspect profile drift, or decide what should be promoted into longer-term memory.
+Use this skill when the user asks to audit memory quality, inspect profile drift, review duplicate project memories, or decide what should be promoted into longer-term memory.
 
 ## Primary Path
 
@@ -19,7 +19,7 @@ Use this skill when the user asks to audit memory quality, clean up duplicate pr
    - `ambiguous`
    - `noAction`
    - `timeLayerNotes`
-3. State clearly that Dream review is read-only and no memory records were modified.
+3. State clearly that Dream Audit is read-only and no memory records were modified.
 4. Only call `memory_get` if the user asks to inspect one specific finding in detail.
 
 ## Focus Guidance
@@ -33,6 +33,6 @@ Use this skill when the user asks to audit memory quality, clean up duplicate pr
 
 ## Guardrails
 
-- Do not imply that Dream already rewrote L2 or profile memory.
+- Do not imply that Dream Audit already rewrote any memory files.
 - Treat `timeLayerNotes` as integrity observations only, not rewrite instructions.
 - Prefer citing the returned `evidenceRefs` instead of guessing where a finding came from.
